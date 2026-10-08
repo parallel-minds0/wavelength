@@ -1,3 +1,9 @@
+# 0.10.29-pre.alpha
+
+- Adds an exact-build native shader experiment and interactive Wavelength grid demo.
+- Yellow snap-interval lines rendered in a copied Blender; step changes and top/front/right/perspective capture scripts available.
+- Original Blender untouched; generated recipe deliberately unverified. Production native installer support and C++ state bridge remain unfinished.
+
 # 0.10.28-pre.alpha
 
 - Bundled CPython Linux installer builder, isolated launcher and terminal menu.
