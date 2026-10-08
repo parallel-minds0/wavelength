@@ -44,7 +44,7 @@ def parse(text):
             d=values(v);p=numbers(d['plane'],9);u=numbers(d['uaxis'],5);w=numbers(d['vaxis'],5)
             if not u[4] or not w[4]:raise ValueError('VMF texture scale cannot be zero')
             face=formats.Face([p[n:n+3] for n in (0,3,6)],d['material'],[0,0,float(d.get('rotation',0)),u[4],w[4]],[u[:4],w[:4]])
-            face.vmf={key:d[key] for key in ('lightmapscale','smoothing_groups') if key in d}
+            face.vmf={key:d[key] for key in ('lightmapscale','smoothing_groups','id') if key in d}
             faces.append(face)
         if not 4<=len(faces)<=formats.MAX_FACES:raise ValueError('Unsupported VMF solid face count')
         return faces
@@ -68,6 +68,26 @@ def parse(text):
 
 def write(document):
     lines=[];counter=0
+    # Allocate all IDs before serializing side references (overlays/cubemaps).
+    identifiers={};old_sides={}
+    def allocate(item):
+        nonlocal counter
+        counter+=1;identifiers[id(item)]=str(counter)
+    for entity in document.entities:
+        allocate(entity)
+        for brush in entity.brushes:
+            allocate(brush)
+            for face in brush:
+                allocate(face)
+                old=(face.vmf or {}).get('id')
+                if old:old_sides.setdefault(str(old),[]).append(identifiers[id(face)])
+    def remap(value):
+        result=[]
+        for old in str(value).split():
+            targets=old_sides.get(old,[])
+            if len(targets)!=1:raise ValueError('Missing or ambiguous VMF side reference '+old+'; reassign overlay/cubemap sides after duplication')
+            result.append(targets[0])
+        return ' '.join(result)
     def identity():
         nonlocal counter
         counter+=1;return str(counter)
@@ -77,19 +97,19 @@ def write(document):
     start('versioninfo');prop('editorversion',400);prop('editorbuild',0);prop('mapversion',1);prop('formatversion',100);prop('prefab',0);end()
     for entity in document.entities:
         world=dict(entity.pairs).get('classname')=='worldspawn'
-        start('world' if world else 'entity');prop('id',identity())
+        start('world' if world else 'entity');prop('id',identifiers[id(entity)])
         for k,v in entity.pairs:
             if k in {'id','mapversion','wad'} or k.startswith(OUTPUT):continue
-            prop(k,v)
+            prop(k,remap(v) if k.lower()=='sides' else v)
         outputs=[(k[len(OUTPUT):],v) for k,v in entity.pairs if k.startswith(OUTPUT)]
         if outputs:
             start('connections')
             for k,v in outputs:prop(k,v)
             end()
         for brush in entity.brushes:
-            start('solid');prop('id',identity())
+            start('solid');prop('id',identifiers[id(brush)])
             for face in brush:
-                start('side');prop('id',identity())
+                start('side');prop('id',identifiers[id(face)])
                 prop('plane',' '.join('('+' '.join(formats.number(x) for x in point)+')' for point in face.points))
                 name=face.texture.replace('\\','/').strip()
                 if name.startswith('materials/'):name=name[10:]

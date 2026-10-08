@@ -1,13 +1,13 @@
-# Wavelength — 0.10.30-pre.alpha
+# Wavelength — 0.10.31-pre.alpha
 
-Blender authoring tools for Quake, Half-Life/GoldSrc and initial Half-Life 2/Source 1 support, with an experimental native-grid integration workspace.
+Blender authoring tools for Quake, Half-Life/GoldSrc and Half-Life 2/Source 1 brush mapping, with an experimental native-grid integration workspace.
 
 | Component | Location | Current state |
 |---|---|---|
 | Blender Python add-on | `addon/wavelength/` | Authoring, entities, textures, MAP/build tools |
-| Standalone Python installer | `installer/` | Discovery, build, inspection, fresh add-on install, guarded offline patch recipes |
+| Standalone Python installer | `installer/` | Paired install/remove/recover; verified or explicit experimental mode |
 | C++17 library | `native/` | Loadable grid-line math prototype; **no Blender renderer hook yet** |
-| Build-specific patch recipes | `patches/` | No supported Blender binaries |
+| Build-specific patch recipes | `patches/` | Verified list empty; structurally matched experimental shader generator |
 
 Read the [current-state audit](docs/CURRENT-STATE.md), [Blender source/injection findings](docs/BLENDER-INTEGRATION.md), and [architecture](docs/ARCHITECTURE.md).
 
@@ -17,7 +17,7 @@ Read the [current-state audit](docs/CURRENT-STATE.md), [Blender source/injection
 python3 tools/release.py
 ```
 
-Runs Python syntax checks, installer/native tests, builds the C++ library, and creates `dist/wavelength-addon-v0.10.30-pre.alpha.zip`. Install that ZIP through Blender's add-on installation UI. No game assets or native host patch are bundled. GitHub Actions runs the same checks and retains the ZIP artifact. Blender UI and game-runtime validation are separate checks.
+Runs Python syntax checks, installer/native tests, builds the C++ library, and creates `dist/wavelength-addon-v0.10.31-pre.alpha.zip`. Install that ZIP through Blender's add-on installation UI. No game assets or native host patch are bundled. GitHub Actions runs the same checks and retains the ZIP artifact. Blender UI and game-runtime validation are separate checks.
 
 ## Native research and host inspection
 
@@ -51,3 +51,22 @@ The repository root is this native workspace, not the outer directory containing
 A hash-locked, copied-Blender shader experiment now renders selective yellow grid lines. See [GRID-PROTOTYPE.md](docs/GRID-PROTOTYPE.md) to reproduce and test it. This is not yet the C++ state bridge or a supported installer patch.
 
 Source 1 Linux/Windows profiles, VMF interchange and compiler wiring are documented in [SOURCE1.md](docs/SOURCE1.md). Displacements and VTF previews remain unsupported.
+
+## One download: source and installer
+
+The Linux release archive contains this editable source tree **and** its private
+Python runtime. Run `./wavelength-installer` in its root. A Git checkout or
+GitHub-generated source ZIP uses the same launcher, downloading the pinned private
+runtime on first use; it needs curl/tar, not system Python. The release archive
+includes that runtime for offline use. See [installer instructions](docs/INSTALLER.md).
+
+Menu option 5 or `install --allow-unverified` attempts the experimental native
+shader backend, with explicit risk confirmation. `--force` is an alias; neither
+option disables structural checks. AppImages are extracted into managed installer
+state and their original path becomes a reversible launcher. This is the GPU
+shader prototype, not the unfinished C++ per-view bridge.
+
+HL2 now has local VPK/VMT/VTF previews, material search, an entity-output editor,
+side-reference remapping, configurable compile arguments and native Tools++ names.
+The Linux brush mapping pipeline has been compiled against an installed HL2 game.
+See [Source support and limitations](docs/SOURCE1.md); full Hammer parity is not claimed.

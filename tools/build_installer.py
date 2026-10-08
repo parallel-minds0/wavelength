@@ -26,24 +26,23 @@ def main():
             os.replace(temporary,cache)
         finally:temporary.unlink(missing_ok=True)
     addon=package()
-    name=f'wavelength-installer-v{version()}-linux-x86_64'
+    name=f'wavelength-v{version()}-linux-x86_64'
     output=ROOT/'dist'/f'{name}.tar.gz'
     with tempfile.TemporaryDirectory(dir=ROOT/'build',prefix='bundle-') as temporary:
         bundle=Path(temporary)/name;bundle.mkdir()
         with tarfile.open(cache) as archive:archive.extractall(bundle,filter='data')
         (bundle/'python').rename(bundle/'runtime')
-        shutil.copytree(ROOT/'installer',bundle/'installer',ignore=shutil.ignore_patterns('__pycache__','*.pyc'))
-        shutil.copytree(ROOT/'patches',bundle/'patches')
-        shutil.copy2(addon,bundle/'addon.zip')
-        shutil.copy2(ROOT/'LICENSE',bundle/'LICENSE')
-        shutil.copy2(ROOT/'docs/INSTALLER.md',bundle/'README.md')
-        (bundle/'bundle.json').write_text(json.dumps({'schema':1,'version':version(),'addon':'addon.zip',
-            'addon_sha256':hashlib.sha256(addon.read_bytes()).hexdigest(),'runtime':lock},indent=2)+'\n')
+        # Release is the full editable source tree plus the private Python runtime.
+        for relative in ('addon','installer','native','patches','tools','tests','docs','documentation','third-party','.github'):
+            if (ROOT/relative).is_dir():
+                shutil.copytree(ROOT/relative,bundle/relative,ignore=shutil.ignore_patterns('__pycache__','*.pyc','.git','experimental-grid.json'))
+        for relative in ('LICENSE','README.md','.gitignore','wavelength-installer'):
+            if (ROOT/relative).is_file():shutil.copy2(ROOT/relative,bundle/relative)
         launcher=bundle/'wavelength-installer'
-        launcher.write_text('#!/bin/sh\nset -eu\nHERE=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)\nexec "$HERE/runtime/bin/python3" -I "$HERE/installer/entry.py" "$@"\n')
         launcher.chmod(0o755)
         # Hide system Python from PATH to verify use of bundled interpreter.
         subprocess.run([str(launcher),'--help'],check=True,env={**os.environ,'PATH':'/bin'})
+        subprocess.run([str(launcher),'install','--help'],check=True,env={**os.environ,'PATH':'/bin'})
         subprocess.run([str(launcher),'status'],check=True,env={**os.environ,'PATH':'/bin'})
         with tarfile.open(output,'w:gz') as archive:archive.add(bundle,arcname=name)
     print(output)

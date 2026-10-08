@@ -1,0 +1,24 @@
+#!/bin/sh
+# Source checkout and release archive share this entry point.
+set -eu
+HERE=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+if [ ! -x "$HERE/runtime/bin/python3" ]; then
+    case "$(uname -s)-$(uname -m)" in Linux-x86_64) ;; *) echo 'Bundled runtime currently supports Linux x86-64 only.' >&2; exit 1;; esac
+    echo 'Preparing the pinned private Python runtime (system Python is not required).' >&2
+    command -v curl >/dev/null || { echo 'Install curl to download the runtime.' >&2; exit 1; }
+    command -v sha256sum >/dev/null || exit 1
+    TEMP=$(mktemp -d "$HERE/.runtime-XXXXXX")
+    trap 'rm -rf -- "$TEMP"' EXIT HUP INT TERM
+    curl --fail --location --proto '=https' --tlsv1.2 --output "$TEMP/runtime.tar.gz" 'https://github.com/astral-sh/python-build-standalone/releases/download/20261003/cpython-3.12.15%2B20261003-x86_64-unknown-linux-gnu-install_only_stripped.tar.gz'
+    printf '%s  %s\n' '731af898886c5f821890dc901eca3c651cca8e51fa7308c159d12a1194aeac91' "$TEMP/runtime.tar.gz" | sha256sum --check --status
+    tar -xzf "$TEMP/runtime.tar.gz" -C "$TEMP"
+    # mkdir lock avoids competing bootstraps merging runtime directories.
+    if mkdir "$HERE/.runtime-lock" 2>/dev/null; then
+        if [ ! -e "$HERE/runtime" ]; then mv "$TEMP/python" "$HERE/runtime"; fi
+        rmdir "$HERE/.runtime-lock"
+    else
+        echo 'Another runtime bootstrap is running. Retry when it finishes.' >&2; exit 1
+    fi
+fi
+if [ "${TEMP:-}" ]; then rm -rf -- "$TEMP"; trap - EXIT HUP INT TERM; fi
+exec "$HERE/runtime/bin/python3" -I "$HERE/installer/entry.py" "$@"

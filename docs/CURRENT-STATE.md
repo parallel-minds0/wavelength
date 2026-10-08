@@ -81,3 +81,11 @@ C++ implements the patched behavior, not injection. Install/remove/recover have
 transaction tests and restore backups; edited files and unknown target hashes
 are refused. Current recipes are still empty: no real native renderer installation
 or AppImage backend is claimed. See INSTALLER.md for the accurate current scope.
+
+## 0.10.31 update
+
+Read INSTALLER.md and SOURCE1.md's 0.10.31 sections before the older audit above.
+Experimental shader/AppImage installation now exists, with explicit confirmation,
+structural generation and rollback. Source tree and installer share one layout.
+HL2 game asset previews, I/O editing and actual native map compilation now work.
+The C++ bridge and full Hammer feature parity are still incomplete.

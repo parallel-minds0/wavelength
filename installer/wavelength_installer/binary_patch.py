@@ -22,8 +22,8 @@ def _decode_hex(value: str) -> bytes:
     return bytes.fromhex(value)
 
 
-def validate_recipe(recipe: dict, original: bytes) -> bytes:
-    if recipe.get('schema') != 1 or recipe.get('verified') is not True:
+def validate_recipe(recipe: dict, original: bytes, *, allow_unverified=False) -> bytes:
+    if recipe.get('schema') != 1 or not (recipe.get('verified') is True or (allow_unverified and recipe.get('experimental') is True)):
         raise ValueError('Unverified or unsupported patch recipe')
     if recipe.get('input_sha256') != digest(original):
         raise ValueError('Blender executable SHA-256 mismatch')
@@ -49,6 +49,7 @@ def validate_recipe(recipe: dict, original: bytes) -> bytes:
     result = bytes(patched)
     if digest(result) != recipe.get('output_sha256'):
         raise ValueError('Patched binary checksum does not match verified output')
+    if result == original:raise ValueError('Native patch makes no changes')
     return result
 
 

@@ -63,3 +63,13 @@ passes interval through Blender's existing grid scale; aligned views read level
 perspective 16 views, saves screenshots to ignored `build/grid-viewport-test/`,
 and exits. Add `WL_GRID_BASELINE=1` when running the original executable to capture
 an unmodified comparison in `build/grid-viewport-baseline/`.
+
+## Installer integration in 0.10.31
+
+The standalone installer now offers this shader prototype as explicit experimental
+mode. Its generator fingerprints complete shader inputs instead of requiring the
+whole binary hash, derives offsets and checks startup before installation. It
+supports extracted ELF payloads and managed AppImage extraction with reversible
+launchers. See INSTALLER.md. This does not turn the prototype into the C++ state
+bridge or add per-view enable transport. The earlier copy-only script stays
+hash-locked as a reproducible development experiment.

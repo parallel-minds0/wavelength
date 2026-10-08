@@ -19,8 +19,8 @@ jobs:
           name: wavelength-addon
           path: |
             dist/wavelength-addon-*.zip
-            dist/wavelength-installer-*.tar.gz
-            dist/wavelength-installer-*.sha256
+            dist/wavelength-v*.tar.gz
+            dist/wavelength-v*.sha256
   release:
     if: startsWith(github.ref, 'refs/tags/')
     needs: test

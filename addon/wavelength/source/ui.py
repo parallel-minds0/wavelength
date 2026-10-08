@@ -222,6 +222,9 @@ class WLSettings(bpy.types.PropertyGroup):
     qbsp_args:StringProperty(name='QBSP arguments JSON',default='[]')
     vis_args:StringProperty(name='VIS arguments JSON',default='[]')
     light_args:StringProperty(name='LIGHT arguments JSON',default='[]')
+    source_vbsp_args:StringProperty(name='VBSP arguments JSON',default='[]')
+    source_vvis_args:StringProperty(name='VVIS arguments JSON',default='[]')
+    source_vrad_args:StringProperty(name='VRAD arguments JSON',default='[]')
     game_executable:StringProperty(name='Game executable',subtype='FILE_PATH')
     game_dir:StringProperty(name='Game directory',subtype='DIR_PATH')
     wad_path:StringProperty(name='Active WAD',subtype='FILE_PATH',update=textures.refresh)
@@ -686,8 +689,8 @@ class WL_OT_texture(SafeOperator,bpy.types.Operator):
         # Edit mode synchronizes selected faces before writing metadata.
         if not str(s.texture or '').strip():raise ValueError('Choose an engine texture before applying')
         if profiles.is_source(s.engine):
-            mat=bpy.data.materials.get('Source: '+s.texture) or bpy.data.materials.new('Source: '+s.texture)
-            mat['wl_texture']=s.texture;mat['wl_width']=512;mat['wl_height']=512
+            from . import source_assets
+            mat=source_assets.material(s,s.texture)
         else:mat=textures.material(s,s.texture)
         edit=obj.mode=='EDIT'
         if edit:bpy.ops.object.mode_set(mode='OBJECT')
@@ -851,6 +854,9 @@ class WL_OT_build(SafeOperator,bpy.types.Operator,ExportHelper):
                 args=compiler_args(stage,bpy.path.abspath(s.game_dir))
                 if exe.suffix.lower()=='.exe' and os.name!='nt':
                     args[1]='Z:'+args[1].replace('/',chr(92))
+                extra=json.loads(getattr(s,'source_'+stage+'_args'))
+                if not isinstance(extra,list) or not all(isinstance(v,str) for v in extra):raise ValueError(stage.upper()+' arguments must be a JSON string array')
+                args=[*extra,*args]
             if stage=='hlcsg':args.insert(0,'-nowadtextures')
             commands.append([*wrapper,str(exe),*args])
         _JOB=Pipeline(commands,work,s.timeout,dict(os.environ,**environment));_JOB_SCENE=context.scene;_JOB_PATH=work;_JOB_ENGINE=s.engine;_JOB_OUTPUT=destination
@@ -1048,6 +1054,8 @@ class WL_PT_project(bpy.types.Panel):
         l.operator('wavelength.setup')
         row=l.row(align=True);row.operator('wavelength.save_project');row.operator('wavelength.load_project')
         l.prop(s,'project_dir');l.prop(s,'map_name')
+        if profiles.is_source(s.engine):
+            for field in ('source_vbsp_args','source_vvis_args','source_vrad_args'):l.prop(s,field)
         if s.engine=='quake':
             l.label(text='Quake Runtime',icon='PLAY')
             l.prop(s,'game_executable');l.prop(s,'game_dir');l.prop(s,'quake_pak_dir')
@@ -1109,7 +1117,8 @@ class WL_PT_texture(bpy.types.Panel):
         l=self.layout;s=context.scene.wavelength
         if profiles.is_source(s.engine):
             l.label(text='Source material path (without materials/ or .vmt)')
-            l.label(text='VTF previews are not implemented',icon='INFO')
+            l.operator('wavelength.source_material',icon='VIEWZOOM')
+            l.operator('wavelength.resolve_textures');l.operator('wavelength.preview_textures')
             for name in ('texture','shift_u','shift_v','texture_rotation','texture_scale_u','texture_scale_v'):l.prop(s,name)
             l.operator('wavelength.apply_texture');l.prop(s,'live_texture_reproject')
             return
@@ -1522,7 +1531,83 @@ class WL_OT_preview_textures(bpy.types.Operator):
         return {'FINISHED'}
 
 
-_CLASSES=[brush_create.WL_OT_brush_hover,brush_create.WL_OT_cube_brush,brush_create.WL_OT_cylinder_brush,brush_create.WL_OT_cone_brush,brush_create.WL_OT_sphere_brush,brush_create.WL_OT_arch_brush,WLTextureBrowserItem,WLTextureGalleryRow,WL_UL_texture_browser,WL_UL_texture_gallery,WL_OT_texture_browser_pick,WL_OT_texture_browser,WL_OT_add_wad,WL_OT_select_wad,WL_OT_remove_wad,WL_OT_refresh_textures,WL_OT_texture_page,WL_OT_quake_textures,WL_OT_resolve_textures,WL_OT_preview_textures,WLKey,WLSettings,WL_OT_property_add,WL_OT_property_custom_add,WL_OT_property_remove,WL_OT_clip,WL_OT_duplicate,WL_OT_bake,WL_OT_save_project,WL_OT_load_project,WL_OT_setup,WL_OT_brush,WL_OT_hollow,WL_OT_mark,WL_OT_ids,WL_OT_snap,WL_OT_grid_step,WL_OT_entity,WL_OT_entity_search,WL_OT_entity_browse,WL_MT_add_entity,WL_MT_add,WL_OT_brush_entity,WL_OT_brush_entity_add,WL_OT_brush_entity_remove,WL_OT_brush_entity_to_world,WL_OT_properties,WL_OT_read_face_texture,WL_OT_texture,WL_OT_validate_alpha,WL_OT_select_problem,WL_OT_worldspawn,WL_OT_texture_nudge,WL_OT_select_by_texture,WL_OT_select_target,WL_OT_import,WL_OT_export,WL_OT_validate,WL_OT_build,WL_OT_cancel,WL_OT_logs,WL_OT_launch,WL_OT_leak,WL_OT_system_select,WL_OT_system_select_category,WL_OT_system_visibility,WL_OT_system_category_visibility,WL_PT_main,WL_PT_system_tree,WL_PT_project,WL_PT_worldspawn,WL_PT_relationships,WL_PT_entity,WL_PT_texture,WL_PT_diagnostics]
+_SOURCE_MATERIAL_ITEMS=[]
+def source_material_items(self,context):
+    return _SOURCE_MATERIAL_ITEMS
+
+class WL_OT_source_material(SafeOperator,bpy.types.Operator):
+    bl_idname='wavelength.source_material';bl_label='Browse Source Materials';bl_property='choice'
+    choice:EnumProperty(items=source_material_items)
+    def invoke(self,context,event):
+        global _SOURCE_MATERIAL_ITEMS
+        from . import source_assets
+        try:
+            names=source_assets.library(bpy.path.abspath(context.scene.wavelength.game_dir)).materials()
+            _SOURCE_MATERIAL_ITEMS=[(name,name,'Material from installed game') for name in names]
+            if not names:raise ValueError('No Source materials found in the configured game directory')
+            context.window_manager.invoke_search_popup(self)
+            return {'RUNNING_MODAL'}
+        except (OSError,ValueError) as exc:self.report({'ERROR'},str(exc));return {'CANCELLED'}
+    def run(self,context):context.scene.wavelength.texture=self.choice
+
+class WL_OT_source_output(SafeOperator,bpy.types.Operator):
+    bl_idname='wavelength.source_output';bl_label='Entity Output';bl_options={'REGISTER','UNDO'}
+    index:IntProperty(default=-1)
+    remove:BoolProperty(default=False)
+    event:StringProperty(name='Output',default='OnTrigger')
+    target:StringProperty(name='Target',default='!self')
+    input_name:StringProperty(name='Input',default='Trigger')
+    parameter:StringProperty(name='Parameter')
+    delay:FloatProperty(name='Delay',min=0,default=0)
+    once:BoolProperty(name='Fire once',default=False)
+    def invoke(self,context,event):
+        if self.remove:return self.execute(context)
+        from .vmf import OUTPUT
+        obj=context.object;key='wl_entity_pairs' if obj and obj.get('wl_entity_id') else 'wl_pairs'
+        pairs=json.loads(obj.get(key,'[]')) if obj else []
+        if self.index>=0:
+            name,value=pairs[self.index];parts=value.split('\x1b' if '\x1b' in value else ',')
+            if len(parts)!=5:self.report({'ERROR'},'Output has unsupported syntax');return {'CANCELLED'}
+            self.event=name[len(OUTPUT):];self.target,self.input_name,self.parameter=parts[:3];self.delay=float(parts[3]);self.once=parts[4]=='1'
+        return context.window_manager.invoke_props_dialog(self)
+    def draw(self,context):
+        for field in ('event','target','input_name','parameter','delay','once'):self.layout.prop(self,field)
+    def run(self,context):
+        from .vmf import OUTPUT
+        obj=context.object
+        if not obj or not (obj.get('wl_role')=='ENTITY' or obj.get('wl_entity_id')):raise ValueError('Select a point or brush entity')
+        key='wl_entity_pairs' if obj.get('wl_entity_id') else 'wl_pairs';pairs=json.loads(obj.get(key,'[]'))
+        if self.index>=len(pairs):raise ValueError('Output changed; reopen the editor')
+        if self.index>=0 and not pairs[self.index][0].startswith(OUTPUT):raise ValueError('Selected property is not an output')
+        if self.remove:
+            if self.index<0:raise ValueError('Choose an output to remove')
+            pairs.pop(self.index)
+        else:
+            if not self.event.strip() or not self.target.strip() or not self.input_name.strip():raise ValueError('Output, target and input are required')
+            if any(',' in x or '\x1b' in x or '\n' in x for x in (self.target,self.input_name,self.parameter)):raise ValueError('HL2 output fields cannot contain commas, escape separators or newlines')
+            item=(OUTPUT+self.event,','.join([self.target,self.input_name,self.parameter,str(self.delay),'1' if self.once else '-1']))
+            if self.index<0:pairs.append(item)
+            else:pairs[self.index]=item
+        members=_brush_entity_members(context.scene,obj['wl_entity_id']) if obj.get('wl_entity_id') else [obj]
+        for member in members:member[key]=json.dumps(pairs)
+
+class WL_PT_source_outputs(bpy.types.Panel):
+    bl_label='Source Entity Outputs';bl_idname='WL_PT_source_outputs';bl_space_type='VIEW_3D';bl_region_type='UI';bl_category='wavelength';bl_parent_id='WL_PT_main';bl_options={'DEFAULT_CLOSED'}
+    @classmethod
+    def poll(cls,context):return profiles.is_source(context.scene.wavelength.engine)
+    def draw(self,context):
+        from .vmf import OUTPUT
+        l=self.layout;obj=context.object
+        if not obj or not (obj.get('wl_role')=='ENTITY' or obj.get('wl_entity_id')):l.label(text='Select an entity');return
+        pairs=json.loads(obj.get('wl_entity_pairs' if obj.get('wl_entity_id') else 'wl_pairs','[]'))
+        for i,(key,value) in enumerate(pairs):
+            if not key.startswith(OUTPUT):continue
+            row=l.row(align=True);op=row.operator('wavelength.source_output',text=key[len(OUTPUT):]+' → '+value.split(',')[0]);op.index=i
+            op=row.operator('wavelength.source_output',text='',icon='X');op.index=i;op.remove=True
+        l.operator('wavelength.source_output',text='Add Output',icon='ADD')
+
+
+_CLASSES=[WL_OT_source_material,WL_OT_source_output,brush_create.WL_OT_brush_hover,brush_create.WL_OT_cube_brush,brush_create.WL_OT_cylinder_brush,brush_create.WL_OT_cone_brush,brush_create.WL_OT_sphere_brush,brush_create.WL_OT_arch_brush,WLTextureBrowserItem,WLTextureGalleryRow,WL_UL_texture_browser,WL_UL_texture_gallery,WL_OT_texture_browser_pick,WL_OT_texture_browser,WL_OT_add_wad,WL_OT_select_wad,WL_OT_remove_wad,WL_OT_refresh_textures,WL_OT_texture_page,WL_OT_quake_textures,WL_OT_resolve_textures,WL_OT_preview_textures,WLKey,WLSettings,WL_OT_property_add,WL_OT_property_custom_add,WL_OT_property_remove,WL_OT_clip,WL_OT_duplicate,WL_OT_bake,WL_OT_save_project,WL_OT_load_project,WL_OT_setup,WL_OT_brush,WL_OT_hollow,WL_OT_mark,WL_OT_ids,WL_OT_snap,WL_OT_grid_step,WL_OT_entity,WL_OT_entity_search,WL_OT_entity_browse,WL_MT_add_entity,WL_MT_add,WL_OT_brush_entity,WL_OT_brush_entity_add,WL_OT_brush_entity_remove,WL_OT_brush_entity_to_world,WL_OT_properties,WL_OT_read_face_texture,WL_OT_texture,WL_OT_validate_alpha,WL_OT_select_problem,WL_OT_worldspawn,WL_OT_texture_nudge,WL_OT_select_by_texture,WL_OT_select_target,WL_OT_import,WL_OT_export,WL_OT_validate,WL_OT_build,WL_OT_cancel,WL_OT_logs,WL_OT_launch,WL_OT_leak,WL_OT_system_select,WL_OT_system_select_category,WL_OT_system_visibility,WL_OT_system_category_visibility,WL_PT_main,WL_PT_source_outputs,WL_PT_system_tree,WL_PT_project,WL_PT_worldspawn,WL_PT_relationships,WL_PT_entity,WL_PT_texture,WL_PT_diagnostics]
 
 def _safe_unregister_class(cls):
     # A failed/reloaded add-on can leave the *old module instance* of an RNA class

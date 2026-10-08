@@ -185,6 +185,19 @@ def _edit_commit_handler(scene_data, depsgraph=None):
                 pass
 
 
+def _brush_state(obj):
+    """Track projection inputs, excluding generated UVs to avoid feedback loops."""
+    return (
+        tuple(value for row in obj.matrix_world for value in row),
+        tuple(tuple(vertex.co) for vertex in obj.data.vertices),
+        tuple((tuple(poly.vertices),poly.material_index) for poly in obj.data.polygons),
+        str(obj.data.get('wl_faces','{}')),
+        tuple((mat.name,mat.get('wl_texture',''),mat.get('wl_width',64),mat.get('wl_height',64))
+              if mat else None for mat in obj.data.materials),
+        float(obj.get('wl_unit_meters',1.0)),
+    )
+
+
 def _live_tick():
     """Poll brushes and reapply stored texture projection after geometry changes."""
     global _live_reprojecting

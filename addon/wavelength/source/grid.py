@@ -4,11 +4,13 @@ Wavelength never draws a custom grid. Engine profiles configure Blender's native
 viewport grid for visuals only; profile/tool code remains authoritative for snap.
 """
 import bpy
+from pathlib import Path
 
 # Blender's native floor grid divides grid_scale by grid_subdivisions for the
 # visible fine interval. Keep a conventional subdivision count and choose the
 # scale so one visible fine interval equals one Wavelength engine-grid step.
-_NATIVE_SUBDIVISIONS = 1
+_EXPERIMENTAL = (Path(__file__).resolve().parents[1]/'experimental-grid.json').is_file()
+_NATIVE_SUBDIVISIONS = 10 if _EXPERIMENTAL else 1
 
 
 def _engine_visuals(overlay, step):
@@ -35,6 +37,8 @@ def update(settings, context):
     from . import profiles
 
     engine_grid = settings.grid_mode == 'ENGINE' and settings.engine != 'blender'
+    if _EXPERIMENTAL and engine_grid:
+        context.scene.unit_settings.system='NONE'
     step = profiles.active_grid_step_meters(settings) if engine_grid else None
 
     for screen in bpy.data.screens:

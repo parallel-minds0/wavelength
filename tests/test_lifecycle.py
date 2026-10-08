@@ -59,3 +59,11 @@ class LifecycleTests(unittest.TestCase):
         self.install();(self.state/'original-blender').write_bytes(b'bad')
         with self.assertRaisesRegex(ValueError,'backup is damaged'):life.remove(self.state)
         self.assertEqual(self.blender.read_bytes(),b'patched!!')
+
+    def test_old_receipt_defaults_to_verified(self):
+        self.install();p=self.state/'receipt.json';data=json.loads(p.read_text());data.pop('installation_mode');life.write_json(p,data)
+        self.assertEqual(life.status(self.state)['installation_mode'],'verified')
+    def test_blender_in_state_is_refused(self):
+        self.state.mkdir();target=self.state/'blender';self.blender.rename(target);self.blender=target
+        with self.assertRaisesRegex(ValueError,'outside installer state'):self.install()
+        self.assertEqual(self.blender.read_bytes(),b'original!')

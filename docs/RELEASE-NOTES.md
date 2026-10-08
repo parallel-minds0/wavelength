@@ -1,3 +1,13 @@
+# 0.10.31-pre.alpha
+
+- Source-tree distribution doubles as the installer; release archive includes private Python, source checkouts bootstrap the same pinned runtime.
+- Explicit experimental/force mode bypasses the verified whole-file allowlist while retaining structural shader fingerprints, exact byte/hash validation, startup checks, backups and recovery.
+- Experimental AppImage deployment extracts and patches the payload, installs a reversible launcher, and records prototype limitations in receipts. C++ per-view renderer bridge remains unfinished.
+- HL2 VPK/VMT/VTF texture previews and searchable material names, real texture dimensions, entity output editing, side-reference remapping and Tools++ compiler support.
+- Real installed-game Blender workflow and native BSP/VIS/RAD compilation tested; Steam HL2 spawned the generated map.
+- Repairs the missing live-texture state helper; verified projection follows brush movement.
+- Full Source 1/Hammer parity is not complete: see SOURCE1.md for remaining displacement/model/instance and advanced rendering work.
+
 # 0.10.30-pre.alpha
 
 - Native grid experiment highlights only the exact selected spacing; other levels retain native gray/emphasis colors.

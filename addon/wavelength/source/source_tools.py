@@ -8,7 +8,9 @@ def defaults(platform):
     for base in bases:
         root=base/'Half-Life 2'
         if (root/'hl2/gameinfo.txt').is_file():
-            tool=next((d for d in (root/'bin',root/'bin/linux64',root/'bin/x64') if (d/'vbsp').is_file() or (d/'vbsp.exe').is_file()),root/'bin')
+            candidates=[root/'bin',root/'bin/linux64',root/'bin/x64',Path(__file__).resolve().parents[4]/'bin/source-tools-plusplus/tools++_linux']
+            if os.environ.get('WAVELENGTH_SOURCE_TOOLS'):candidates.insert(0,Path(os.environ['WAVELENGTH_SOURCE_TOOLS']))
+            tool=next((d for d in candidates if any((d/n).is_file() for n in ('vbsp','vbsp_linux','vbsp++','vbsp.exe'))),root/'bin')
             definition=next((p for p in (root/'bin/halflife2.fgd',root/'bin/x64/halflife2.fgd') if p.is_file()),None)
             return {'game_dir':str(root/'hl2'),'compiler_dir':str(tool),'fgd_path':str(definition) if definition else '',
                     'launch_args':'["-console", "-dev", "-game", "{game_dir}", "+map", "{map}"]'}

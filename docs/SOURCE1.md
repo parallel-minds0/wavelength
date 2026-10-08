@@ -60,3 +60,54 @@ runtime behavior. Real testing awaits the installed game and SDK toolchain.
 
 Schema references: Valve's [VBSP VMF reader](https://github.com/ValveSoftware/source-sdk-2013/blob/master/src/utils/vbsp/map.cpp)
 and [BSP header definitions](https://github.com/ValveSoftware/source-sdk-2013/blob/master/src/public/bspfile.h).
+
+## 0.10.31 update — real HL2 brush workflow
+
+- **Browse Source Materials** searches material names from the configured game's
+  VPKs and loose files. Apply Face Texture now creates a real base-texture preview
+  and uses the VTF's actual dimensions for UV projection, rather than 512×512.
+  Load Map Texture Previews resolves imported faces; Show Textures in Viewport
+  enables textured display. Private previews can be packed in your `.blend`.
+- Asset mounts follow gameinfo SearchPaths order, including HL2 custom folders,
+  VPK split archives and inline/preload data. Entries are bounded and CRC-checked.
+  VMT Patch include/insert/replace are supported with cycle limits. VTF 7.0–7.5
+  previews cover DXT1/3/5 and common RGB/RGBA/intensity formats, using a mip up to
+  512 pixels but retaining original dimensions for projection.
+- **Source Entity Outputs** adds, edits and removes repeated outputs for point
+  and brush entities: output, target, input, parameter, delay and fire-once.
+  It preserves the standard HL2 comma-separated connection syntax.
+- Imported side IDs are remapped when writing overlays/cubemap `sides` references.
+  Missing or duplicated referenced IDs now cause an explicit error instead of
+  silently pointing at a different face. Reassign affected references after duplication.
+- VBSP/VVIS/VRAD each have configurable argument arrays. Compiler discovery accepts
+  `vbsp++`, `vvis++`, `vrad++`; `WAVELENGTH_SOURCE_TOOLS` supplies a tools directory.
+  On this development host the local tools live outside the repository under
+  `../bin/source-tools-plusplus/tools++_linux`.
+
+Validated against the installed Linux HL2 game: 5,293 indexed materials; real VTF
+previews and dimensions; Blender import/export and output editing; successful
+native VBSP++ → VVIS++ → VRAD++ compilation of the six-brush room to the selected
+BSP destination. The Steam-launched game logged `Spawn Server` for that BSP.
+The fixture and `.blend` are under the outer workspace's `maps/source1-smoke`.
+The native [Tools++ publisher](https://ficool2.github.io/HammerPlusPlus-Website/tools.html)
+provides a separate download. The locally downloaded compilers are **not**
+redistributed in Wavelength source or release archives.
+
+Run `tests/blender_source_game_smoke.py` through Blender for the opt-in real-game
+integration test. Set `WL_HL2_GAME`, `WAVELENGTH_SOURCE_TOOLS`, and
+`WL_SOURCE_TEST_OUTPUT` to override discovery and destinations. The ordinary unit
+suite does not need proprietary game files.
+
+### Remaining scope, not full Hammer parity
+
+The new features supersede the previous VTF-preview, I/O-editor and side-ID-remap
+limitations above. Displacements, model mesh/animation previews, instance expansion,
+full FGD dialect coverage, visual overlay placement, advanced shader rendering
+(blends/proxies/reflections), volume/cubemap/unsupported VTF formats and automatic
+Proton-prefix provisioning remain incomplete. Unsupported displacement imports
+are still rejected, not flattened. The Windows profile's VMF/build argument paths
+are tested; Windows/Proton game execution has not been certified by Linux tests.
+
+Format references: [Valve VTF structures](https://github.com/ValveSoftware/source-sdk-2013/blob/master/src/public/vtf/vtf.h),
+[Valve image formats](https://github.com/ValveSoftware/source-sdk-2013/blob/master/src/public/bitmap/imageformat.h),
+and the [VPK reader implementation](https://github.com/ValvePython/vpk/blob/master/vpk/__init__.py).
