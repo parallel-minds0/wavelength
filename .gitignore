@@ -1,32 +1,19 @@
-# Python
 __pycache__/
 *.py[cod]
-*$py.class
-
-# Blender
-*.blend1
-*.blend2
-*.blend@
-*.autosave
-
-# Wavelength generated output / caches
-.texture-cache/
-**/.texture-cache/
+/build/
+/dist/
+/.local/
+/.repo-bootstrap/
+*.blend*
+*.bsp
+*.wad
+*.pak
 *.log
-build-output/
-dist/
-build/
-
-# Local development scratch space
-dev/*
-!dev/README.md
-
-
-# Editors / OS
-.vscode/
-.idea/
-.DS_Store
-Thumbs.db
-*~
-*.swp
-*.swo
+*.so
+*.dll
+*.dylib
+.texture-cache/
+third-party/compilers/*
+!third-party/compilers/README.md
+third-party/python/*
+!third-party/python/README.md

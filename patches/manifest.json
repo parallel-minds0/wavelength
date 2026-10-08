@@ -1,0 +1,5 @@
+{
+  "schema": 1,
+  "supported_builds": [],
+  "note": "No verified Blender binary patches exist. Never patch on version number alone."
+}

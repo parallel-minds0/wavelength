@@ -140,6 +140,24 @@ def import_map(scene,document):
             obj=bpy.data.objects.new('Brush',mesh);collection.objects.link(obj);created.append(obj);mark_brush(obj)
             records={str(i+1):asdict(face) for i,face in enumerate(brush)};mesh['wl_faces']=json.dumps(records)
             for i,datum in enumerate(mesh.attributes['wl_face_id'].data):datum.value=i+1
+            # Recreate texture identity in Blender even if the WAD is absent.
+            # The original projection and texture name remain in wl_faces.
+            from . import textures
+            materials={}
+            for i,face in enumerate(brush):
+                name=face.texture
+                if not name:continue
+                if name not in materials:
+                    try:
+                        mat=textures.material(scene.wavelength,name)
+                    except (OSError,ValueError,KeyError):
+                        mat=bpy.data.materials.get('wl_missing_'+name)
+                        if mat is None:
+                            mat=bpy.data.materials.new('wl_missing_'+name)
+                        mat['wl_texture']=name
+                    materials[name]=len(mesh.materials)
+                    mesh.materials.append(mat)
+                mesh.polygons[i].material_index=materials[name]
             if entity is not world[0]:
                 obj['wl_entity_id']=groups.setdefault(id(entity),uid());obj['wl_entity_pairs']=json.dumps(entity.pairs)
         for entity in document.entities:

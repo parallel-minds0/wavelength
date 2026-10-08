@@ -8,6 +8,7 @@ CATALOG={
  'quake':COMMON+' info_intermission info_teleport_destination light_fluoro light_fluorospark light_globe light_torch_small_walltorch func_plat func_train func_episodegate func_bossgate trigger_secret trigger_counter trigger_teleport trigger_setskill trigger_onlyregistered monster_army monster_dog monster_ogre monster_knight monster_hell_knight monster_zombie monster_wizard monster_demon1 monster_shambler monster_enforcer monster_tarbaby monster_fish monster_boss monster_oldone item_health item_armor1 item_armor2 item_armorInv item_shells item_spikes item_rockets item_cells item_key1 item_key2 item_artifact_super_damage item_artifact_invulnerability item_artifact_envirosuit item_artifact_invisibility weapon_supershotgun weapon_nailgun weapon_supernailgun weapon_grenadelauncher weapon_rocketlauncher weapon_lightning ambient_drip ambient_drone ambient_comp_hum ambient_thunder ambient_light_buzz ambient_swamp1 ambient_swamp2'.split(),
  'goldsrc':[],
  'goldsrc_linux':[],
+ 'goldsrc_linux_steam':[],
 }
 _items=[]
 

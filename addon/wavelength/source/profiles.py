@@ -6,6 +6,8 @@ PROFILES = {
            'stages':['qbsp','vis','light'], 'bsp_version':29, 'brush_semantics':True, 'create_cube_label':'Create Cube Brush'},
  'goldsrc': {'label':'Half-Life — GoldSrc — Custom Platform', 'family':'goldsrc', 'format':'valve220', 'grid':16, 'unit_meters':0.0254,
              'stages':['hlcsg','hlbsp','hlvis','hlrad'], 'bsp_version':30, 'brush_semantics':True, 'create_cube_label':'Create Cube Brush'},
+ 'goldsrc_linux_steam': {'label':'Half Life 1, GoldSrc, Linux, Steam', 'family':'goldsrc', 'platform':'linux', 'launch_method':'steam', 'steam_app_id':'70', 'format':'valve220', 'grid':16, 'unit_meters':0.0254,
+             'stages':['hlcsg','hlbsp','hlvis','hlrad'], 'bsp_version':30, 'brush_semantics':True, 'create_cube_label':'Create Cube Brush'},
  'goldsrc_linux': {'label':'Half-Life — GoldSrc — Linux', 'family':'goldsrc', 'platform':'linux', 'format':'valve220', 'grid':16, 'unit_meters':0.0254,
              'stages':['hlcsg','hlbsp','hlvis','hlrad'], 'bsp_version':30, 'brush_semantics':True, 'create_cube_label':'Create Cube Brush'},
 }

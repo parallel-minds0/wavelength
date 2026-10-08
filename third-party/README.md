@@ -1,7 +1,5 @@
-# Third-party components
+# Manually bundled dependencies
 
-Redistributable third-party source and binaries used by Wavelength belong here, including packaged compiler/toolchain components.
+Place your **redistributable** compiler toolchains in `compilers/<platform>/` and your self-contained Python interpreter in `python/<platform>/`. These folders intentionally contain no binaries. Ensure the toolchain includes its linker, standard library, headers and runtime dependencies, not just a `g++` executable. Review redistribution licenses before packaging.
 
-This directory is part of the self-contained Wavelength distribution and is **not** globally ignored by Git. Every bundled component must retain its applicable license/notices and must permit redistribution.
-
-Do not place proprietary game assets, Valve/Steam files, or binaries here unless their license explicitly permits Wavelength to redistribute them.
+The installer searches bundled compiler executables first and then falls back to system PATH. It does not download or install compilers. Bundled Python is for launching the standalone installer; Blender uses its own Python for the add-on. Bundled runtimes must be complete and match the target OS/architecture.

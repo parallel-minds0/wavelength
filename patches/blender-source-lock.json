@@ -1,0 +1,20 @@
+{
+  "schema": 1,
+  "repository": "https://github.com/blender/blender",
+  "tag": "v5.2.1",
+  "commit": "9e2066aef7ef7e20c142ad7bd3303138a4304c93",
+  "files": {
+    "source/blender/draw/CMakeLists.txt": "ca44ccf1c8473697e5e5ae361321ba45d4b4d572b609cbe17b8ddccfc15e3aef",
+    "source/blender/draw/engines/overlay/overlay_grid.hh": "80e944ba8d94c2406b7742c4d7da28e8c257635cb91124619b4a375a015bac81",
+    "source/blender/draw/engines/overlay/overlay_shader.cc": "392cdbd74e4e023882c83a269ca44feee9d443c5bd8a9947feed089f8075a887",
+    "source/blender/draw/engines/overlay/overlay_shader_shared.hh": "5e6ff6543d96130e6f4eac00333130112f0907ed1307263961cde9f74850428a",
+    "source/blender/draw/engines/overlay/shaders/infos/overlay_grid_infos.hh": "8c5276de0c5b644426e26c4c195032620238c9eb669f08b0a06294b732475e8e",
+    "source/blender/draw/engines/overlay/shaders/overlay_grid_frag.glsl": "e6cfc6be3c11fbba379ea6a6804b4fdde67fd26ef5079aecae77a2f29dd71f7e",
+    "source/blender/draw/engines/overlay/shaders/overlay_grid_vert.glsl": "c69491c7603c80f36ea8a2e709da88441c7c96bcc287448d7d0a6dac4d270251",
+    "source/blender/editors/space_view3d/view3d_draw.cc": "6863088510dd8e32b8470969b3cf56fb8cffed08f3a73d3299c2be967f511a29",
+    "source/blender/gpu/CMakeLists.txt": "865a2e8f2b5087a46f160da4a4919d19be711763380dd2152ec8dcf2a2c57bfe",
+    "source/blender/gpu/intern/gpu_shader_dependency.cc": "61e1b8a2d105f8f62c26f3b3f073aab23ae9f4e5a93845dac63a27095bc22ef6",
+    "source/blender/makesdna/DNA_view3d_types.h": "fbbb8d04ff13050aac212cf77a6f7a7b79bb17afb8efb48c039a1b174569eea9",
+    "source/blender/makesrna/intern/rna_space.cc": "d564f58fbdc5c8f643be093873d439f77ade184880919c119a8427d6d6defdc7"
+  }
+}

@@ -28,7 +28,7 @@ def _defaults(settings, classname):
             primary=fgd.properties(fgd.load(bpy.path.abspath(settings.fgd_path)), classname)
         except (OSError, ValueError, RuntimeError, KeyError, TypeError):
             primary=[]
-    if getattr(settings, 'engine', '') in {'goldsrc','goldsrc_linux'}:
+    if getattr(settings, 'engine', '') in {'goldsrc','goldsrc_linux','goldsrc_linux_steam'}:
         try:
             from . import goldsrc as goldsrc_entities
             primary=goldsrc_entities.merge_properties(classname, primary)

@@ -35,12 +35,27 @@ def palette(settings):
 
 
 def find(settings,name,preferred=None):
+    """Resolve a texture across registered WADs, even with stale WAD paths."""
     paths=sources(settings)
-    if preferred:paths=[preferred,*[p for p in paths if str(Path(bpy.path.abspath(p)).resolve())!=preferred]]
+    if preferred:
+        preferred_path=str(Path(bpy.path.abspath(preferred)).resolve())
+        paths=[preferred,*[p for p in paths if str(Path(bpy.path.abspath(p)).resolve())!=preferred_path]]
+    expected=b'WAD3' if profiles.is_goldsrc(settings.engine) else b'WAD2'
+    failures=[]
     for path in paths:
-        wad=library(path)
-        if name.casefold() in wad.entries:return wad,wad.get(name)
-    raise ValueError(f'Texture {name!r} was not found in configured WADs')
+        try:
+            wad=library(path)
+        except (ValueError,OSError,UnicodeError) as exc:
+            failures.append(f'{path}: {exc}')
+            continue
+        if wad.kind!=expected or name.casefold() not in wad.entries:
+            continue
+        try:
+            return wad,wad.get(name)
+        except (ValueError,OSError,UnicodeError) as exc:
+            failures.append(f'{path}: {exc}')
+    detail=f' (unavailable WADs: {"; ".join(failures[:3])})' if failures else ''
+    raise ValueError(f'Texture {name!r} was not found in configured {expected.decode()} WADs'+detail)
 
 
 def cache_directory(settings):
@@ -75,18 +90,30 @@ def material(settings,name,preferred=None):
     if wad.kind!=expected:raise ValueError('Texture WAD belongs to the other engine mode')
     pal=palette(settings) if not item.wad3 else None
     key=hashlib.sha256(item.blob+(pal or b'')).hexdigest()
-    label='wl_'+key[:20]
+    label='wl_'+hashlib.sha256((name.casefold()+':'+key).encode()).hexdigest()[:20]
     existing=bpy.data.materials.get(label)
     if existing:
         # Keep the current source path even when an identical texture moved.
-        existing['wl_wad']=str(wad.path);return existing
+        existing['wl_wad']=str(wad.path)
+        for node in existing.node_tree.nodes if existing.use_nodes else []:
+            if node.type=='TEX_IMAGE' and node.image and not node.image.packed_file:
+                try:node.image.pack()
+                except RuntimeError:pass
+        return existing
     w,h,rgba=item.rgba(pal)
     path=cache_directory(settings)/(key+'.png')
     image=bpy.data.images.new(label,width=w,height=h,alpha=True)
     image.colorspace_settings.name='sRGB';image.pixels.foreach_set(array('f',rgba));image.update()
-    image.filepath_raw=str(path);image.file_format='PNG';image.save()
+    image.filepath_raw=str(path);image.file_format='PNG'
+    try:
+        image.save()
+    except (OSError,RuntimeError):
+        pass
     # File-backed reference survives save/reopen without packing game assets.
-    image.source='FILE'
+    if path.is_file():
+        image.source='FILE'
+    if image.source=='FILE':
+        image.pack()  # Keep the preview pixels inside the .blend on save.
     mat=bpy.data.materials.new(label);mat.use_nodes=True
     mat['wl_texture']=item.name;mat['wl_wad']=str(wad.path);mat['wl_width']=w;mat['wl_height']=h
     mat['wl_asset_origin']='User-installed game/WAD; local use, not bundled'
@@ -104,61 +131,81 @@ def material(settings,name,preferred=None):
 def assign(obj,indices,mat):
     slot=next((i for i,m in enumerate(obj.data.materials) if m==mat),None)
     if slot is None:slot=len(obj.data.materials);obj.data.materials.append(mat)
-    for index in indices:obj.data.polygons[index].material_index=slot
+    for index in indices:
+        obj.data.polygons[index].material_index=slot
+    # Material selection is authoritative for texture identity. Mirror it into
+    # persistent face records so MAP round-trips don't depend on preview WADs.
+    if mat.get('wl_texture'):
+        records=json.loads(obj.data.get('wl_faces','{}'))
+        attribute=obj.data.attributes.get('wl_face_id')
+        if attribute:
+            for index in indices:
+                fid=str(attribute.data[index].value)
+                if fid in records:records[fid]['texture']=str(mat['wl_texture'])
+            obj.data['wl_faces']=json.dumps(records)
 
 
 def refresh(settings,context=None):
+    """Build the selector from all usable WADs, not the first existing file."""
     global _items,_previews
     _items=[]
     if _previews is not None:
         _previews.clear()
-    if not settings.wad_path:return
     try:
-        wad=library(settings.wad_path)
-        names=sorted((entry[0] for entry in wad.entries.values() if settings.texture_search.casefold() in entry[0].casefold()),key=str.casefold)
+        names=all_names(settings,settings.texture_search)
         pages=max(1,(len(names)+PAGE_SIZE-1)//PAGE_SIZE)
-        page=min(settings.texture_page,pages-1)
+        page=min(max(0,settings.texture_page),pages-1)
         settings.texture_count=len(names)
-        pal=palette(settings) if wad.kind==b'WAD2' else None
         if not bpy.app.background and _previews is None:
             from bpy.utils import previews
             _previews=previews.new()
         for index,name in enumerate(names[page*PAGE_SIZE:(page+1)*PAGE_SIZE]):
-            item=wad.get(name);icon=0
-            if _previews is not None:
-                w,h,pixels=item.rgba(pal,64)
-                preview=_previews.new(name);preview.image_size=(w,h);preview.image_pixels_float=pixels;icon=preview.icon_id
-            _items.append((name,name,f'{item.width} × {item.height} · {wad.path.name}',icon,index))
-        if _items and settings.texture not in {item[0] for item in _items}:settings.texture_choice=_items[0][0]
+            _items.append((name,name,'Texture from registered WADs',preview_icon(settings,name),index))
+        if _items and settings.texture_choice not in {item[0] for item in _items}:
+            settings.texture_choice=_items[0][0]
         settings.status=f'{len(names)} textures · page {page+1}/{pages}'
-    except (ValueError,OSError,UnicodeError) as exc:settings.status=str(exc)
-
+    except (ValueError,OSError,UnicodeError) as exc:
+        settings.status=str(exc)
 
 
 def all_names(settings, search=''):
-    """Return every texture name in the active WAD matching search, without paging."""
-    if not settings.wad_path:
-        return []
-    wad=library(settings.wad_path)
+    """Browse all registered WADs, not just the active WAD."""
     needle=(search or '').casefold()
-    return sorted((entry[0] for entry in wad.entries.values() if needle in entry[0].casefold()),key=str.casefold)
+    names={}
+    for path in sources(settings):
+        try:
+            wad=library(path)
+        except (ValueError,OSError,UnicodeError):
+            continue
+        expected=b'WAD3' if profiles.is_goldsrc(settings.engine) else b'WAD2'
+        if wad.kind!=expected:
+            continue
+        for entry in wad.entries.values():
+            name=entry[0]
+            if needle in name.casefold():
+                names.setdefault(name.casefold(),name)
+    return sorted(names.values(),key=str.casefold)
 
 def preview_icon(settings,name):
-    """Create/reuse a preview icon lazily for the full texture browser."""
+    """Resolve preview from whichever registered WAD owns this texture."""
     global _previews
-    if bpy.app.background or not settings.wad_path:
+    if bpy.app.background:
         return 0
     if _previews is None:
         from bpy.utils import previews
         _previews=previews.new()
-    existing=_previews.get(name)
-    if existing is not None:
-        return existing.icon_id
-    wad=library(settings.wad_path);item=wad.get(name)
-    pal=palette(settings) if wad.kind==b'WAD2' else None
-    w,h,pixels=item.rgba(pal,64)
-    preview=_previews.new(name);preview.image_size=(w,h);preview.image_pixels_float=pixels
-    return preview.icon_id
+    try:
+        wad,item=find(settings,name)
+        key=hashlib.sha256((str(wad.path)+':'+name.casefold()).encode()).hexdigest()
+        existing=_previews.get(key)
+        if existing is not None:
+            return existing.icon_id
+        pal=palette(settings) if wad.kind==b'WAD2' else None
+        w,h,pixels=item.rgba(pal,64)
+        preview=_previews.new(key);preview.image_size=(w,h);preview.image_pixels_float=pixels
+        return preview.icon_id
+    except (ValueError,OSError,UnicodeError,IndexError):
+        return 0
 
 
 def enum_items(self,context):return _items or [('__none__','No textures','Load a WAD library',0,0)]

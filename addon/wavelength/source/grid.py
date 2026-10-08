@@ -68,3 +68,48 @@ def register():
 
 def unregister():
     restore()
+
+# A non-invasive yellow snap indicator. Blender's native grid color is a global
+# theme setting; changing it would affect unrelated files and other add-ons.
+_snap_indicator_handle = None
+
+
+def _draw_snap_indicator():
+    try:
+        import blf
+        from . import profiles
+        context = bpy.context
+        scene = context.scene
+        settings = getattr(scene, 'wavelength', None) if scene else None
+        if settings is None:
+            return
+        if settings.engine == 'blender' or settings.grid_mode != 'ENGINE':
+            label = 'GRID SNAP  |  Blender native'
+        else:
+            label = f'GRID SNAP  |  {settings.grid_step} engine units'
+        font = 0
+        blf.size(font, 15)
+        blf.color(font, 1.0, 0.85, 0.10, 1.0)
+        blf.position(font, 20, 46, 0)
+        blf.draw(font, label)
+    except (AttributeError, ReferenceError, RuntimeError):
+        pass
+
+
+_original_register = register
+_original_unregister = unregister
+
+
+def register():
+    global _snap_indicator_handle
+    if _snap_indicator_handle is None:
+        _snap_indicator_handle = bpy.types.SpaceView3D.draw_handler_add(
+            _draw_snap_indicator, (), 'WINDOW', 'POST_PIXEL')
+
+
+def unregister():
+    global _snap_indicator_handle
+    if _snap_indicator_handle is not None:
+        bpy.types.SpaceView3D.draw_handler_remove(_snap_indicator_handle, 'WINDOW')
+        _snap_indicator_handle = None
+    restore()

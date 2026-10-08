@@ -119,10 +119,12 @@ def engine_changed(self,context):
         values=configurations.get(self.engine)
         if values is None:
             root=local_root(self)
-            preset=(root/'wavelength/dist'/('goldsrc-project.json' if profiles.is_goldsrc(self.engine) else 'quake-project.json')) if root and self.engine in {'quake','goldsrc','goldsrc_linux'} else None
+            preset=(root/'wavelength/dist'/('goldsrc-project.json' if profiles.is_goldsrc(self.engine) else 'quake-project.json')) if root and self.engine in {'quake','goldsrc','goldsrc_linux','goldsrc_linux_steam'} else None
             values=json.loads(preset.read_text()) if preset and preset.is_file() else {}
-            if self.engine=='goldsrc_linux':
+            if self.engine in {'goldsrc_linux','goldsrc_linux_steam'}:
                 values.update(_hl1_linux_defaults())
+                if self.engine=='goldsrc_linux_steam':
+                    values['launch_args']=json.dumps(['-console','-dev','+map','{map}'])
         self['_wl_active_engine']=self.engine
         self['_wl_engine_configs']=json.dumps(configurations)
         for key in _ENGINE_FIELDS:setattr(self,key,values.get(key,'[]' if key in {'texture_wads','wrapper','launch_args','qbsp_args','vis_args','light_args'} else '{}' if key=='environment' else 'wavelength_'+self.engine if key=='map_name' else ''))
@@ -134,7 +136,7 @@ def engine_changed(self,context):
     # WAD discovery is immediately reflected in the texture enum/browser.
     self.texture_page=0
     textures.refresh(self,context)
-    if self.engine=='goldsrc_linux' and self.wad_path:
+    if self.engine in {'goldsrc_linux','goldsrc_linux_steam'} and self.wad_path:
         self.status=f'HL1 Linux profile loaded · {len(json.loads(self.texture_wads or "[]"))} WADs · {self.texture_count} textures in {Path(self.wad_path).name}'
     elif not self.status:
         self.status='Profile selected; tool paths updated. Rebuild before launching.'
@@ -201,7 +203,7 @@ class WLTextureGalleryRow(bpy.types.PropertyGroup):
     name2:StringProperty()
 
 class WLSettings(bpy.types.PropertyGroup):
-    engine:EnumProperty(name='Profile',items=[('blender','Blender — No Engine — Any Platform','Neutral Blender authoring; Wavelength does not impose engine rules'),('quake','Quake — Quake — Custom Platform','Classic Quake MAP; user-configured platform/toolchain'),('goldsrc','Half-Life — GoldSrc — Custom Platform','Valve 220 MAP; user-configured platform/toolchain'),('goldsrc_linux','Half-Life — GoldSrc — Linux','Native Steam Half-Life 1 for Linux; discovers and indexes stock WAD3 libraries')],default='blender',update=engine_changed)
+    engine:EnumProperty(name='Profile',items=[('blender','Blender — No Engine — Any Platform','Neutral Blender authoring; Wavelength does not impose engine rules'),('quake','Quake — Quake — Custom Platform','Classic Quake MAP; user-configured platform/toolchain'),('goldsrc','Half-Life — GoldSrc — Custom Platform','Valve 220 MAP; user-configured platform/toolchain'),('goldsrc_linux','Half-Life — GoldSrc — Linux','Native Half-Life 1 for Linux; discovers and indexes stock WAD3 libraries'),('goldsrc_linux_steam','Half Life 1, GoldSrc, Linux, Steam','Launch Half-Life 1 through Steam App ID 70; discovers stock WAD3 libraries')],default='blender',update=engine_changed)
     grid_mode:EnumProperty(name='Grid',items=[('BLENDER','Blender','Use your original Blender grid'),('ENGINE','Engine','Fixed engine-unit grid overlay')],default='BLENDER',update=grid.update)
     grid_step:EnumProperty(name='Step',items=[(str(x),str(x),'Engine units') for x in (1,2,4,8,16,32,64,128,256)],default='16',update=grid.update)
     project_dir:StringProperty(name='Project directory',subtype='DIR_PATH')
@@ -672,7 +674,7 @@ class WL_OT_texture(SafeOperator,bpy.types.Operator):
         if not obj or obj.get('wl_role')!='BRUSH':raise ValueError('Select a brush')
         # Edit mode synchronizes selected faces before writing metadata.
         if not str(s.texture or '').strip():raise ValueError('Choose an engine texture before applying')
-        mat=textures.material(s,s.texture) if s.wad_path else None
+        mat=textures.material(s,s.texture)
         edit=obj.mode=='EDIT'
         if edit:bpy.ops.object.mode_set(mode='OBJECT')
         try:
@@ -840,16 +842,34 @@ class WL_OT_launch(SafeOperator,bpy.types.Operator):
         s=context.scene.wavelength
         if not s.last_build or not Path(s.last_build).is_file():raise ValueError('Build successfully before launching')
         if not s.map_name or any(c not in 'abcdefghijklmnopqrstuvwxyz0123456789_-' for c in s.map_name):raise ValueError('Use lowercase letters, numbers, underscores or hyphens for map name')
-        exe=Path(bpy.path.abspath(s.game_executable));directory=Path(bpy.path.abspath(s.game_dir))
-        if not exe.is_file() or not directory.is_dir():raise ValueError('Configure an existing game executable and game directory')
+        steam_profile=s.engine=='goldsrc_linux_steam'
+        directory=Path(bpy.path.abspath(s.game_dir))
+        if not directory.is_dir():raise ValueError('Configure an existing game directory')
+        if steam_profile:
+            import shutil as _shutil
+            steam_exe=_shutil.which('steam')
+            if not steam_exe:raise ValueError('Steam launcher not found on PATH; install Steam or make the steam command available')
+        else:
+            exe=Path(bpy.path.abspath(s.game_executable))
+            if not exe.is_file():raise ValueError('Configure an existing game executable')
         arguments=json.loads(s.launch_args)
         if not isinstance(arguments,list) or not all(isinstance(x,str) for x in arguments):raise ValueError('Launch arguments must be an array')
         args=[x.replace('{map}',s.map_name).replace('{game_dir}',str(directory)).replace('{build_dir}',str(Path(s.last_build).parent)) for x in arguments]
         destination=directory/'maps';destination.mkdir(exist_ok=True)
         target=destination/(s.map_name+'.bsp')
         if Path(s.last_build).resolve()!=target.resolve():shutil.copyfile(s.last_build,target)
-        subprocess.Popen([str(exe),*args],cwd=exe.parent,start_new_session=True)
-        s.status='Game launched'
+        if steam_profile:
+            # Steam supplies its own runtime; do not start hl_linux directly.
+            # Use the game directory only for copying the compiled BSP.
+            # Steam HL1 uses the default valve game directory unless the user
+            # explicitly configures a different -game option.
+            if args==['-game',str(directory),'+map',s.map_name]:
+                args=['-console','-dev','+map',s.map_name]
+            subprocess.Popen([steam_exe,'-applaunch','70',*args],start_new_session=True)
+            s.status='Launch requested through Steam (Half-Life 1, App ID 70)'
+        else:
+            subprocess.Popen([str(exe),*args],cwd=exe.parent,start_new_session=True)
+            s.status='Game launched'
 
 class WL_OT_leak(SafeOperator,bpy.types.Operator):
     bl_idname='wavelength.show_leak';bl_label='Show Leak Path';bl_options={'REGISTER','UNDO'}
@@ -1063,7 +1083,7 @@ class WL_PT_texture(bpy.types.Panel):
             preview=l.column(align=True)
             preview.scale_y=2.6
             preview.operator('wavelength.texture_browser',text=s.texture or 'No Texture Selected',icon_value=selected_icon)
-            l.operator('wavelength.texture_browser',text='Browse All Textures…',icon='IMAGE_DATA')
+            l.operator('wavelength.texture_browser',text='Browse All Registered WAD Textures…',icon='IMAGE_DATA')
         else:
             l.label(text=s.texture or 'No Texture Selected')
         l.operator('wavelength.resolve_textures');l.operator('wavelength.preview_textures')

@@ -1,34 +1,43 @@
-# Wavelength
+# Wavelength — 0.10.26-pre.alpha
 
-> **This is the pre-alpha testing release. Don't expect usable functionality; it does the bare minimum.**
+Blender authoring tools for Quake and Half-Life/GoldSrc, with an experimental native-grid integration workspace.
 
-Wavelength is an experimental Blender add-on for brush-based level authoring. The current pre-alpha focuses on Quake and GoldSrc / Half-Life workflows. Interfaces, project formats, behavior, and repository structure can change while the project is being tested.
+| Component | Location | Current state |
+|---|---|---|
+| Blender Python add-on | `addon/wavelength/` | Authoring, entities, textures, MAP/build tools |
+| Standalone Python installer | `installer/` | Discovery, build, inspection, fresh add-on install, guarded offline patch recipes |
+| C++17 library | `native/` | Loadable grid-line math prototype; **no Blender renderer hook yet** |
+| Build-specific patch recipes | `patches/` | No supported Blender binaries |
 
-## Repository layout
+Read the [current-state audit](docs/CURRENT-STATE.md), [Blender source/injection findings](docs/BLENDER-INTEGRATION.md), and [architecture](docs/ARCHITECTURE.md).
 
-- `__init__.py` — Blender add-on entry point; delegates to `source/`.
-- `source/` — Wavelength Blender add-on implementation.
-- `environment/` — versioned editor/test resources: model references, test maps, and SVG/PNG entity references.
-- `documentation/` — Markdown documentation intended to remain suitable for later HTML/PDF generation.
-- `dev/` — local scratch/generated development files; ignored by Git.
-- `third-party/` — redistributable third-party source/binaries shipped with Wavelength.
-- `LICENSE` — project license.
+## Validate and package
 
-## Pre-alpha expectations
+```sh
+python3 tools/release.py
+```
 
-Wavelength v0.10.25-pre.alpha is not production-ready. Features may be incomplete or broken, engine/toolchain setups still require manual configuration, and compatibility is not guaranteed. Test with disposable project files and keep backups.
+Runs Python syntax checks, installer/native tests, builds the C++ library, and creates `dist/wavelength-addon-v0.10.26-pre.alpha.zip`. Install that ZIP through Blender's add-on installation UI. No game assets or native host patch are bundled. GitHub Actions runs the same checks and retains the ZIP artifact. Blender UI and game-runtime validation are separate checks.
 
-## Development
+## Native research and host inspection
 
-The Blender add-on package lives in `source/`. Repository-relative editor assets are resolved from `environment/`. Do not commit proprietary game assets or third-party binaries merely because Wavelength can use them locally.
+```sh
+python3 tools/research_blender.py
+python3 installer/cli.py inspect /path/to/Blender.AppImage
+python3 installer/cli.py probe-renderer /path/to/extracted/blender
+python3 installer/cli.py probe-native build/libwavelength_grid.so --step 0.4064 --coordinate 0.8128
+```
 
-See [`documentation/`](documentation/) for architecture, development, and testing notes.
+The research command retrieves SHA-256-locked official Blender source at the verified v5.2.1 commit. AppImage containers and their ELF Blender payloads are different artifacts. Native library loading alone does not modify rendering.
 
+## Publish a version
 
-## Self-contained installation
+Update the add-on version tuples and release notes, then run:
 
-The repository root is the Blender add-on package. Zip the `wavelength/` directory as-is and install that ZIP in Blender. The ZIP is expected to include `source/`, `environment/`, `documentation/`, and any redistributable components under `third-party/`.
+```sh
+python3 tools/release.py --publish
+```
 
-Runtime paths must resolve relative to the installed Wavelength package. A separate checkout, absolute developer path, or separately installed compiler is not required when the corresponding redistributable component is bundled.
+This validates/packages, checks the exact repository root and remote, fetches remote history, stages this workspace, commits changes, creates a new annotated `v<version>-pre.alpha` tag, and atomically pushes branch plus tag. It never force pushes or replaces a tag. If a push is interrupted after local tag creation, inspect local/remote state and retry the atomic Git push; do not recreate the tag. The old tag `v0.10.25-pre.alpha` remains unchanged.
 
-`dev/` is local scratch space and is not required by Wavelength at runtime.
+The repository root is this native workspace, not the outer directory containing local games, maps, downloaded compilers, or historical copies.
