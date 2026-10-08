@@ -131,7 +131,7 @@ def engine_changed(self,context):
             values=defaults(profiles.get(self.engine)['platform'])
         self['_wl_active_engine']=self.engine
         self['_wl_engine_configs']=json.dumps(configurations)
-        for key in _ENGINE_FIELDS:setattr(self,key,values.get(key,'[]' if key in {'texture_wads','wrapper','launch_args','qbsp_args','vis_args','light_args'} else '{}' if key=='environment' else 'wavelength_'+self.engine if key=='map_name' else ''))
+        for key in _ENGINE_FIELDS:setattr(self,key,values.get(key,'[]' if key in {'texture_wads','wrapper','launch_args','qbsp_args','vis_args','light_args','source_vbsp_args','source_vvis_args','source_vrad_args'} else '{}' if key=='environment' else 'wavelength_'+self.engine if key=='map_name' else ''))
         if _JOB and _JOB_SCENE==context.scene:_JOB.cancel()
     self.last_build=''
     grid.update(self,context)
@@ -861,7 +861,7 @@ class WL_OT_build(SafeOperator,bpy.types.Operator,ExportHelper):
                 args=compiler_args(stage,bpy.path.abspath(s.game_dir),map_stem)
                 if exe.suffix.lower()=='.exe' and os.name!='nt':
                     args[1]='Z:'+args[1].replace('/',chr(92))
-                extra=json.loads(getattr(s,'source_'+stage+'_args'))
+                extra=json.loads(getattr(s,'source_'+stage+'_args') or '[]')
                 if not isinstance(extra,list) or not all(isinstance(v,str) for v in extra):raise ValueError(stage.upper()+' arguments must be a JSON string array')
                 if '++' in exe.name and stage=='vbsp' and '-singleplayer' not in extra:extra=['-singleplayer',*extra]
                 args=[*extra,*args]

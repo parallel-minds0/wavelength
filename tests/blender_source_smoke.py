@@ -10,6 +10,7 @@ for profile in ('source_hl2_linux','source_hl2_windows'):
  from wavelength.source.entity import catalog
  assert any(x[0]=='npc_citizen' for x in catalog.items(s,bpy.context))
  assert s.launch_args!='[]'
+ assert all(getattr(s,field)=='[]' for field in ('source_vbsp_args','source_vvis_args','source_vrad_args'))
 scene.import_map(bpy.context.scene,vmf.parse((root/'addon/wavelength/environment/maps/minimal_source.vmf').read_text()))
 text=vmf.write(scene.export_map(bpy.context.scene));doc=vmf.parse(text)
 assert len(doc.entities[0].brushes)==6
@@ -32,6 +33,7 @@ with tempfile.TemporaryDirectory() as folder:
         tool.write_text('#!/usr/bin/env python3\nimport sys,json,struct\nfrom pathlib import Path\nPath("'+stage+'.args.json").write_text(json.dumps(sys.argv[1:]))\n'+('Path("chosen.bsp").write_bytes(b"VBSP"+struct.pack("<i",20)+bytes(1028))\n' if stage=='vbsp' else ''))
         tool.chmod(0o755)
     s.compiler_dir=str(tools);s.game_dir=str(game);s.project_dir=str(folder/'work')
+    s.source_vbsp_args='' # Recover an older saved scene with empty compiler arguments.
     out=folder/'chosen.bsp'
     bpy.ops.wavelength.build(filepath=str(out))
     while ui._JOB:ui.build_tick();time.sleep(.02)

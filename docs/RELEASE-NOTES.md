@@ -1,3 +1,7 @@
+# v0.10.33-pre.alpha
+
+Fix Source compiler argument defaults when switching engine profiles. Empty values saved by earlier versions also recover as empty argument lists. Retains the v0.10.32 gallery, scrollbar, grid-setting restoration, and consistent Source map filenames. Custom HL2 map gameplay remains unverified and unresolved.
+
 # 0.10.32-pre.alpha
 
 - Source materials use the shared thumbnail gallery; gallery rows and native scrollbar now share the same height (applies to WAD browsing too).
