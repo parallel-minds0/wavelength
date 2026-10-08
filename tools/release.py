@@ -38,6 +38,9 @@ def package():
     return destination
 
 def validate():
+    for relative in ('__init__.py','pipeline.py','toolchains.py'):
+        if not (ROOT/'addon/wavelength/source/build'/relative).is_file():
+            raise RuntimeError(f'Missing build package source: {relative}')
     for base in ('addon','installer','tools','tests'):
         for file in (ROOT/base).rglob('*.py'):ast.parse(file.read_text(),filename=str(file))
     run(sys.executable,'-m','unittest','discover','-s','tests','-v')
@@ -61,6 +64,10 @@ def main():
     if tag in run('git','tag','--list',tag,capture=True).splitlines():
         raise RuntimeError('Version tag already exists; bump version before publishing')
     run('git','merge-base','--is-ancestor',f'origin/{branch}','HEAD')
+    for file in (ROOT/'addon/wavelength/source').rglob('*.py'):
+        result=subprocess.run(['git','check-ignore','--quiet',str(file.relative_to(ROOT))],cwd=ROOT)
+        if result.returncode==0:raise RuntimeError(f'Python source excluded by Git ignore: {file}')
+        if result.returncode!=1:raise RuntimeError('Git ignore check failed')
     run('git','add','-A','--','.')
     # The exact repository boundary was verified above; nested repos are forbidden.
     staged=run('git','ls-files','--stage',capture=True)

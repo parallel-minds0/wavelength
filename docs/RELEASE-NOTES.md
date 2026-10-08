@@ -1,3 +1,9 @@
+# 0.10.27-pre.alpha
+
+- Corrects an inherited ignore rule that excluded the Python `source/build/` package from Git.
+- Release validation now requires all three build modules and refuses ignored Python source.
+- Retains the first published tag unchanged; this is the complete source distribution.
+
 # 0.10.26-pre.alpha
 
 - Consolidates the latest 0.10.25 add-on edits and native installer workspace into one repository, retaining previous Git history and tags.

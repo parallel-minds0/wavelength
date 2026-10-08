@@ -1,4 +1,4 @@
-# Wavelength — 0.10.26-pre.alpha
+# Wavelength — 0.10.27-pre.alpha
 
 Blender authoring tools for Quake and Half-Life/GoldSrc, with an experimental native-grid integration workspace.
 
@@ -17,7 +17,7 @@ Read the [current-state audit](docs/CURRENT-STATE.md), [Blender source/injection
 python3 tools/release.py
 ```
 
-Runs Python syntax checks, installer/native tests, builds the C++ library, and creates `dist/wavelength-addon-v0.10.26-pre.alpha.zip`. Install that ZIP through Blender's add-on installation UI. No game assets or native host patch are bundled. GitHub Actions runs the same checks and retains the ZIP artifact. Blender UI and game-runtime validation are separate checks.
+Runs Python syntax checks, installer/native tests, builds the C++ library, and creates `dist/wavelength-addon-v0.10.27-pre.alpha.zip`. Install that ZIP through Blender's add-on installation UI. No game assets or native host patch are bundled. GitHub Actions runs the same checks and retains the ZIP artifact. Blender UI and game-runtime validation are separate checks.
 
 ## Native research and host inspection
 

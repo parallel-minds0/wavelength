@@ -15,7 +15,7 @@ __pycache__/
 *.log
 build-output/
 dist/
-build/
+/build/
 
 # Local development scratch space
 dev/*

@@ -2,7 +2,8 @@
 
 This audit supersedes the old 0.2.x chat context. The imported baseline is
 0.10.25; 0.10.26-pre.alpha consolidates the native workspace, current add-on
-changes, repeatable checks/publication, and source research. It does not ship
+changes, repeatable checks/publication, and source research. 0.10.27-pre.alpha additionally fixes an inherited ignore rule that omitted the
+Python build package from Git and adds a publication check. It does not ship
 a working native renderer hook.
 
 ## Layout and ownership
