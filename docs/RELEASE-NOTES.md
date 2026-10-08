@@ -1,3 +1,11 @@
+# 0.10.30-pre.alpha
+
+- Native grid experiment highlights only the exact selected spacing; other levels retain native gray/emphasis colors.
+- Adds HL2 Source 1 Linux/Windows profiles, VMF brush/entity import/export, Source material-name assignment and VBSP/VVIS/VRAD build orchestration.
+- Adds BSP20 header/lump validation and Steam App ID 220 launch configuration.
+- Tested format round-trips and Blender integration, including fake-compiler orchestration. Real HL2 compilation/runtime validation remains pending installed SDK tools.
+- VTF/VPK previews, displacements and a full Source I/O editor are not implemented.
+
 # 0.10.29-pre.alpha
 
 - Adds an exact-build native shader experiment and interactive Wavelength grid demo.

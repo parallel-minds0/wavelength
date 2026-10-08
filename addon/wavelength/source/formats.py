@@ -15,6 +15,7 @@ class Face:
     texture: str
     projection: list
     axes: list | None = None
+    vmf: dict | None = None
 
     def plane(self):
         a,b,c = self.points

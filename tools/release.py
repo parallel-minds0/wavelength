@@ -30,7 +30,7 @@ def package():
         for file in sorted(source.rglob('*')):
             relative=file.relative_to(source)
             if not file.is_file() or any(part.startswith('.') or part in {'dev','third-party','__pycache__'} for part in relative.parts):continue
-            if file.suffix not in {'.py','.md','.svg','.map'} and file.name!='LICENSE':continue
+            if file.suffix not in {'.py','.md','.svg','.map','.vmf'} and file.name!='LICENSE':continue
             archive.write(file,Path('wavelength')/relative)
     with zipfile.ZipFile(destination) as archive:
         if archive.testzip():raise RuntimeError('Invalid package')

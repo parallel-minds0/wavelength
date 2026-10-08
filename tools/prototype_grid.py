@@ -22,11 +22,9 @@ def patch(source,destination):
   if (flag_test(grid_flag, SHOW_GRID) && !flag_test(grid_flag, GRID_SIMA)) {
     float wl_step = flag_test(grid_flag, GRID_ALIGNED) ? grid_buf.steps[3].x : grid_buf.steps[0].x;
     float wl_q = line.P[1 - line.axis] / wl_step;
-    vertex_out_flat.emphasis = abs(wl_q - round(wl_q)) < 0.0001f ? 1.0f : 0.0f;
+    vertex_out_flat.emphasis = abs(step_size - wl_step) <= wl_step * 0.00001f && abs(wl_q - round(wl_q)) < 0.0001f ? 1.0f : -vertex_out_flat.emphasis - 1.0f;
   }
-'''),(fragment,b'''out_color = mix(theme.colors.grid,
-    flag_test(grid_flag, GRID_SIMA) ? theme.colors.grid_emphasis : float4(1.0f, 0.85f, 0.1f, theme.colors.grid.a),
-    vertex_out_flat.emphasis);''')]
+'''),(fragment,b'''out_color = !flag_test(grid_flag, GRID_SIMA) && vertex_out_flat.emphasis >= 0.0f ? float4(1.0f, 0.85f, 0.1f, theme.colors.grid.a) : mix(theme.colors.grid, theme.colors.grid_emphasis, flag_test(grid_flag, GRID_SIMA) ? vertex_out_flat.emphasis : -vertex_out_flat.emphasis - 1.0f);''')]
     result=bytearray(data)
     for needle,replacement in patches:
         if data.count(needle)!=1:raise ValueError('Shader anchor is not unique')

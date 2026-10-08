@@ -71,7 +71,7 @@ def brush_from_object(obj,engine,require_texture=False):
         if material and material.get('wl_texture'):face.texture=material['wl_texture']
         if require_texture and not str(face.texture or '').strip():
             raise BrushError('FACE_TEXTURE_MISSING',f'{obj.name}: face {index + 1} has no engine texture assigned')
-        if profiles.is_goldsrc(engine) and face.axes is None:
+        if profiles.uses_valve_axes(engine) and face.axes is None:
             face.axes=formats.quake_axes(n,face.projection)
         if engine=='quake' and face.axes is not None:
             raise BrushError('PROJECTION_MISMATCH','Valve 220 axes require GoldSrc mode; conversion to classic can be lossy')

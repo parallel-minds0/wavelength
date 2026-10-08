@@ -10,6 +10,7 @@ CATALOG={
  'goldsrc_linux':[],
  'goldsrc_linux_steam':[],
 }
+SOURCE='info_player_start light light_spot light_environment env_cubemap info_node info_target prop_static prop_dynamic prop_physics npc_citizen npc_combine_s npc_metropolice npc_headcrab npc_zombie weapon_crowbar weapon_pistol weapon_smg1 item_healthkit item_battery func_detail func_brush func_door func_door_rotating func_button func_breakable trigger_multiple trigger_once trigger_hurt trigger_changelevel logic_auto logic_relay logic_timer math_counter path_track point_template'.split()
 _items=[]
 
 def items(settings,context):
@@ -18,7 +19,7 @@ def items(settings,context):
         from . import goldsrc as goldsrc_entities
         names={name:'' for name in goldsrc_entities.class_names()}
     else:
-        names={name:'' for name in CATALOG[settings.engine]}
+        names={name:'' for name in (SOURCE if profiles.is_source(settings.engine) else CATALOG.get(settings.engine,[]))}
     if settings.fgd_path:
         try:
             for name,definition in fgd.load(bpy.path.abspath(settings.fgd_path)).items():

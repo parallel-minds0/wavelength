@@ -14,7 +14,7 @@ def resolve_compiler(directory, stage, wrapper=False):
     directory = Path(directory)
     if not directory.is_dir():
         raise ValueError(f'Compiler directory does not exist: {directory}')
-    bases = GOLDSRC.get(stage, (stage,))
+    bases = GOLDSRC.get(stage, (stage, stage+'_linux') if stage in {'vbsp','vvis','vrad'} else (stage,))
     names = list(bases) + [b + '_x64' for b in bases]
     windows = [b + '.exe' for b in names]
     candidates = windows + names if os.name == 'nt' else names + windows

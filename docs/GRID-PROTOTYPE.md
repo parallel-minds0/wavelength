@@ -31,8 +31,10 @@ recipe as verified: its `verified` flag deliberately remains false.
 
 ## Mechanism
 
-The vertex stage classifies the perpendicular world coordinate of each native
-grid line against the selected interval, reusing the existing flat emphasis
+The vertex stage requires each native grid line’s own spacing to equal the
+selected interval, then checks its perpendicular world coordinate. Other levels
+preserve native emphasis colors instead of becoming yellow just because they
+are multiples of the interval, reusing the existing flat emphasis
 varying. The fragment stage uses yellow for matching non-axis lines, leaving axes
 and Image/UV-grid coloring alone. Existing line placement, depth, alpha/fading and
 AA code is retained. Text is compacted into existing string capacity; the byte

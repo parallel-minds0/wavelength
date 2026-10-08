@@ -11,7 +11,21 @@ PROFILES = {
  'goldsrc_linux': {'label':'Half-Life — GoldSrc — Linux', 'family':'goldsrc', 'platform':'linux', 'format':'valve220', 'grid':16, 'unit_meters':0.0254,
              'stages':['hlcsg','hlbsp','hlvis','hlrad'], 'bsp_version':30, 'brush_semantics':True, 'create_cube_label':'Create Cube Brush'},
 }
+for platform in ('linux','windows'):
+    PROFILES['source_hl2_'+platform] = {
+        'label':'Half-Life 2 — Source 1 — '+platform.title(), 'family':'source',
+        'platform':platform,'launch_method':'steam','steam_app_id':'220',
+        'format':'vmf','grid':16,'unit_meters':0.0254,
+        'stages':['vbsp','vvis','vrad'],'bsp_version':20,
+        'brush_semantics':True,'create_cube_label':'Create Cube Brush'}
 SCHEMA_VERSION=1
+
+def is_source(engine):
+    return family(engine)=='source'
+
+def uses_valve_axes(engine):
+    return is_goldsrc(engine) or is_source(engine)
+
 
 def get(engine):
     return PROFILES.get(engine, PROFILES['blender'])

@@ -43,7 +43,7 @@ def clipped_mesh(obj,normal,distance,engine):
         ids.sort(key=lambda i:math.atan2(dot(sub(vertices[i],center),v),dot(sub(vertices[i],center),u)))
         polygons.append(ids)
         face=source[index] if index<len(source) else formats.Face([vertices[i] for i in ids[:3][::-1]],'', [0,0,0,1,1])
-        if profiles.is_goldsrc(engine) and face.axes is None:face.axes=formats.quake_axes(n,face.projection)
+        if profiles.uses_valve_axes(engine) and face.axes is None:face.axes=formats.quake_axes(n,face.projection)
         records.append(asdict(face))
     validate(vertices,polygons)
     return vertices,polygons,records
@@ -101,7 +101,7 @@ def capture_uv(obj,engine,indices=None):
             return result
         u,v=fit(us),fit(vs)
         if math.hypot(*u[:2])<1e-9 or math.hypot(*v[:2])<1e-9:raise ValueError('Collapsed UV mapping')
-        if profiles.is_goldsrc(engine):
+        if profiles.uses_valve_axes(engine):
             axes=[]
             for fitrow in (u,v):
                 axis=[0.,0.,0.,fitrow[2]];axis[sv]=fitrow[0];axis[tv]=fitrow[1];axes.append(axis)

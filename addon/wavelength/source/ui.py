@@ -125,6 +125,9 @@ def engine_changed(self,context):
                 values.update(_hl1_linux_defaults())
                 if self.engine=='goldsrc_linux_steam':
                     values['launch_args']=json.dumps(['-console','-dev','+map','{map}'])
+        if values is not None and profiles.is_source(self.engine) and not values:
+            from .source_tools import defaults
+            values=defaults(profiles.get(self.engine)['platform'])
         self['_wl_active_engine']=self.engine
         self['_wl_engine_configs']=json.dumps(configurations)
         for key in _ENGINE_FIELDS:setattr(self,key,values.get(key,'[]' if key in {'texture_wads','wrapper','launch_args','qbsp_args','vis_args','light_args'} else '{}' if key=='environment' else 'wavelength_'+self.engine if key=='map_name' else ''))
@@ -203,7 +206,7 @@ class WLTextureGalleryRow(bpy.types.PropertyGroup):
     name2:StringProperty()
 
 class WLSettings(bpy.types.PropertyGroup):
-    engine:EnumProperty(name='Profile',items=[('blender','Blender — No Engine — Any Platform','Neutral Blender authoring; Wavelength does not impose engine rules'),('quake','Quake — Quake — Custom Platform','Classic Quake MAP; user-configured platform/toolchain'),('goldsrc','Half-Life — GoldSrc — Custom Platform','Valve 220 MAP; user-configured platform/toolchain'),('goldsrc_linux','Half-Life — GoldSrc — Linux','Native Half-Life 1 for Linux; discovers and indexes stock WAD3 libraries'),('goldsrc_linux_steam','Half Life 1, GoldSrc, Linux, Steam','Launch Half-Life 1 through Steam App ID 70; discovers stock WAD3 libraries')],default='blender',update=engine_changed)
+    engine:EnumProperty(name='Profile',items=[('blender','Blender — No Engine — Any Platform','Neutral Blender authoring; Wavelength does not impose engine rules'),('quake','Quake — Quake — Custom Platform','Classic Quake MAP; user-configured platform/toolchain'),('goldsrc','Half-Life — GoldSrc — Custom Platform','Valve 220 MAP; user-configured platform/toolchain'),('goldsrc_linux','Half-Life — GoldSrc — Linux','Native Half-Life 1 for Linux; discovers and indexes stock WAD3 libraries'),('goldsrc_linux_steam','Half Life 1, GoldSrc, Linux, Steam','Launch Half-Life 1 through Steam App ID 70; discovers stock WAD3 libraries'),('source_hl2_linux','Half-Life 2 — Source 1 — Linux','VMF and native Linux game runtime'),('source_hl2_windows','Half-Life 2 — Source 1 — Windows','VMF and Windows game runtime; configure Steam Proton on Linux')],default='blender',update=engine_changed)
     grid_mode:EnumProperty(name='Grid',items=[('BLENDER','Blender','Use your original Blender grid'),('ENGINE','Engine','Fixed engine-unit grid overlay')],default='BLENDER',update=grid.update)
     grid_step:EnumProperty(name='Step',items=[(str(x),str(x),'Engine units') for x in (1,2,4,8,16,32,64,128,256)],default='16',update=grid.update)
     project_dir:StringProperty(name='Project directory',subtype='DIR_PATH')
@@ -280,6 +283,12 @@ class WL_OT_setup(SafeOperator,bpy.types.Operator):
     def run(self,context):
         s=context.scene.wavelength
         if s.engine=='blender':raise ValueError('Select an engine before configuring an engine toolchain')
+        if profiles.is_source(s.engine):
+            from .source_tools import defaults
+            data=defaults(profiles.get(s.engine)['platform'])
+            for key,value in data.items():setattr(s,key,value)
+            s.status='HL2 paths refreshed; configure SDK compilers separately'
+            return
         root=local_root(s)
         if root is None:raise ValueError('Local checkout not found; use Load Project with the engine preset')
         preset=root/'wavelength/dist'/('goldsrc-project.json' if profiles.is_goldsrc(s.engine) else 'quake-project.json')
@@ -510,6 +519,8 @@ def _entity_creation_defaults(settings, classname):
         key=str(prop.get('key','')).strip();default=str(prop.get('default',''))
         if key and key not in present and default!='':
             pairs.append((key,default));present.add(key)
+    if profiles.is_source(settings.engine) and classname in {'light','light_spot','light_environment'} and '_light' not in present:
+        pairs.append(('_light','255 255 255 200'))
     # Quake has no built-in schema yet; retain the established useful light default.
     if settings.engine=='quake' and classname=='light' and 'light' not in present:
         pairs.append(('light','300'))
@@ -674,7 +685,10 @@ class WL_OT_texture(SafeOperator,bpy.types.Operator):
         if not obj or obj.get('wl_role')!='BRUSH':raise ValueError('Select a brush')
         # Edit mode synchronizes selected faces before writing metadata.
         if not str(s.texture or '').strip():raise ValueError('Choose an engine texture before applying')
-        mat=textures.material(s,s.texture)
+        if profiles.is_source(s.engine):
+            mat=bpy.data.materials.get('Source: '+s.texture) or bpy.data.materials.new('Source: '+s.texture)
+            mat['wl_texture']=s.texture;mat['wl_width']=512;mat['wl_height']=512
+        else:mat=textures.material(s,s.texture)
         edit=obj.mode=='EDIT'
         if edit:bpy.ops.object.mode_set(mode='OBJECT')
         try:
@@ -690,7 +704,7 @@ class WL_OT_texture(SafeOperator,bpy.types.Operator):
                 selected.append(index)
                 fid=attr.data[index].value;face=by_id[fid];face.texture=s.texture
                 face.projection=[s.shift_u,s.shift_v,s.texture_rotation,s.texture_scale_u,s.texture_scale_v]
-                if profiles.is_goldsrc(s.engine):face.axes=formats.quake_axes(planes[index][1],face.projection)
+                if profiles.uses_valve_axes(s.engine):face.axes=formats.quake_axes(planes[index][1],face.projection)
                 records[str(fid)]=asdict(face)
             obj.data['wl_faces']=json.dumps(records)
             if mat:textures.assign(obj,selected,mat)
@@ -701,24 +715,35 @@ class WL_OT_texture(SafeOperator,bpy.types.Operator):
 
 class WL_OT_import(SafeOperator,bpy.types.Operator,ImportHelper):
     bl_idname='wavelength.import_map';bl_label='Import MAP';bl_options={'REGISTER','UNDO'}
-    filename_ext='.map';filter_glob:StringProperty(default='*.map',options={'HIDDEN'})
+    filename_ext='.map';filter_glob:StringProperty(default='*.map;*.vmf',options={'HIDDEN'})
     def run(self,context):
         path=Path(self.filepath)
         if path.stat().st_size>formats.MAX_BYTES:raise ValueError('MAP exceeds 16 MiB limit')
-        document=formats.parse(path.read_text(encoding='utf-8-sig'))
+        from . import vmf
+        is_vmf=path.suffix.lower()=='.vmf'
+        document=(vmf.parse if is_vmf else formats.parse)(path.read_text(encoding='utf-8-sig'))
         # Import into a fresh scene to avoid replacing existing world metadata.
         if any(o.get('wl_role') for o in context.scene.objects):raise ValueError('Import into an empty wavelength scene')
         scene.import_map(context.scene,document);s=context.scene.wavelength;s.map_path=self.filepath
-        if any(f.axes for e in document.entities for b in e.brushes for f in b):s.engine='goldsrc'
+        if is_vmf:
+            if not profiles.is_source(s.engine):s.engine='source_hl2_windows' if os.name=='nt' else 'source_hl2_linux'
+        elif any(f.axes for e in document.entities for b in e.brushes for f in b):s.engine='goldsrc'
         s.status='MAP imported; comments/formatting are normalized on export'
 
 class WL_OT_export(SafeOperator,bpy.types.Operator,ExportHelper):
     bl_idname='wavelength.export_map';bl_label='Export MAP';filename_ext='.map'
-    filter_glob:StringProperty(default='*.map',options={'HIDDEN'})
+    filter_glob:StringProperty(default='*.map;*.vmf',options={'HIDDEN'})
+    def invoke(self,context,event):
+        self.filename_ext='.vmf' if profiles.is_source(context.scene.wavelength.engine) else '.map'
+        self.filepath=str(Path(bpy.path.abspath(context.scene.wavelength.project_dir or '//'))/(context.scene.wavelength.map_name+self.filename_ext))
+        return ExportHelper.invoke(self,context,event)
     def run(self,context):
         if context.scene.wavelength.engine=='blender':raise ValueError('Select an engine before exporting MAP')
-        text=formats.write(scene.export_map(context.scene));Path(self.filepath).write_text(text);context.scene.wavelength.map_path=self.filepath
-        context.scene.wavelength.status='MAP exported'
+        from . import vmf
+        source=profiles.is_source(context.scene.wavelength.engine)
+        if source and Path(self.filepath).suffix.lower()!='.vmf':raise ValueError('Choose a .vmf filename for Source 1')
+        text=(vmf.write if source else formats.write)(scene.export_map(context.scene));Path(self.filepath).write_text(text);context.scene.wavelength.map_path=self.filepath
+        context.scene.wavelength.status='VMF exported' if source else 'MAP exported'
 
 class WL_OT_validate(SafeOperator,bpy.types.Operator):
     bl_idname='wavelength.validate';bl_label='Validate Map'
@@ -750,7 +775,10 @@ def build_tick():
             output=_JOB_PATH/'level.bsp'
             if not output.exists():raise ValueError('Compiler returned success without a BSP')
             data=output.read_bytes()
-            if len(data)<124 or struct.unpack_from('<i',data)[0]!=profiles.PROFILES[_JOB_ENGINE]['bsp_version']:raise ValueError('Unexpected BSP version')
+            if profiles.is_source(_JOB_ENGINE):
+                from .source_tools import validate_bsp
+                validate_bsp(data)
+            elif len(data)<124 or struct.unpack_from('<i',data)[0]!=profiles.PROFILES[_JOB_ENGINE]['bsp_version']:raise ValueError('Unexpected BSP version')
             from .build.pipeline import publish_bsp
             published=publish_bsp(output,_JOB_OUTPUT) if _JOB_OUTPUT else output
             s.last_build=str(published);s.status=f'Build complete: {published.name}';_JOB=None;return None
@@ -790,8 +818,12 @@ class WL_OT_build(SafeOperator,bpy.types.Operator,ExportHelper):
         root=Path(bpy.path.abspath(s.project_dir));root.mkdir(parents=True,exist_ok=True)
         work=Path(tempfile.mkdtemp(prefix='build-',dir=root))
         _JOB_PATH=work;s.build_log_dir=str(work)
-        if textures.sources(s):textures.build_wad(s,document,work,context.scene.objects)
-        (work/'level.map').write_text(formats.write(document))
+        if profiles.is_source(s.engine):
+            from . import vmf
+            (work/'level.vmf').write_text(vmf.write(document))
+        else:
+            if textures.sources(s):textures.build_wad(s,document,work,context.scene.objects)
+            (work/'level.map').write_text(formats.write(document))
         wrapper=json.loads(s.wrapper);environment=json.loads(s.environment)
         if not isinstance(wrapper,list) or not all(isinstance(x,str) for x in wrapper):raise ValueError('Wrapper must be an argument array')
         if not isinstance(environment,dict) or not all(isinstance(k,str) and isinstance(v,str) for k,v in environment.items()):raise ValueError('Environment must map strings to strings')
@@ -814,6 +846,11 @@ class WL_OT_build(SafeOperator,bpy.types.Operator,ExportHelper):
                 except Exception as exc: raise ValueError(f'{stage.upper()} arguments must be a JSON array') from exc
                 if not isinstance(extra,list) or not all(isinstance(x,str) for x in extra):raise ValueError(f'{stage.upper()} arguments must be a JSON string array')
                 args=[*extra,*args]
+            if profiles.is_source(s.engine):
+                from .source_tools import compiler_args
+                args=compiler_args(stage,bpy.path.abspath(s.game_dir))
+                if exe.suffix.lower()=='.exe' and os.name!='nt':
+                    args[1]='Z:'+args[1].replace('/',chr(92))
             if stage=='hlcsg':args.insert(0,'-nowadtextures')
             commands.append([*wrapper,str(exe),*args])
         _JOB=Pipeline(commands,work,s.timeout,dict(os.environ,**environment));_JOB_SCENE=context.scene;_JOB_PATH=work;_JOB_ENGINE=s.engine;_JOB_OUTPUT=destination
@@ -842,7 +879,7 @@ class WL_OT_launch(SafeOperator,bpy.types.Operator):
         s=context.scene.wavelength
         if not s.last_build or not Path(s.last_build).is_file():raise ValueError('Build successfully before launching')
         if not s.map_name or any(c not in 'abcdefghijklmnopqrstuvwxyz0123456789_-' for c in s.map_name):raise ValueError('Use lowercase letters, numbers, underscores or hyphens for map name')
-        steam_profile=s.engine=='goldsrc_linux_steam'
+        steam_profile=profiles.get(s.engine).get('launch_method')=='steam'
         directory=Path(bpy.path.abspath(s.game_dir))
         if not directory.is_dir():raise ValueError('Configure an existing game directory')
         if steam_profile:
@@ -865,8 +902,9 @@ class WL_OT_launch(SafeOperator,bpy.types.Operator):
             # explicitly configures a different -game option.
             if args==['-game',str(directory),'+map',s.map_name]:
                 args=['-console','-dev','+map',s.map_name]
-            subprocess.Popen([steam_exe,'-applaunch','70',*args],start_new_session=True)
-            s.status='Launch requested through Steam (Half-Life 1, App ID 70)'
+            appid=profiles.get(s.engine)['steam_app_id']
+            subprocess.Popen([steam_exe,'-applaunch',appid,*args],start_new_session=True)
+            s.status=f'Launch requested through Steam (App ID {appid})'
         else:
             subprocess.Popen([str(exe),*args],cwd=exe.parent,start_new_session=True)
             s.status='Game launched'
@@ -1069,6 +1107,12 @@ class WL_PT_texture(bpy.types.Panel):
     bl_label='Face Textures';bl_idname='WL_PT_texture';bl_space_type='VIEW_3D';bl_region_type='UI';bl_category='wavelength';bl_parent_id='WL_PT_main';bl_options={'DEFAULT_CLOSED'}
     def draw(self,context):
         l=self.layout;s=context.scene.wavelength
+        if profiles.is_source(s.engine):
+            l.label(text='Source material path (without materials/ or .vmt)')
+            l.label(text='VTF previews are not implemented',icon='INFO')
+            for name in ('texture','shift_u','shift_v','texture_rotation','texture_scale_u','texture_scale_v'):l.prop(s,name)
+            l.operator('wavelength.apply_texture');l.prop(s,'live_texture_reproject')
+            return
         l.prop(s,'wad_path');row=l.row(align=True);row.operator('wavelength.add_wad',text='Add WAD',icon='FILE_FOLDER');row.operator('wavelength.refresh_textures',text='Reload',icon='FILE_REFRESH')
         for path in json.loads(s.texture_wads):
             row=l.row(align=True);op=row.operator('wavelength.select_wad',text=Path(path).name);op.filepath=path
