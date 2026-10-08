@@ -1,4 +1,4 @@
-# Wavelength — 0.10.27-pre.alpha
+# Wavelength — 0.10.28-pre.alpha
 
 Blender authoring tools for Quake and Half-Life/GoldSrc, with an experimental native-grid integration workspace.
 
@@ -17,7 +17,7 @@ Read the [current-state audit](docs/CURRENT-STATE.md), [Blender source/injection
 python3 tools/release.py
 ```
 
-Runs Python syntax checks, installer/native tests, builds the C++ library, and creates `dist/wavelength-addon-v0.10.27-pre.alpha.zip`. Install that ZIP through Blender's add-on installation UI. No game assets or native host patch are bundled. GitHub Actions runs the same checks and retains the ZIP artifact. Blender UI and game-runtime validation are separate checks.
+Runs Python syntax checks, installer/native tests, builds the C++ library, and creates `dist/wavelength-addon-v0.10.28-pre.alpha.zip`. Install that ZIP through Blender's add-on installation UI. No game assets or native host patch are bundled. GitHub Actions runs the same checks and retains the ZIP artifact. Blender UI and game-runtime validation are separate checks.
 
 ## Native research and host inspection
 
@@ -41,3 +41,7 @@ python3 tools/release.py --publish
 This validates/packages, checks the exact repository root and remote, fetches remote history, stages this workspace, commits changes, creates a new annotated `v<version>-pre.alpha` tag, and atomically pushes branch plus tag. It never force pushes or replaces a tag. If a push is interrupted after local tag creation, inspect local/remote state and retry the atomic Git push; do not recreate the tag. The old tag `v0.10.25-pre.alpha` remains unchanged.
 
 The repository root is this native workspace, not the outer directory containing local games, maps, downloaded compilers, or historical copies.
+
+## Self-contained Linux installer
+
+`python3 tools/build_installer.py` produces an installer with bundled, pinned CPython. See [installer lifecycle and current native support limits](docs/INSTALLER.md). Launch `wavelength-installer` for the terminal menu or use install/remove/status/recover commands. Native grid support is still unavailable; unsupported installations are refused as a whole.

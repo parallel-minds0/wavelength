@@ -72,3 +72,12 @@ workspace's `.local/addon-git-before-native-workspace`. The unexpected ancestor
 repository rooted at the user's home was left untouched. Publication checks the
 exact Git root and remote before staging, commits, creates a new annotated
 prerelease tag and atomically pushes branch plus tag without force.
+
+## 0.10.28 installer lifecycle update
+
+The installer now bundles pinned standalone CPython through tools/build_installer.py.
+Python applies the native patch and manages both components with a single receipt.
+C++ implements the patched behavior, not injection. Install/remove/recover have
+transaction tests and restore backups; edited files and unknown target hashes
+are refused. Current recipes are still empty: no real native renderer installation
+or AppImage backend is claimed. See INSTALLER.md for the accurate current scope.

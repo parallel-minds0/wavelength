@@ -1,3 +1,10 @@
+# 0.10.28-pre.alpha
+
+- Bundled CPython Linux installer builder, isolated launcher and terminal menu.
+- Paired native/Python install, remove and recovery with receipts, exact hashes and original backups.
+- Transaction tests cover failures, pre-existing add-ons, user edits and external Blender updates.
+- Native renderer patch and AppImage deployment backend remain unavailable; real installations refuse before modifying either component.
+
 # 0.10.27-pre.alpha
 
 - Corrects an inherited ignore rule that excluded the Python `source/build/` package from Git.

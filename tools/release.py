@@ -74,7 +74,7 @@ def main():
     if any(line.startswith('160000 ') for line in staged.splitlines()):
         raise RuntimeError('Nested repository would omit source from release')
     changes=run('git','diff','--cached','--name-only',capture=True).strip()
-    if changes:run('git','commit','-m',f'Release {tag}: native workspace and Blender integration research')
+    if changes:run('git','commit','-m',f'Release {tag}')
     run('git','tag','-a',tag,'-m',f'Wavelength {tag}; native renderer integration remains experimental and unimplemented')
     run('git','push','--atomic','origin',f'HEAD:refs/heads/{branch}',f'refs/tags/{tag}')
     print(json.dumps({'published_tag':tag,'commit':run('git','rev-parse','HEAD',capture=True).strip()}))

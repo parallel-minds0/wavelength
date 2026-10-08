@@ -1,0 +1,10 @@
+{
+  "schema": 1,
+  "platform": "linux-x86_64",
+  "implementation": "CPython",
+  "version": "3.12.15",
+  "url": "https://github.com/astral-sh/python-build-standalone/releases/download/20261003/cpython-3.12.15%2B20261003-x86_64-unknown-linux-gnu-install_only_stripped.tar.gz",
+  "sha256": "731af898886c5f821890dc901eca3c651cca8e51fa7308c159d12a1194aeac91",
+  "provider": "https://github.com/astral-sh/python-build-standalone",
+  "license_note": "Preserve the complete runtime tree including bundled licenses."
+}
