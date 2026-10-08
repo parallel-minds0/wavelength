@@ -173,6 +173,9 @@ def refresh(settings,context=None):
 
 def all_names(settings, search=''):
     """Browse all registered WADs, not just the active WAD."""
+    if profiles.is_source(settings.engine):
+        from . import source_assets
+        return source_assets.library(bpy.path.abspath(settings.game_dir)).materials(search)
     needle=(search or '').casefold()
     names={}
     for path in sources(settings):
@@ -198,6 +201,21 @@ def preview_icon(settings,name):
         from bpy.utils import previews
         _previews=previews.new()
     try:
+        if profiles.is_source(settings.engine):
+            from . import source_assets
+            key='source:'+str(settings.game_dir)+':'+name.casefold()
+            existing=_previews.get(key)
+            if existing is not None:return existing.icon_id
+            assets=source_assets.library(bpy.path.abspath(settings.game_dir));props=assets.material(name)
+            base=props.get('$basetexture') or props.get('%tooltexture')
+            preview=_previews.new(key)
+            if not base:return preview.icon_id
+            base=source_assets.asset_path(base)
+            if not base.startswith('materials/'):base='materials/'+base
+            if not base.endswith('.vtf'):base+='.vtf'
+            _,_,w,h,pixels=source_assets.decode_vtf(assets.read(base),max_dimension=64)
+            preview.image_size=(w,h);preview.image_pixels_float=[v/255 for v in pixels]
+            return preview.icon_id
         wad,item=find(settings,name)
         key=hashlib.sha256((str(wad.path)+':'+name.casefold()).encode()).hexdigest()
         existing=_previews.get(key)

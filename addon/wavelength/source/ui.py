@@ -21,6 +21,7 @@ _JOB=None
 _JOB_SCENE=None
 _JOB_PATH=None
 _JOB_ENGINE=None
+_JOB_MAP_NAME="level"
 _JOB_OUTPUT=None
 
 
@@ -58,7 +59,7 @@ def entity_class_search(self, context, edit_text):
 def entity_choice_changed(self,context):
     if self.entity_choice:self.entity_class=self.entity_choice
 
-_ENGINE_FIELDS=('build_output','compiler_dir','qbsp_path','vis_path','light_path','qbsp_args','vis_args','light_args','game_executable','game_dir','wad_path','palette_path','quake_pak_dir','texture_wads','fgd_path','wrapper','environment','launch_args','map_name')
+_ENGINE_FIELDS=('build_output','compiler_dir','qbsp_path','vis_path','light_path','qbsp_args','vis_args','light_args','source_vbsp_args','source_vvis_args','source_vrad_args','game_executable','game_dir','wad_path','palette_path','quake_pak_dir','texture_wads','fgd_path','wrapper','environment','launch_args','map_name')
 
 def local_root(settings):
     candidates=[Path(__file__).resolve().parents[3],Path.cwd()]
@@ -775,7 +776,7 @@ def build_tick():
                 s.status='Build failed — see error below'
             _JOB=None;return None
         if state=='DONE':
-            output=_JOB_PATH/'level.bsp'
+            output=_JOB_PATH/(_JOB_MAP_NAME+'.bsp')
             if not output.exists():raise ValueError('Compiler returned success without a BSP')
             data=output.read_bytes()
             if profiles.is_source(_JOB_ENGINE):
@@ -784,7 +785,9 @@ def build_tick():
             elif len(data)<124 or struct.unpack_from('<i',data)[0]!=profiles.PROFILES[_JOB_ENGINE]['bsp_version']:raise ValueError('Unexpected BSP version')
             from .build.pipeline import publish_bsp
             published=publish_bsp(output,_JOB_OUTPUT) if _JOB_OUTPUT else output
-            s.last_build=str(published);s.status=f'Build complete: {published.name}';_JOB=None;return None
+            s.last_build=str(published)
+            if profiles.is_source(_JOB_ENGINE):s.map_name=_JOB_MAP_NAME
+            s.status=f'Build complete: {published.name}';_JOB=None;return None
         return 0.1
     except Exception as exc:
         if _JOB:_JOB.cancel()
@@ -804,7 +807,7 @@ class WL_OT_build(SafeOperator,bpy.types.Operator,ExportHelper):
         self.filepath=s.build_output or str(Path(bpy.path.abspath(s.project_dir or '//'))/(s.map_name+'.bsp'))
         return ExportHelper.invoke(self,context,event)
     def run(self,context):
-        global _JOB,_JOB_SCENE,_JOB_PATH,_JOB_ENGINE,_JOB_OUTPUT
+        global _JOB,_JOB_SCENE,_JOB_PATH,_JOB_ENGINE,_JOB_OUTPUT,_JOB_MAP_NAME
         if _JOB:raise ValueError('A build is already running')
         s=context.scene.wavelength
         if s.engine=='blender':raise ValueError('Select an engine before building')
@@ -815,6 +818,10 @@ class WL_OT_build(SafeOperator,bpy.types.Operator,ExportHelper):
             if destination.suffix.lower()!='.bsp':raise ValueError('Build output must have a .bsp extension')
             if destination.is_dir():raise ValueError('Choose a BSP filename, not a directory')
             s.build_output=str(destination)
+        map_stem=(destination.stem if destination else s.map_name) if profiles.is_source(s.engine) else 'level'
+        if profiles.is_source(s.engine):
+            from .source_tools import compiler_args
+            compiler_args('vbsp',bpy.path.abspath(s.game_dir),map_stem)
         document=scene.export_map(context.scene)
         if not s.project_dir:raise ValueError('Configure a project directory')
         if s.engine!='quake' and not s.compiler_dir:raise ValueError('Configure the compiler directory')
@@ -823,7 +830,7 @@ class WL_OT_build(SafeOperator,bpy.types.Operator,ExportHelper):
         _JOB_PATH=work;s.build_log_dir=str(work)
         if profiles.is_source(s.engine):
             from . import vmf
-            (work/'level.vmf').write_text(vmf.write(document))
+            (work/(map_stem+'.vmf')).write_text(vmf.write(document))
         else:
             if textures.sources(s):textures.build_wad(s,document,work,context.scene.objects)
             (work/'level.map').write_text(formats.write(document))
@@ -851,15 +858,16 @@ class WL_OT_build(SafeOperator,bpy.types.Operator,ExportHelper):
                 args=[*extra,*args]
             if profiles.is_source(s.engine):
                 from .source_tools import compiler_args
-                args=compiler_args(stage,bpy.path.abspath(s.game_dir))
+                args=compiler_args(stage,bpy.path.abspath(s.game_dir),map_stem)
                 if exe.suffix.lower()=='.exe' and os.name!='nt':
                     args[1]='Z:'+args[1].replace('/',chr(92))
                 extra=json.loads(getattr(s,'source_'+stage+'_args'))
                 if not isinstance(extra,list) or not all(isinstance(v,str) for v in extra):raise ValueError(stage.upper()+' arguments must be a JSON string array')
+                if '++' in exe.name and stage=='vbsp' and '-singleplayer' not in extra:extra=['-singleplayer',*extra]
                 args=[*extra,*args]
             if stage=='hlcsg':args.insert(0,'-nowadtextures')
             commands.append([*wrapper,str(exe),*args])
-        _JOB=Pipeline(commands,work,s.timeout,dict(os.environ,**environment));_JOB_SCENE=context.scene;_JOB_PATH=work;_JOB_ENGINE=s.engine;_JOB_OUTPUT=destination
+        _JOB=Pipeline(commands,work,s.timeout,dict(os.environ,**environment));_JOB_SCENE=context.scene;_JOB_PATH=work;_JOB_ENGINE=s.engine;_JOB_OUTPUT=destination;_JOB_MAP_NAME=map_stem
         s.status='Build started';bpy.app.timers.register(build_tick,first_interval=0.1)
 
 class WL_OT_cancel(bpy.types.Operator):
@@ -887,6 +895,9 @@ class WL_OT_launch(SafeOperator,bpy.types.Operator):
         if not s.map_name or any(c not in 'abcdefghijklmnopqrstuvwxyz0123456789_-' for c in s.map_name):raise ValueError('Use lowercase letters, numbers, underscores or hyphens for map name')
         steam_profile=profiles.get(s.engine).get('launch_method')=='steam'
         directory=Path(bpy.path.abspath(s.game_dir))
+        if profiles.is_source(s.engine):
+            from .source_tools import runtime_game
+            directory=runtime_game(directory)
         if not directory.is_dir():raise ValueError('Configure an existing game directory')
         if steam_profile:
             import shutil as _shutil
@@ -895,8 +906,12 @@ class WL_OT_launch(SafeOperator,bpy.types.Operator):
         else:
             exe=Path(bpy.path.abspath(s.game_executable))
             if not exe.is_file():raise ValueError('Configure an existing game executable')
+        if profiles.is_source(s.engine):s.map_name=Path(s.last_build).stem
         arguments=json.loads(s.launch_args)
         if not isinstance(arguments,list) or not all(isinstance(x,str) for x in arguments):raise ValueError('Launch arguments must be an array')
+        if profiles.is_source(s.engine) and '-game' in arguments:
+            at=arguments.index('-game')
+            if at+1<len(arguments):arguments[at+1]=str(directory)
         args=[x.replace('{map}',s.map_name).replace('{game_dir}',str(directory)).replace('{build_dir}',str(Path(s.last_build).parent)) for x in arguments]
         destination=directory/'maps';destination.mkdir(exist_ok=True)
         target=destination/(s.map_name+'.bsp')
@@ -1117,7 +1132,7 @@ class WL_PT_texture(bpy.types.Panel):
         l=self.layout;s=context.scene.wavelength
         if profiles.is_source(s.engine):
             l.label(text='Source material path (without materials/ or .vmt)')
-            l.operator('wavelength.source_material',icon='VIEWZOOM')
+            l.operator('wavelength.texture_browser',text='Browse Source Material Gallery',icon='IMAGE_DATA')
             l.operator('wavelength.resolve_textures');l.operator('wavelength.preview_textures')
             for name in ('texture','shift_u','shift_v','texture_rotation','texture_scale_u','texture_scale_v'):l.prop(s,name)
             l.operator('wavelength.apply_texture');l.prop(s,'live_texture_reproject')
@@ -1338,7 +1353,7 @@ class WL_OT_bake(SafeOperator,bpy.types.Operator):
                 with context.temp_override(object=copy,active_object=copy,selected_objects=[copy],selected_editable_objects=[copy]):bpy.ops.rigidbody.object_remove()
             copy.name=obj.name+' settled';obj['wl_exclude']=True
 
-_PROJECT_FIELDS=('engine','grid_mode','grid_step','project_dir','build_output','map_name','compiler_dir','qbsp_path','vis_path','light_path','qbsp_args','vis_args','light_args','game_executable','game_dir','wad_path','palette_path','quake_pak_dir','texture_wads','fgd_path','wrapper','environment','launch_args','timeout')
+_PROJECT_FIELDS=('engine','grid_mode','grid_step','project_dir','build_output','map_name','compiler_dir','qbsp_path','vis_path','light_path','qbsp_args','vis_args','light_args','source_vbsp_args','source_vvis_args','source_vrad_args','game_executable','game_dir','wad_path','palette_path','quake_pak_dir','texture_wads','fgd_path','wrapper','environment','launch_args','timeout')
 class WL_OT_save_project(SafeOperator,bpy.types.Operator,ExportHelper):
     bl_idname='wavelength.save_project';bl_label='Save Project';filename_ext='.json'
     def run(self,context):
@@ -1395,6 +1410,8 @@ class WL_UL_texture_gallery(bpy.types.UIList):
         # A UIList supplies Blender's native vertical scrollbar.  Each list item
         # is one catalogue row containing three genuinely large preview images.
         s=context.scene.wavelength
+        # UIList needs a seven-unit row; cancel inherited scaling inside cards.
+        layout.scale_y=1.0/7.0
         row=layout.row(align=False)
         for name in (item.name0,item.name1,item.name2):
             card=row.column(align=True)
@@ -1405,7 +1422,7 @@ class WL_UL_texture_gallery(bpy.types.UIList):
             except (ValueError,OSError,UnicodeError): icon_value=0
             preview=card.row(align=True)
             preview.alignment='CENTER'
-            preview.template_icon(icon_value=icon_value,scale=8.0)
+            preview.template_icon(icon_value=icon_value,scale=5.5)
             pick=card.row(align=True)
             pick.alignment='CENTER'
             op=pick.operator('wavelength.texture_browser_pick',text=name)
@@ -1462,7 +1479,8 @@ class WL_OT_texture_browser(bpy.types.Operator):
         if self.view_mode=='GALLERY':
             # Real continuously scrollable catalogue: the UIList owns the native
             # scrollbar, while each row renders three large preview cards.
-            col.template_list('WL_UL_texture_gallery','catalog',self,'gallery_rows',self,'gallery_row_index',rows=3,maxrows=3,type='DEFAULT')
+            gallery=col.column();gallery.scale_y=7.0
+            gallery.template_list('WL_UL_texture_gallery','catalog',self,'gallery_rows',self,'gallery_row_index',rows=3,maxrows=3,type='DEFAULT')
             if context.scene.wavelength.texture:
                 selected=col.row();selected.alignment='CENTER'
                 selected.label(text=context.scene.wavelength.texture,icon='TEXTURE')

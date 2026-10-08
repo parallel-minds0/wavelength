@@ -41,3 +41,17 @@ class SourceTests(unittest.TestCase):
             (Path(folder)/'gameinfo.txt').write_text('GameInfo {}')
             self.assertEqual(source_tools.compiler_args('vbsp',folder),['-game',folder,'level.vmf'])
             self.assertEqual(source_tools.compiler_args('vrad',folder)[-1],'level.bsp')
+
+    def test_combined_runtime_discovery(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root=Path(folder);game=root/'hl2';game.mkdir()
+            self.assertEqual(source_tools.runtime_game(game),game)
+            combined=root/'hl2_complete';combined.mkdir();(combined/'gameinfo.txt').write_text('GameInfo {}')
+            self.assertEqual(source_tools.runtime_game(game),combined)
+
+    def test_source_map_basename_preserved(self):
+        with tempfile.TemporaryDirectory() as folder:
+            (Path(folder)/'gameinfo.txt').write_text('GameInfo {}')
+            self.assertEqual(source_tools.compiler_args('vbsp',folder,'my_room')[-1],'my_room.vmf')
+            self.assertEqual(source_tools.compiler_args('vrad',folder,'my_room')[-1],'my_room.bsp')
+            with self.assertRaises(ValueError):source_tools.compiler_args('vbsp',folder,'../escape')

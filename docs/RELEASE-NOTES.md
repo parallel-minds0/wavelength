@@ -1,3 +1,12 @@
+# 0.10.32-pre.alpha
+
+- Source materials use the shared thumbnail gallery; gallery rows and native scrollbar now share the same height (applies to WAD browsing too).
+- Reapply engine grid units/subdivisions after loading scenes and creating viewports, correcting stale saved settings in the experimental shader path.
+- Discover HL2's combined game directory; migrate launch directory for older profiles. Explicit singleplayer mode for Tools++ VBSP.
+- Preserve the final Source map basename throughout compilation and launching so embedded asset paths are not renamed out from under the BSP.
+- Source runtime investigation remains unresolved: stock map reached gameplay, custom-map tests exited before the gameplay marker. Do not interpret a successful compile or Spawn Server as a successful load.
+- Preserve Source compiler arguments in saved project files.
+
 # 0.10.31-pre.alpha
 
 - Source-tree distribution doubles as the installer; release archive includes private Python, source checkouts bootstrap the same pinned runtime.

@@ -117,3 +117,41 @@ def unregister():
         bpy.types.SpaceView3D.draw_handler_remove(_snap_indicator_handle, 'WINDOW')
         _snap_indicator_handle = None
     restore()
+
+
+from bpy.app.handlers import persistent
+@persistent
+def _sync_loaded_grid(_unused=None):
+    scene=getattr(bpy.context,'scene',None)
+    if scene and hasattr(scene,'wavelength'):update(scene.wavelength,bpy.context)
+
+def _sync_grid_tick():
+    try:
+        scene=getattr(bpy.context,'scene',None)
+        if scene and hasattr(scene,'wavelength'):
+            settings=scene.wavelength
+            if settings.grid_mode=='ENGINE' and settings.engine!='blender':
+                from . import profiles
+                step=profiles.active_grid_step_meters(settings)
+                if _EXPERIMENTAL and scene.unit_settings.system!='NONE':scene.unit_settings.system='NONE'
+                for screen in bpy.data.screens:
+                    for area in screen.areas:
+                        if area.type=='VIEW_3D':
+                            overlay=area.spaces.active.overlay
+                            if overlay.grid_subdivisions!=_NATIVE_SUBDIVISIONS or abs(overlay.grid_scale-step)>1e-7:
+                                _engine_visuals(overlay,step);area.tag_redraw()
+    except (AttributeError,ReferenceError,RuntimeError):pass
+    return .25
+
+_previous_register=register
+_previous_unregister=unregister
+def register():
+    _previous_register()
+    if _sync_loaded_grid not in bpy.app.handlers.load_post:bpy.app.handlers.load_post.append(_sync_loaded_grid)
+    if not bpy.app.timers.is_registered(_sync_grid_tick):bpy.app.timers.register(_sync_grid_tick,first_interval=.25,persistent=True)
+    _sync_loaded_grid()
+
+def unregister():
+    if _sync_loaded_grid in bpy.app.handlers.load_post:bpy.app.handlers.load_post.remove(_sync_loaded_grid)
+    if bpy.app.timers.is_registered(_sync_grid_tick):bpy.app.timers.unregister(_sync_grid_tick)
+    _previous_unregister()

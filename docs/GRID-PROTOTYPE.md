@@ -73,3 +73,9 @@ supports extracted ELF payloads and managed AppImage extraction with reversible
 launchers. See INSTALLER.md. This does not turn the prototype into the C++ state
 bridge or add per-view enable transport. The earlier copy-only script stays
 hash-locked as a reproducible development experiment.
+
+0.10.32 reapplies the selected engine scale and required subdivisions after file
+load and for newly created viewports. This fixes saved scenes restoring the old
+subdivision value beneath the shader. A Blender regression check deliberately
+restored incorrect scale/subdivision/unit settings and verified their correction.
+Native LOD and lack of a per-view native enable bridge remain unchanged.

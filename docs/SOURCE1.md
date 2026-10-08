@@ -111,3 +111,19 @@ are tested; Windows/Proton game execution has not been certified by Linux tests.
 Format references: [Valve VTF structures](https://github.com/ValveSoftware/source-sdk-2013/blob/master/src/public/vtf/vtf.h),
 [Valve image formats](https://github.com/ValveSoftware/source-sdk-2013/blob/master/src/public/bitmap/imageformat.h),
 and the [VPK reader implementation](https://github.com/ValvePython/vpk/blob/master/vpk/__init__.py).
+
+## 0.10.32 corrections and verification boundary
+
+Source materials now use the same three-column thumbnail gallery as WADs. Its
+native list row height matches the cards, so the scrollbar spans the gallery.
+The gallery was visually checked in Blender. Project files retain Source stage
+arguments. Source builds retain their final basename through VMF, BSP and launch;
+renaming a temporary `level.bsp` could invalidate map-specific embedded assets.
+Current installations prefer `hl2_complete` when available and Tools++ receives
+explicit singleplayer mode.
+
+Runtime success is **not yet confirmed**. A stock HL2 map reached gameplay and
+returned player coordinates. Custom-map test processes exited before the gameplay
+marker, including a Vulkan retry. The earlier Spawn Server message was insufficient
+proof of a working map. Investigation stopped at the user's requested milestone;
+do not claim this release resolves every HL2 load failure.

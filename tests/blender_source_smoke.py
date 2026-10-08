@@ -29,14 +29,14 @@ with tempfile.TemporaryDirectory() as folder:
     tools=folder/'bin';tools.mkdir()
     for stage in ('vbsp','vvis','vrad'):
         tool=tools/stage
-        tool.write_text('#!/usr/bin/env python3\nimport sys,json,struct\nfrom pathlib import Path\nPath("'+stage+'.args.json").write_text(json.dumps(sys.argv[1:]))\n'+('Path("level.bsp").write_bytes(b"VBSP"+struct.pack("<i",20)+bytes(1028))\n' if stage=='vbsp' else ''))
+        tool.write_text('#!/usr/bin/env python3\nimport sys,json,struct\nfrom pathlib import Path\nPath("'+stage+'.args.json").write_text(json.dumps(sys.argv[1:]))\n'+('Path("chosen.bsp").write_bytes(b"VBSP"+struct.pack("<i",20)+bytes(1028))\n' if stage=='vbsp' else ''))
         tool.chmod(0o755)
     s.compiler_dir=str(tools);s.game_dir=str(game);s.project_dir=str(folder/'work')
     out=folder/'chosen.bsp'
     bpy.ops.wavelength.build(filepath=str(out))
     while ui._JOB:ui.build_tick();time.sleep(.02)
     assert out.is_file(),s.status
-    assert json.loads((ui._JOB_PATH/'vbsp.args.json').read_text())==['-game',str(game),'level.vmf']
+    assert json.loads((ui._JOB_PATH/'vbsp.args.json').read_text())==['-game',str(game),'chosen.vmf']
     assert not (ui._JOB_PATH/'textures.wad').exists()
 wavelength.unregister()
 print('PASS Source Linux/Windows profiles, catalog, six-brush VMF scene roundtrip, export operator and Source material assignment')
