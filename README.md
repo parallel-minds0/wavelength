@@ -1,8 +1,8 @@
 # Wavelength
 
-> **This is the alpha testing release. Don't expect usable functionality; it does the bare minimum.**
+> **This is the pre-alpha testing release. Don't expect usable functionality; it does the bare minimum.**
 
-Wavelength is an experimental Blender add-on for brush-based level authoring. The current alpha focuses on Quake and GoldSrc / Half-Life workflows. Interfaces, project formats, behavior, and repository structure can change while the project is being tested.
+Wavelength is an experimental Blender add-on for brush-based level authoring. The current pre-alpha focuses on Quake and GoldSrc / Half-Life workflows. Interfaces, project formats, behavior, and repository structure can change while the project is being tested.
 
 ## Repository layout
 
@@ -14,9 +14,9 @@ Wavelength is an experimental Blender add-on for brush-based level authoring. Th
 - `third-party/` — redistributable third-party source/binaries shipped with Wavelength.
 - `LICENSE` — project license.
 
-## Alpha expectations
+## Pre-alpha expectations
 
-Wavelength is not production-ready. Features may be incomplete or broken, engine/toolchain setups still require manual configuration, and compatibility is not guaranteed. Test with disposable project files and keep backups.
+Wavelength v0.10.25-pre.alpha is not production-ready. Features may be incomplete or broken, engine/toolchain setups still require manual configuration, and compatibility is not guaranteed. Test with disposable project files and keep backups.
 
 ## Development
 

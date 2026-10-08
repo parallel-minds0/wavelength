@@ -1,4 +1,4 @@
-"""Engine-facing scene validation for the 0.9 alpha."""
+"""Engine-facing scene validation for the pre-alpha."""
 import json, math
 from . import profiles, system_tree
 

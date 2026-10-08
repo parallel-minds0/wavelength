@@ -1,4 +1,4 @@
-"""High-level engine authoring workflows for Wavelength 0.10 alpha.
+"""High-level engine authoring workflows for Wavelength 0.10 pre-alpha.
 
 These operators deliberately compose the existing brush/entity/texture/export systems.
 They do not replace the canonical geometry, grid, transform or MAP paths.
