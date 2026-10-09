@@ -58,7 +58,7 @@ def create_cube_label(settings):
 
 def unit_meters(settings):
     """Meters represented by one authoring unit for the active profile."""
-    return float(get(settings.engine).get('unit_meters', 1.0))
+    return float(getattr(settings, 'unit_scale', get(settings.engine).get('unit_meters', 1.0))) if settings.engine!='blender' else 1.0
 
 def engine_to_world(settings, value):
     return float(value) * unit_meters(settings)

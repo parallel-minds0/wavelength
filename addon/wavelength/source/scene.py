@@ -31,7 +31,7 @@ def origin_to_geometry(obj):
 
 
 def mark_brush(obj):
-    if not obj.get('wl_role'):obj['wl_unit_meters']=ENGINE_UNIT_METERS
+    if not obj.get('wl_role'):obj['wl_unit_meters']=profiles.unit_meters(bpy.context.scene.wavelength) if hasattr(bpy.context.scene,'wavelength') else ENGINE_UNIT_METERS
     obj['wl_role']='BRUSH'
     if not obj.get('wl_id'):obj['wl_id']=uid()
     attribute=obj.data.attributes.get('wl_face_id') or obj.data.attributes.new('wl_face_id','INT','FACE')
@@ -80,6 +80,7 @@ def brush_from_object(obj,engine,require_texture=False):
 
 
 def export_map(scene):
+    if bpy.context.scene==scene:bpy.context.view_layer.update()
     engine=scene.wavelength.engine
     world_pairs=json.loads(scene.get('wl_world_pairs','[["classname","worldspawn"]]'))
     if profiles.is_goldsrc(engine):
@@ -121,6 +122,7 @@ def export_map(scene):
 
 def import_map(scene,document):
     """Validate all geometry before allocating scene objects; rollback on failure."""
+    unit=profiles.unit_meters(scene.wavelength)
     world=[e for e in document.entities if dict(e.pairs).get('classname')=='worldspawn']
     if len(world)!=1:raise BrushError('WORLDSPAWN','Exactly one worldspawn is required')
     prepared=[]
@@ -136,7 +138,7 @@ def import_map(scene,document):
     try:
         groups={}
         for entity,brush,verts,polygons in prepared:
-            mesh=bpy.data.meshes.new('Brush');meshes.append(mesh);mesh.from_pydata([tuple(x*ENGINE_UNIT_METERS for x in v) for v in verts],[],polygons);mesh.update()
+            mesh=bpy.data.meshes.new('Brush');meshes.append(mesh);mesh.from_pydata([tuple(x*unit for x in v) for v in verts],[],polygons);mesh.update()
             obj=bpy.data.objects.new('Brush',mesh);collection.objects.link(obj);created.append(obj);mark_brush(obj)
             records={str(i+1):asdict(face) for i,face in enumerate(brush)};mesh['wl_faces']=json.dumps(records)
             for i,datum in enumerate(mesh.attributes['wl_face_id'].data):datum.value=i+1
@@ -163,9 +165,9 @@ def import_map(scene,document):
         for entity in document.entities:
             if entity.brushes or entity is world[0]:continue
             values=dict(entity.pairs);obj=bpy.data.objects.new(values.get('classname','Entity'),None)
-            obj.empty_display_type='ARROWS';obj.empty_display_size=16*ENGINE_UNIT_METERS
-            obj.location=[float(x)*ENGINE_UNIT_METERS for x in values.get('origin','0 0 0').split()]
-            obj['wl_unit_meters']=ENGINE_UNIT_METERS
+            obj.empty_display_type='ARROWS';obj.empty_display_size=16*unit
+            obj.location=[float(x)*unit for x in values.get('origin','0 0 0').split()]
+            obj['wl_unit_meters']=unit
             obj['wl_role']='ENTITY';obj['wl_id']=uid();obj['wl_pairs']=json.dumps(entity.pairs)
             collection.objects.link(obj);created.append(obj)
             if profiles.is_goldsrc(scene.wavelength.engine):entity_models.attach_reference(obj,entity.pairs)

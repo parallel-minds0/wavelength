@@ -7,7 +7,7 @@ quantized to Wavelength's engine grid during the interaction.
 import bpy
 import bmesh
 from mathutils import Matrix, Vector
-from . import scene, editor, profiles
+from . import scene, editor, profiles, workspace
 
 _GROUP = 'WL_GGT_engine_resize'
 
@@ -48,7 +48,7 @@ class WL_GGT_engine_resize(bpy.types.GizmoGroup):
     @classmethod
     def poll(cls, context):
         settings = getattr(getattr(context, 'scene', None), 'wavelength', None)
-        return (context.mode == 'EDIT_MESH' and settings is not None and
+        return (workspace.active(context, 'gizmos') and context.mode == 'EDIT_MESH' and settings is not None and
                 settings.grid_mode == 'ENGINE' and _brush(context) is not None)
 
     def setup(self, context):

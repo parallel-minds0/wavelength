@@ -168,7 +168,8 @@ def _edit_commit_handler(scene_data, depsgraph=None):
     depsgraph_update_post runs as Blender applies the Edit -> Object transition, so
     unlike a polling timer it cannot initialize after the edge has already passed.
     """
-    if not _edit_sessions:
+    from .workspace import active
+    if not active(bpy.context, 'textures') or not _edit_sessions:
         return
     settings = getattr(scene_data, 'wavelength', None)
     for name in tuple(_edit_sessions):
@@ -202,6 +203,8 @@ def _live_tick():
     """Poll brushes and reapply stored texture projection after geometry changes."""
     global _live_reprojecting
     try:
+        from .workspace import active
+        if not active(bpy.context, 'textures'):return _LIVE_POLL_SECONDS
         scene_data=bpy.context.scene
         if not scene_data or not hasattr(scene_data,'wavelength'):
             return _LIVE_POLL_SECONDS

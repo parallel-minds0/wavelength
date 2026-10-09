@@ -1,3 +1,7 @@
+# Current implementation — 2026-10-09
+
+The new milestone audit in [MILESTONES-1-2.md](MILESTONES-1-2.md) supersedes the historical baseline below. Native shader patching is no longer needed for the workspace grid; Blender 5.2.2 was used for verification.
+
 # Current baseline — 2026-10-08
 
 This audit supersedes the old 0.2.x chat context. The imported baseline is

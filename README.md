@@ -1,4 +1,6 @@
-# Wavelength — 0.10.33-pre.alpha
+# Wavelength — 0.11.0-pre.alpha
+
+Current usable workspace, native-asset and parametric-primitive instructions: [Milestones 1–2](docs/MILESTONES-1-2.md). Tested on unpatched Blender 5.2.2 Linux; this grid needs no native binary patch.
 
 Blender authoring tools for Quake, Half-Life/GoldSrc and Half-Life 2/Source 1 brush mapping, with an experimental native-grid integration workspace.
 
@@ -17,7 +19,7 @@ Read the [current-state audit](docs/CURRENT-STATE.md), [Blender source/injection
 python3 tools/release.py
 ```
 
-Runs Python syntax checks, installer/native tests, builds the C++ library, and creates `dist/wavelength-addon-v0.10.33-pre.alpha.zip`. Install that ZIP through Blender's add-on installation UI. No game assets or native host patch are bundled. GitHub Actions runs the same checks and retains the ZIP artifact. Blender UI and game-runtime validation are separate checks.
+Runs Python syntax checks, installer/native tests, builds the C++ library, and creates `dist/wavelength-addon-v0.11.0-pre.alpha.zip`. Install that ZIP through Blender's add-on installation UI. No game assets or native host patch are bundled. GitHub Actions runs the same checks and retains the ZIP artifact. Blender UI and game-runtime validation are separate checks.
 
 ## Native research and host inspection
 

@@ -12,7 +12,7 @@ import bpy
 import bmesh
 from bpy.props import StringProperty,EnumProperty,IntProperty,BoolProperty,CollectionProperty,PointerProperty,FloatProperty
 from bpy_extras.io_utils import ImportHelper,ExportHelper
-from . import grid,formats,scene,profiles,textures,identity,editor,resize_gizmo,brush_create,transform_sync,system_tree,authoring
+from . import workspace,precision_move,primitive_ui,asset_browser,profile_ui,grid,formats,scene,profiles,textures,identity,editor,resize_gizmo,brush_create,transform_sync,system_tree,authoring
 from .entity import models as entity_models, browser as entity_browser
 from .geometry import BrushError
 from .build.pipeline import Pipeline
@@ -129,6 +129,7 @@ def engine_changed(self,context):
         if values is not None and profiles.is_source(self.engine) and not values:
             from .source_tools import defaults
             values=defaults(profiles.get(self.engine)['platform'])
+        self.unit_scale=profiles.get(self.engine).get('unit_meters',1.0)
         self['_wl_active_engine']=self.engine
         self['_wl_engine_configs']=json.dumps(configurations)
         for key in _ENGINE_FIELDS:setattr(self,key,values.get(key,'[]' if key in {'texture_wads','wrapper','launch_args','qbsp_args','vis_args','light_args','source_vbsp_args','source_vvis_args','source_vrad_args'} else '{}' if key=='environment' else 'wavelength_'+self.engine if key=='map_name' else ''))
@@ -207,6 +208,11 @@ class WLTextureGalleryRow(bpy.types.PropertyGroup):
     name2:StringProperty()
 
 class WLSettings(bpy.types.PropertyGroup):
+    profile_id:StringProperty()
+    profile_name:StringProperty(name='Profile name',default='My project')
+    saved_profile:EnumProperty(name='Saved profiles',items=profile_ui.items)
+    unit_scale:FloatProperty(name='Meters per engine unit',default=.0254,min=.000001,update=lambda s,c:grid.update(s,c))
+    asset_paths:StringProperty(name='Additional asset roots (JSON)',default='[]')
     engine:EnumProperty(name='Profile',items=[('blender','Blender — No Engine — Any Platform','Neutral Blender authoring; Wavelength does not impose engine rules'),('quake','Quake — Quake — Custom Platform','Classic Quake MAP; user-configured platform/toolchain'),('goldsrc','Half-Life — GoldSrc — Custom Platform','Valve 220 MAP; user-configured platform/toolchain'),('goldsrc_linux','Half-Life — GoldSrc — Linux','Native Half-Life 1 for Linux; discovers and indexes stock WAD3 libraries'),('goldsrc_linux_steam','Half Life 1, GoldSrc, Linux, Steam','Launch Half-Life 1 through Steam App ID 70; discovers stock WAD3 libraries'),('source_hl2_linux','Half-Life 2 — Source 1 — Linux','VMF and native Linux game runtime'),('source_hl2_windows','Half-Life 2 — Source 1 — Windows','VMF and Windows game runtime; configure Steam Proton on Linux')],default='blender',update=engine_changed)
     grid_mode:EnumProperty(name='Grid',items=[('BLENDER','Blender','Use your original Blender grid'),('ENGINE','Engine','Fixed engine-unit grid overlay')],default='BLENDER',update=grid.update)
     grid_step:EnumProperty(name='Step',items=[(str(x),str(x),'Engine units') for x in (1,2,4,8,16,32,64,128,256)],default='16',update=grid.update)
@@ -246,7 +252,7 @@ class WLSettings(bpy.types.PropertyGroup):
     last_build:StringProperty(subtype='FILE_PATH')
     brush_size:FloatProperty(name='Brush size',default=64,min=0.125,max=8192)
     hollow_thickness:FloatProperty(name='Hollow thickness',default=16,min=0.125,max=4096,description='Wall thickness in engine units; positive values hollow inward and preserve the outer bounds')
-    brush_type:EnumProperty(name='Brush type',items=[('CUBE','Cube','Rectangular prototype'),('CYLINDER','Cylinder','Convex cylinder prototype'),('CONE','Cone','Convex cone prototype'),('SPHERE','Sphere','Low-poly sphere prototype'),('ARCH','Arch','Segmented convex arch prototype')],default='CUBE')
+    brush_type:EnumProperty(name='Brush type',items=[('CUBE','Cube','Rectangular prototype'),('CYLINDER','Cylinder','Convex cylinder prototype'),('CONE','Cone','Convex cone prototype'),('SPHERE','Sphere','Low-poly sphere prototype'),('ARCH','Arch','Editable convex arch'),('STAIRS','Stairs','Editable staircase')],default='CUBE')
     brush_sides:IntProperty(name='Segments',default=8,min=3,max=64,description='Radial segment count for Cylinder, Cone and Sphere')
     brush_rings:IntProperty(name='Rings',default=6,min=2,max=32,description='Latitude rings for Sphere')
     brush_height_steps:IntProperty(name='Height Steps',default=1,min=1,max=256,description='Primitive height in active grid increments')
@@ -307,6 +313,8 @@ class WL_OT_brush(SafeOperator,bpy.types.Operator):
         if context.mode!='OBJECT':raise ValueError('Leave Edit Mode first')
         s=context.scene.wavelength
         if s.engine=='blender':raise ValueError('Select an engine before creating BSP brushes')
+        if s.brush_type in {'ARCH','SPHERE','STAIRS'}:
+            bpy.ops.wavelength.primitive('INVOKE_DEFAULT',kind=s.brush_type);return
         size=profiles.engine_to_world(s, s.brush_size);location=context.scene.cursor.location
         if s.brush_type=='CYLINDER': bpy.ops.mesh.primitive_cylinder_add(vertices=s.brush_sides,radius=size/2,depth=size,location=location)
         elif s.brush_type=='CONE': bpy.ops.mesh.primitive_cone_add(vertices=s.brush_sides,radius1=size/2,radius2=0,depth=size,location=location)
@@ -496,6 +504,7 @@ class WL_MT_add(bpy.types.Menu):
             layout.menu('WL_MT_add_entity',icon='EMPTY_ARROWS')
 
 def _draw_view3d_add_menu(self,context):
+    if not workspace.active(context):return
     self.layout.menu('WL_MT_add',icon='MOD_BUILD')
 
 def _entity_creation_defaults(settings, classname):
@@ -950,10 +959,14 @@ class WL_PT_main(bpy.types.Panel):
     bl_label='wavelength';bl_idname='WL_PT_main';bl_space_type='VIEW_3D';bl_region_type='UI';bl_category='wavelength'
     def draw(self,context):
         s=context.scene.wavelength;l=self.layout;l.use_property_split=True
+        if not workspace.draw_controls(l,context):return
         l.prop(s,'engine');l.label(text=s.status[:65],icon='INFO')
         box=l.box();box.label(text='Grid & Units',icon='GRID');box.prop(s,'grid_mode',expand=True)
         row=box.row(align=True);row.enabled=s.engine!='blender' and s.grid_mode=='ENGINE';row.operator('wavelength.grid_step',text='−').direction=-1;row.prop(s,'grid_step',text='');row.operator('wavelength.grid_step',text='+').direction=1
         box.label(text=('Blender units / native grid' if s.engine=='blender' else '1 engine unit ≈ 2.54 cm'));box.operator('wavelength.snap_grid')
+        row=l.row(align=True)
+        for kind in ('STAIRS','ARCH','SPHERE'):row.operator('wavelength.primitive',text=kind.title()).kind=kind
+        l.operator('wavelength.index_assets',text='Publish to Native Asset Browser',icon='ASSET_MANAGER')
         box=l.box();box.label(text='Create & Edit',icon='MESH_CUBE');box.enabled=s.engine!='blender';box.prop(s,'brush_type');box.prop(s,'brush_size');box.prop(s,'brush_height_steps');
         if s.brush_type in {'CYLINDER','CONE','SPHERE'}: box.prop(s,'brush_sides')
         if s.brush_type=='SPHERE': box.prop(s,'brush_rings')
@@ -1132,7 +1145,7 @@ class WL_PT_texture(bpy.types.Panel):
         l=self.layout;s=context.scene.wavelength
         if profiles.is_source(s.engine):
             l.label(text='Source material path (without materials/ or .vmt)')
-            l.operator('wavelength.texture_browser',text='Browse Source Material Gallery',icon='IMAGE_DATA')
+            l.operator('wavelength.index_assets',text='Publish Materials to Asset Browser',icon='ASSET_MANAGER').category='MATERIAL'
             l.operator('wavelength.resolve_textures');l.operator('wavelength.preview_textures')
             for name in ('texture','shift_u','shift_v','texture_rotation','texture_scale_u','texture_scale_v'):l.prop(s,name)
             l.operator('wavelength.apply_texture');l.prop(s,'live_texture_reproject')
@@ -1143,17 +1156,7 @@ class WL_PT_texture(bpy.types.Panel):
             op=row.operator('wavelength.remove_wad',text='',icon='X');op.filepath=path
         if s.engine=='quake':
             l.prop(s,'palette_path');l.prop(s,'quake_pak_dir');l.operator('wavelength.quake_textures')
-        if not bpy.app.background:
-            # Legacy panel keeps only the selected texture preview.  Both this
-            # preview and the explicit button open the same full browser.
-            try: selected_icon=textures.preview_icon(s,s.texture) if s.texture else 0
-            except (ValueError,OSError,UnicodeError): selected_icon=0
-            preview=l.column(align=True)
-            preview.scale_y=2.6
-            preview.operator('wavelength.texture_browser',text=s.texture or 'No Texture Selected',icon_value=selected_icon)
-            l.operator('wavelength.texture_browser',text='Browse All Registered WAD Textures…',icon='IMAGE_DATA')
-        else:
-            l.label(text=s.texture or 'No Texture Selected')
+        l.operator('wavelength.index_assets',text='Publish Materials to Asset Browser',icon='ASSET_MANAGER').category='MATERIAL'
         l.operator('wavelength.resolve_textures');l.operator('wavelength.preview_textures')
         l.prop(s,'live_texture_reproject')
         l.use_property_split=True
@@ -1353,7 +1356,7 @@ class WL_OT_bake(SafeOperator,bpy.types.Operator):
                 with context.temp_override(object=copy,active_object=copy,selected_objects=[copy],selected_editable_objects=[copy]):bpy.ops.rigidbody.object_remove()
             copy.name=obj.name+' settled';obj['wl_exclude']=True
 
-_PROJECT_FIELDS=('engine','grid_mode','grid_step','project_dir','build_output','map_name','compiler_dir','qbsp_path','vis_path','light_path','qbsp_args','vis_args','light_args','source_vbsp_args','source_vvis_args','source_vrad_args','game_executable','game_dir','wad_path','palette_path','quake_pak_dir','texture_wads','fgd_path','wrapper','environment','launch_args','timeout')
+_PROJECT_FIELDS=('engine','unit_scale','asset_paths','profile_id','profile_name','grid_mode','grid_step','project_dir','build_output','map_name','compiler_dir','qbsp_path','vis_path','light_path','qbsp_args','vis_args','light_args','source_vbsp_args','source_vvis_args','source_vrad_args','game_executable','game_dir','wad_path','palette_path','quake_pak_dir','texture_wads','fgd_path','wrapper','environment','launch_args','timeout')
 class WL_OT_save_project(SafeOperator,bpy.types.Operator,ExportHelper):
     bl_idname='wavelength.save_project';bl_label='Save Project';filename_ext='.json'
     def run(self,context):
@@ -1367,7 +1370,7 @@ class WL_OT_load_project(SafeOperator,bpy.types.Operator,ImportHelper):
         if data.get('engine') not in profiles.PROFILES:raise ValueError('Unsupported engine')
         if data.get('grid_mode') not in {'BLENDER','ENGINE'} or data.get('grid_step') not in {str(2**i) for i in range(9)}:raise ValueError('Invalid grid settings')
         for k in _PROJECT_FIELDS:
-            if k in data and not isinstance(data[k],(float,int) if k=='timeout' else str):raise ValueError(f'Invalid project field {k}')
+            if k in data and not isinstance(data[k],(float,int) if k in {'timeout','unit_scale'} else str):raise ValueError(f'Invalid project field {k}')
         s=context.scene.wavelength
         for k in _PROJECT_FIELDS:
             if k in data:setattr(s,k,data[k])
@@ -1648,7 +1651,7 @@ def register():
             bpy.utils.register_class(cls);registered.append(cls)
         bpy.types.VIEW3D_MT_add.append(_draw_view3d_add_menu)
         bpy.types.Scene.wavelength=PointerProperty(type=WLSettings)
-        grid.register();identity.register();editor.register();resize_gizmo.register();transform_sync.register();system_tree.register();authoring.register();entity_browser.register()
+        workspace.register();precision_move.register();primitive_ui.register();asset_browser.register();profile_ui.register();grid.register();identity.register();editor.register();resize_gizmo.register();system_tree.register();authoring.register();entity_browser.register()
         # WorkSpaceTool registration itself is context-free. Keep it registered
         # for the add-on lifetime so Blender's toolbar can discover it reliably.
         brush_create.register_tool()
@@ -1684,8 +1687,9 @@ def register():
         except Exception: pass
         try: identity.unregister()
         except Exception: pass
-        try: grid.unregister()
-        except Exception: pass
+        for module in (profile_ui,asset_browser,primitive_ui,precision_move,workspace,grid):
+            try:module.unregister()
+            except Exception:pass
         if hasattr(bpy.types.Scene,'wavelength'):
             try: del bpy.types.Scene.wavelength
             except Exception: pass
@@ -1716,6 +1720,11 @@ def unregister():
     try: identity.unregister()
     except Exception: pass
     textures.close()
+    for module in (profile_ui,asset_browser,primitive_ui,precision_move):
+        try:module.unregister()
+        except Exception:pass
+    try: workspace.unregister()
+    except Exception: pass
     try: grid.unregister()
     except Exception: pass
     if hasattr(bpy.types.Scene,'wavelength'):

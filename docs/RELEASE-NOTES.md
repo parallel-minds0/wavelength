@@ -1,3 +1,9 @@
+# v0.11.0-pre.alpha
+
+Adds a dedicated persistent Wavelength workspace, independent world-aligned map-unit highlights preserving Blender's native grid, scoped toggles, transactional engine-grid object movement and move gizmos. Stops registering the old settle-time transform correction timer.
+
+Adds native Asset Browser publishing for game materials, entity templates and labelled model/sound/effect proxies; user profile CRUD/import/export in user configuration; persistent editable stairs, arches and 20/80-face convex spheres; independent private Pro source synchronization with drift checks. See MILESTONES-1-2.md for usage, validation and explicit limits.
+
 # v0.10.33-pre.alpha
 
 Fix Source compiler argument defaults when switching engine profiles. Empty values saved by earlier versions also recover as empty argument lists. Retains the v0.10.32 gallery, scrollbar, grid-setting restoration, and consistent Source map filenames. Custom HL2 map gameplay remains unverified and unresolved.

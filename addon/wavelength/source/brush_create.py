@@ -10,7 +10,7 @@ from gpu_extras.batch import batch_for_shader
 from mathutils import Vector
 from math import cos, sin, tau, pi
 from bpy_extras import view3d_utils
-from . import profiles, scene
+from . import profiles, scene, workspace
 
 
 def _snap(value, step):
@@ -127,26 +127,10 @@ def _radial_geometry(settings, center, edge, u, v, n, step, cone=False):
 
 
 def _sphere_geometry(settings, center, edge, u, v, n, step):
-    segments=max(4,min(int(getattr(settings,'brush_sides',12)),64))
-    rings=max(2,min(int(getattr(settings,'brush_rings',6)),32))
-    delta=edge-center; radius=max(step,_snap((delta-n*delta.dot(n)).length,step))
-    verts=[center+n*radius]
-    for r in range(1,rings):
-        phi=pi*r/rings
-        z=cos(phi)*radius; rr=sin(phi)*radius
-        for i in range(segments):
-            a=tau*i/segments
-            verts.append(center+n*z+u*(cos(a)*rr)+v*(sin(a)*rr))
-    bottom=len(verts); verts.append(center-n*radius)
-    faces=[]
-    first=1
-    faces += [(0,first+i,first+(i+1)%segments) for i in range(segments)]
-    for r in range(rings-2):
-        a0=1+r*segments; b0=a0+segments
-        faces += [(a0+i,b0+i,b0+(i+1)%segments,a0+(i+1)%segments) for i in range(segments)]
-    last=1+(rings-2)*segments
-    faces += [(bottom,last+(i+1)%segments,last+i) for i in range(segments)]
-    return verts,faces
+    from .primitives import generate
+    radius=max(step,(edge-center).length)
+    verts,faces=generate('SPHERE',{'radius':max(1.,radius/step),'subdivisions':1})[0]
+    return [center+(u*x+v*y+n*z)*step for x,y,z in verts],faces
 
 
 def _arch_parts(settings, center, edge, u, v, n, step):
@@ -156,7 +140,7 @@ def _arch_parts(settings, center, edge, u, v, n, step):
     thickness=max(step,min(outer-step,float(getattr(settings,'arch_thickness_steps',1))*step))
     inner=max(step,outer-thickness); height=_height(settings,step)
     # Each angular slice is a separate convex wedge so engine profiles remain BSP-valid.
-    parts=[]; start=-angle*0.5
+    parts=[]; start=pi/2-angle*0.5
     for j in range(segments):
         a0=start+angle*j/segments; a1=start+angle*(j+1)/segments
         ring=[]
@@ -215,7 +199,7 @@ _HOVER_HANDLE = None
 def _draw_idle_hover():
     """Draw the passive snap marker without keeping a modal operator alive."""
     global _HOVER_POINT
-    if _HOVER_POINT is None:
+    if not workspace.active(bpy.context) or _HOVER_POINT is None:
         return
     try:
         area = bpy.context.area
@@ -243,7 +227,7 @@ class WL_OT_brush_hover(bpy.types.Operator):
 
     @classmethod
     def poll(cls, context):
-        return (context.area is not None and context.area.type == 'VIEW_3D' and
+        return (workspace.active(context) and context.area is not None and context.area.type == 'VIEW_3D' and
                 context.region is not None and context.region.type == 'WINDOW' and
                 context.mode == 'OBJECT' and hasattr(context.scene, 'wavelength'))
 
@@ -282,7 +266,7 @@ class WL_OT_cube_brush_create(bpy.types.Operator):
 
     @classmethod
     def poll(cls, context):
-        return (context.area is not None and context.area.type == 'VIEW_3D' and
+        return (workspace.active(context) and context.area is not None and context.area.type == 'VIEW_3D' and
                 context.mode == 'OBJECT' and hasattr(context.scene, 'wavelength') and
                 _step(context) is not None)
 
@@ -397,6 +381,8 @@ class WL_OT_cube_brush_create(bpy.types.Operator):
             scene.origin_to_geometry(obj)
 
     def modal(self, context, event):
+        if not workspace.active(context):
+            self._remove_draw();return {'CANCELLED'}
         in_window = _event_in_window_region(context, event)
 
         # Cancel only the current prototype. Keeping the tool alive avoids the
@@ -497,6 +483,19 @@ class WL_OT_cube_brush_create(bpy.types.Operator):
                 name=_primitive_name(st,is_engine_brush)
                 created=[]
                 parts=_primitive_parts(st,self._start,self._drag,self._u,self._v,self._n,self._step_value)
+                if st.brush_type in {'ARCH','SPHERE'}:
+                    from . import primitive_ui
+                    from mathutils import Matrix
+                    root=bpy.data.objects.new(name,None);context.collection.objects.link(root)
+                    root.location=self._start;root['wl_exclude']=True
+                    radius=max(self._step_value*(2 if st.brush_type=='ARCH' else 1),_snap((self._drag-self._start).length,self._step_value))/profiles.unit_meters(st)
+                    values=dict(primitive_ui.DEFAULTS,radius=max(radius,2.),depth=_height(st,self._step_value)/profiles.unit_meters(st),thickness=min(radius-float(st.grid_step),st.arch_thickness_steps*float(st.grid_step)),angle=st.arch_angle,segments=st.arch_segments)
+                    basis=Matrix((self._u,-self._n,self._v)).transposed().to_4x4();basis.translation=self._start;root.matrix_world=basis
+                    context.view_layer.update()
+                    try:primitive_ui.rebuild(root,st.brush_type,values,context)
+                    except ValueError as exc:
+                        bpy.data.objects.remove(root,do_unlink=True);self.report({'ERROR'},str(exc));self._remove_draw();return {'CANCELLED'}
+                    created=[root];parts=[]
                 for index,(verts,faces) in enumerate(parts):
                     part_name=name if len(parts)==1 else f'{name} {index+1:02d}'
                     mesh=bpy.data.meshes.new(part_name); mesh.from_pydata(verts,[],faces); mesh.update()

@@ -20,34 +20,15 @@ def _catalog(context):
 
 
 def _defaults(settings, classname):
-    # Keep this independent from ui.py to avoid an import cycle during register.
-    primary=[]
-    if settings.fgd_path:
-        try:
-            from . import fgd
-            primary=fgd.properties(fgd.load(bpy.path.abspath(settings.fgd_path)), classname)
-        except (OSError, ValueError, RuntimeError, KeyError, TypeError):
-            primary=[]
-    if getattr(settings, 'engine', '') in {'goldsrc','goldsrc_linux','goldsrc_linux_steam'}:
-        try:
-            from . import goldsrc as goldsrc_entities
-            primary=goldsrc_entities.merge_properties(classname, primary)
-        except Exception:
-            pass
-    pairs=[['classname', classname]]
-    seen={'classname'}
-    for prop in primary:
-        key=str(prop.get('key','')).strip()
-        value=str(prop.get('default','')).strip()
-        if key and key not in seen and value:
-            pairs.append([key,value]); seen.add(key)
-    return pairs
+    from ..ui import _entity_creation_defaults
+    return _entity_creation_defaults(settings, classname)
 
 
 def _asset_collection(scene):
-    collection=bpy.data.collections.get(_ASSET_COLLECTION)
+    name=_ASSET_COLLECTION+'_'+scene.wavelength.engine
+    collection=bpy.data.collections.get(name)
     if collection is None:
-        collection=bpy.data.collections.new(_ASSET_COLLECTION)
+        collection=bpy.data.collections.new(name)
         scene.collection.children.link(collection)
     collection.hide_viewport=True
     collection.hide_render=True
@@ -91,13 +72,17 @@ def rebuild(context):
             # Asset marking exists in supported Blender versions; keep templates
             # harmless if Blender changes this API.
             continue
+        from ..asset_browser import preview,metadata
+        from ..asset_index import record
+        metadata(obj,record(s.engine,classname,'ENTITY',source=s.fgd_path or 'Built-in registry'))
+        preview(obj)
         count+=1
     s.status=f'Entity Browser: {count} {s.engine} entities published as Current File assets'
     return count
 
 
 def _is_template_source(obj):
-    return any(c.name==_ASSET_COLLECTION for c in obj.users_collection)
+    return any(c.name.startswith(_ASSET_COLLECTION) for c in obj.users_collection)
 
 
 def _finalize_drop(scene, obj):
@@ -131,7 +116,8 @@ def _finalize_drop(scene, obj):
 
 def _depsgraph(scene, depsgraph):
     global _BUSY
-    if _BUSY or not hasattr(scene,'wavelength'):
+    from ..workspace import active
+    if _BUSY or not active() or not hasattr(scene,'wavelength'):
         return
     _BUSY=True
     try:
@@ -168,11 +154,11 @@ def _configure_asset_area(area):
                     try:setattr(params,attr,'LOCAL')
                     except Exception:pass
             if hasattr(params,'catalog_id'):
-                try: params.catalog_id=_CATALOG_ID
+                try: params.catalog_id='00000000-0000-0000-0000-000000000000'
                 except Exception: pass
             # Do not mutate any other Asset Browser area; this filter belongs only here.
             if hasattr(params,'filter_search'):
-                try: params.filter_search='Wavelength'
+                try: params.filter_search=''
                 except Exception: pass
     except Exception:
         pass
@@ -180,12 +166,7 @@ def _configure_asset_area(area):
 
 
 def _is_wavelength_asset_area(area):
-    if area.type!='FILE_BROWSER':
-        return False
-    try:
-        return area.ui_type=='ASSETS' and bool(area.get('wl_asset_browser', False))
-    except Exception:
-        return False
+    return area.type=='FILE_BROWSER' and area.ui_type=='ASSETS'
 
 
 def _window_for_context(context):
@@ -223,7 +204,7 @@ def ensure_browser_layout(context):
     before={a.as_pointer() for a in screen.areas}
     with bpy.context.temp_override(window=window,screen=screen,area=viewport):
         # Split the viewport itself.  Blender keeps the Timeline as a separate area.
-        bpy.ops.screen.area_split(direction='HORIZONTAL',factor=0.76)
+        bpy.ops.screen.area_split(direction='HORIZONTAL',factor=0.24)
     created=[a for a in screen.areas if a.as_pointer() not in before]
     if not created:
         raise RuntimeError('Blender did not create the Asset Browser area')
@@ -237,7 +218,17 @@ def ensure_browser_layout(context):
     upper=max(pair,key=lambda a:a.y)
     if upper.type!='VIEW_3D':
         upper.type='VIEW_3D'
-    _configure_asset_area(browser)
+    # Area dimensions settle on the next UI cycle after splitting.
+    def finish_layout():
+        try:
+            pair_now=[a for a in screen.areas if a.as_pointer() in {viewport.as_pointer(),new_area.as_pointer()}]
+            if len(pair_now)==2:
+                lower=min(pair_now,key=lambda a:a.y);upper=max(pair_now,key=lambda a:a.y)
+                upper.type='VIEW_3D';upper.spaces.active.show_region_ui=True
+                _configure_asset_area(lower)
+        except ReferenceError:pass
+        return None
+    bpy.app.timers.register(finish_layout,first_interval=.05)
     try: window.workspace[_LAYOUT_MARKER]=True
     except Exception: pass
     return window,screen,browser
