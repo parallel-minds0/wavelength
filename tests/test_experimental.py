@@ -31,7 +31,7 @@ class ExperimentalTests(test_lifecycle.LifecycleTests):
         self.assertEqual(data['native_component'],'test-native')
         self.assertTrue((self.addons/'wavelength/experimental-grid.json').is_file())
     def test_cli_requires_explicit_acceptance(self):
-        with patch.object(sys,'argv',['installer','install','--blender',str(self.blender),'--addons',str(self.addons),'--force']),patch.object(sys.stdin,'isatty',return_value=False):
+        with patch.object(sys,'argv',['installer','install','--blender',str(self.blender),'--addons',str(self.addons),'--allow-unverified']),patch.object(sys.stdin,'isatty',return_value=False):
             with self.assertRaises(SystemExit) as exc:app.main()
         self.assertEqual(exc.exception.code,1);self.assertFalse(self.state.exists())
 

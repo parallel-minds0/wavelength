@@ -54,20 +54,6 @@ def replace_file(source,target):
     finally:temporary.unlink(missing_ok=True)
 
 
-def status(state):
-    receipt=Path(state)/'receipt.json'
-    if not receipt.exists():return {'phase':'not-installed'}
-    data=json.loads(receipt.read_text())
-    data.setdefault('installation_mode','verified')
-    if data['phase']=='installed':
-        target=Path(data['blender']);addon=Path(data['addon'])
-        data['native_matches']=target.is_file() and sha256(target)==data['patched_sha256']
-        data['addon_matches']=inventory(addon)==data['addon_inventory']
-        if data.get('runtime_dir'):
-            runtime=Path(data['runtime_dir'])
-            data['native_matches']=data['native_matches'] and all((runtime/name).is_file() and sha256(runtime/name)==data[key] for name,key in [('blender','runtime_payload_sha256'),('AppRun','runtime_launcher_sha256')])
-    return data
-
 
 def select_recipe(bundle,blender,*,allow_unverified=False):
     manifest=json.loads((bundle/'patches/manifest.json').read_text())
@@ -79,27 +65,30 @@ def select_recipe(bundle,blender,*,allow_unverified=False):
             if not recipe.is_relative_to((bundle/'patches').resolve()):raise ValueError('Invalid recipe path')
             return recipe
     if allow_unverified:return None  # Caller attempts structural generation for actual payload.
-    raise ValueError('No verified native patch for this exact Blender installation. Nothing was installed. Both components are required.')
+    raise NativeRequiredError('No verified native patch for this exact Blender installation. Nothing was installed. Both components are required.')
 
 
 def _restore(state,data):
+    if data.get('installation_mode')=='forced':
+        from .forced import restore
+        return restore(state,data)
     target=Path(data['blender']);addon=Path(data['addon'])
-    if sha256(state/'original-blender')!=data['original_sha256']:
-        raise ValueError('Original Blender backup is damaged; refusing recovery')
+    if not (state/'original-blender').is_file() or sha256(state/'original-blender')!=data['original_sha256']:
+        raise StateError('Original Blender backup is damaged; refusing recovery')
     if target.exists() and sha256(target) not in {data['original_sha256'],data['patched_sha256']}:
-        raise ValueError('Blender changed since installation; preserve it and resolve recovery manually')
+        raise StateError('Blender changed since installation; preserve it and resolve recovery manually')
     # Leave user edits intact, including when recovering an interrupted removal.
     actual=inventory(addon)
     if actual not in (None,data['addon_inventory'],data['previous_addon_inventory']):
-        raise ValueError('Add-on changed since installation; refusing to discard edits')
+        raise StateError('Add-on changed since installation; refusing to discard edits')
     if data['previous_addon_inventory'] is not None:
         if inventory(state/'original-addon')!=data['previous_addon_inventory']:
-            raise ValueError('Original add-on backup is damaged; refusing recovery')
+            raise StateError('Original add-on backup is damaged; refusing recovery')
     with tempfile.TemporaryDirectory(prefix='.wl-restore-',dir=addon.parent) as temporary:
         stage=Path(temporary)
         if data['previous_addon_inventory'] is not None:
             shutil.copytree(state/'original-addon',stage/'restored')
-        replace_file(state/'original-blender',target)
+        if target.exists():replace_file(state/'original-blender',target)
         if actual==data['addon_inventory']:
             os.replace(addon,stage/'discarded')
         if data['previous_addon_inventory'] is not None and not addon.exists():
@@ -107,7 +96,10 @@ def _restore(state,data):
         data['phase']='removed';write_json(state/'receipt.json',data)
 
 
-def install(bundle,blender,addons,state,*,allow_unverified=False,confirm_experimental=False):
+def install(bundle,blender,addons,state,*,allow_unverified=False,confirm_experimental=False,force=False,require_native=False):
+    if force:
+        from .forced import install_forced
+        return install_forced(bundle,blender,addons,state,require_native=require_native)
     bundle=Path(bundle).resolve();blender=Path(blender).expanduser().resolve(strict=True)
     addons=Path(addons).expanduser().resolve();state=Path(state).expanduser().resolve()
     if allow_unverified and not confirm_experimental:
@@ -132,6 +124,9 @@ def install(bundle,blender,addons,state,*,allow_unverified=False,confirm_experim
         raise ValueError('Blender executable must be outside installer state and add-on directories')
     from .deployment import prepare
     with prepare(blender) if experimental else nullcontext(None) as prepared:
+        if experimental and prepared.get('recipe') is None:
+            from .forced import install_forced
+            return install_forced(bundle,blender,addons,state,require_native=True)
         return _install_prepared(bundle,blender,addons,state,archive,manifest,addon,initial_hash,
                                  prepared,patched if not experimental else prepared['patched'])
 
@@ -141,7 +136,7 @@ def _install_prepared(bundle,blender,addons,state,archive,manifest,addon,initial
     with locked(state):
         old=status(state)
         if old['phase'] not in {'not-installed','removed'}:
-            raise ValueError('Existing installation or interrupted transaction; remove/recover it first')
+            raise StateError('Existing installation or interrupted transaction; remove/recover it first')
         if sha256(blender)!=initial_hash:raise ValueError('Blender changed during preparation; retry with Blender closed')
         addons.mkdir(parents=True,exist_ok=True)
         with tempfile.TemporaryDirectory(prefix='.wl-stage-',dir=addons) as temp:
@@ -187,5 +182,65 @@ def remove(state):
     with locked(state):
         data=status(state)
         if data['phase'] in {'not-installed','removed'}:return data
+        if data['phase']=='corrupt':raise StateError('Corrupt receipt; use install --force with explicit target paths')
+        _restore(state,data)
+        return status(state)
+
+
+class InstallerError(RuntimeError):
+    exit_code=1
+
+class StateError(InstallerError, ValueError):
+    exit_code=3
+
+class NativeRequiredError(InstallerError, ValueError):
+    exit_code=4
+
+
+def read_receipt(state):
+    path=Path(state)/'receipt.json'
+    if not path.exists():return {'phase':'not-installed'}
+    try:
+        data=json.loads(path.read_text())
+        if not isinstance(data,dict) or data.get('phase') not in {'prepared','installed','removed'}:
+            raise ValueError('Invalid receipt phase')
+        for key in ('blender','addon','addon_inventory','previous_addon_inventory','original_sha256','patched_sha256'):
+            if key not in data:raise ValueError('Incomplete receipt: '+key)
+        if not all(isinstance(data[k],str) and Path(data[k]).is_absolute() for k in ('blender','addon')):
+            raise ValueError('Invalid receipt paths')
+        if not isinstance(data['addon_inventory'],dict) or not isinstance(data['previous_addon_inventory'],(dict,type(None))):
+            raise ValueError('Invalid add-on inventory')
+        return data
+    except (ValueError,OSError,TypeError) as exc:return {'phase':'corrupt','reason':str(exc)}
+
+
+def status(state):
+    data=read_receipt(state)
+    data.setdefault('installation_mode','verified')
+    problems=[]
+    if data['phase']=='corrupt':problems.append(data['reason'])
+    if data['phase']=='installed':
+        target=Path(data['blender'])
+        try:
+            data['native_matches']=target.is_file() and sha256(target)==data.get('patched_sha256')
+            data['addon_matches']=inventory(Path(data['addon']))==data['addon_inventory']
+            if data.get('runtime_dir'):
+                runtime=Path(data['runtime_dir'])
+                data['native_matches']=data['native_matches'] and all((runtime/name).is_file() and sha256(runtime/name)==data[key] for name,key in [('blender','runtime_payload_sha256'),('AppRun','runtime_launcher_sha256')])
+        except (OSError,ValueError) as exc:problems.append(str(exc))
+        if not data.get('addon_matches'):problems.append('Python add-on is missing or changed')
+        if data.get('native_state')!='unavailable' and not data.get('native_matches'):problems.append('Blender is missing or changed')
+    data['report']={'receipt':data['phase'],'blender':data.get('blender'),'addon':data.get('addon'),
+                    'native':data.get('native_state','unknown'),'problems':problems,
+                    'hints':['Use install --force to reconcile state; backups are retained.'] if problems else []}
+    return data
+
+
+def recover(state):
+    state=Path(state).expanduser().resolve()
+    with locked(state):
+        data=status(state)
+        if data['phase'] in {'not-installed','removed','installed'}:return data
+        if data['phase']=='corrupt':raise StateError('Corrupt receipt; use install --force with explicit target paths')
         _restore(state,data)
         return status(state)

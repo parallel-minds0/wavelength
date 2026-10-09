@@ -19,6 +19,7 @@ jobs:
           name: wavelength-addon
           path: |
             dist/wavelength-addon-*.zip
+            dist/wavelength-v*-source.zip
             dist/wavelength-v*.tar.gz
             dist/wavelength-v*.sha256
   release:

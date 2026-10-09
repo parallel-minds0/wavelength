@@ -10,6 +10,7 @@ import sys
 import tarfile
 import tempfile
 import urllib.request
+import zipfile
 from release import ROOT,package,version
 
 
@@ -33,10 +34,10 @@ def main():
         with tarfile.open(cache) as archive:archive.extractall(bundle,filter='data')
         (bundle/'python').rename(bundle/'runtime')
         # Release is the full editable source tree plus the private Python runtime.
-        for relative in ('addon','installer','native','patches','tools','tests','docs','documentation','third-party','.github'):
+        for relative in ('addon','installer','native','patches','tools','tests','docs','documentation','third-party','.github','pro'):
             if (ROOT/relative).is_dir():
                 shutil.copytree(ROOT/relative,bundle/relative,ignore=shutil.ignore_patterns('__pycache__','*.pyc','.git','experimental-grid.json'))
-        for relative in ('LICENSE','README.md','.gitignore','wavelength-installer'):
+        for relative in ('LICENSE','README.md','.gitignore','wavelength-installer','edition.json'):
             if (ROOT/relative).is_file():shutil.copy2(ROOT/relative,bundle/relative)
         launcher=bundle/'wavelength-installer'
         launcher.chmod(0o755)
@@ -44,6 +45,14 @@ def main():
         subprocess.run([str(launcher),'--help'],check=True,env={**os.environ,'PATH':'/bin'})
         subprocess.run([str(launcher),'install','--help'],check=True,env={**os.environ,'PATH':'/bin'})
         subprocess.run([str(launcher),'status'],check=True,env={**os.environ,'PATH':'/bin'})
+        # Lightweight source download uses the same installer launcher, which
+        # bootstraps the pinned runtime on first use. Never include local caches.
+        source_zip=ROOT/'dist'/f'wavelength-v{version()}-source.zip'
+        with zipfile.ZipFile(source_zip,'w',zipfile.ZIP_DEFLATED) as archive:
+            for file in sorted(bundle.rglob('*')):
+                relative=file.relative_to(bundle)
+                if file.is_file() and relative.parts[0]!='runtime':archive.write(file,Path(name)/relative)
+        source_zip.with_suffix('.zip.sha256').write_text(hashlib.sha256(source_zip.read_bytes()).hexdigest()+'  '+source_zip.name+'\n')
         with tarfile.open(output,'w:gz') as archive:archive.add(bundle,arcname=name)
     print(output)
     output.with_suffix(output.suffix+'.sha256').write_text(hashlib.sha256(output.read_bytes()).hexdigest()+'  '+output.name+'\n')

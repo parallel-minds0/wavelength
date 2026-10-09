@@ -3,10 +3,10 @@ from contextlib import contextmanager
 from pathlib import Path
 import os,shlex,shutil,subprocess,tempfile,uuid
 from .core import inspect_blender,sha256
-from .experimental import generate,LIMITATIONS
+from .experimental import generate,analyze,LIMITATIONS
 
 @contextmanager
-def prepare(blender):
+def _prepare(blender):
     with tempfile.TemporaryDirectory(prefix='wl-native-') as folder:
         folder=Path(folder)
         runtime=None
@@ -25,6 +25,7 @@ def prepare(blender):
                 if item.is_symlink() and not item.resolve().is_relative_to(runtime.resolve()):
                     raise ValueError('AppImage contains an external symlink; refusing deployment')
         else:payload=blender
+        analysis=analyze(payload.read_bytes())
         recipe,patched=generate(payload.read_bytes())
         # Structural compatibility is established here. This is not renderer certification.
         if runtime:
@@ -33,6 +34,7 @@ def prepare(blender):
         probe=None
         try:
             if runtime:command=runtime/'AppRun'
+            elif recipe is None:command=blender
             else:
                 fd,path=tempfile.mkstemp(prefix='.wl-probe-',dir=blender.parent)
                 os.close(fd);probe=Path(path);probe.write_bytes(patched);shutil.copymode(blender,probe);command=probe
@@ -47,7 +49,7 @@ def prepare(blender):
                 if 'WL_NATIVE_STARTUP_OK' not in log.read():raise ValueError('Patched executable did not confirm Blender startup')
         finally:
             if probe:probe.unlink(missing_ok=True)
-        yield {'recipe':recipe,'patched':patched,'runtime':runtime,'limitations':LIMITATIONS}
+        yield {'recipe':recipe,'patched':patched,'runtime':runtime,'limitations':LIMITATIONS,'native_state':'available','action':analysis['action'],'analysis':{k:v for k,v in analysis.items() if k!='changes'}}
 
 
 def stage_runtime(prepared,state):
@@ -59,3 +61,19 @@ def stage_runtime(prepared,state):
               'export WL_EXPERIMENTAL_GRID=1\nexec '+shlex.quote(str(app))+' "$@"\n').encode()
     return launcher,{'runtime_dir':str(destination),'runtime_payload_sha256':sha256(destination/'blender'),
                      'runtime_launcher_sha256':sha256(app)}
+
+
+@contextmanager
+def prepare(blender, strict=True):
+    # Catch preparation failures only, never exceptions from the caller's transaction.
+    from contextlib import ExitStack
+    with ExitStack() as stack:
+        try:
+            prepared=stack.enter_context(_prepare(Path(blender)))
+        except (OSError,ValueError,subprocess.SubprocessError) as exc:
+            if strict:
+                from .lifecycle import NativeRequiredError
+                raise NativeRequiredError(str(exc)) from exc
+            prepared={'native_state':'unavailable','action':'unavailable','reason':str(exc),
+                      'recipe':None,'patched':None,'runtime':None,'limitations':LIMITATIONS}
+        yield prepared

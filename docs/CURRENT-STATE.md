@@ -1,3 +1,13 @@
+# v0.11.1-pre.alpha — installer force mode
+
+- `install --force` now installs Python even when native preparation or writing fails. `--require-native` restores strict rollback.
+- Structural shader classification recognizes current and known legacy patches, including shared shader strings. Existing patches are adopted without rewriting.
+- Reinstalls retain original backups; stale state is archived. Healthy recovery is a no-op. Removal preserves adopted patches and external edits.
+- Added local discovery, read-only `diagnose`, verbose summaries, and a lightweight source ZIP with the same installer launcher.
+- Verified isolated install/reinstall/removal and startup on the actual already-patched Blender 5.2.2; binary unchanged. This does not certify native rendering or fresh AppImage patching.
+
+See [installer instructions](INSTALLER.md). Earlier milestone notes below are historical.
+
 # Current implementation — 2026-10-09
 
 The new milestone audit in [MILESTONES-1-2.md](MILESTONES-1-2.md) supersedes the historical baseline below. Native shader patching is no longer needed for the workspace grid; Blender 5.2.2 was used for verification.

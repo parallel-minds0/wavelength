@@ -1,3 +1,11 @@
+# v0.11.1-pre.alpha — installer force mode
+
+- `install --force` now installs Python even when native preparation or writing fails. `--require-native` restores strict rollback.
+- Structural shader classification recognizes current and known legacy patches, including shared shader strings. Existing patches are adopted without rewriting.
+- Reinstalls retain original backups; stale state is archived. Healthy recovery is a no-op. Removal preserves adopted patches and external edits.
+- Added local discovery, read-only `diagnose`, verbose summaries, and a lightweight source ZIP with the same installer launcher.
+- Verified isolated install/reinstall/removal and startup on the actual already-patched Blender 5.2.2; binary unchanged. This does not certify native rendering or fresh AppImage patching.
+
 # v0.11.0-pre.alpha
 
 Adds a dedicated persistent Wavelength workspace, independent world-aligned map-unit highlights preserving Blender's native grid, scoped toggles, transactional engine-grid object movement and move gizmos. Stops registering the old settle-time transform correction timer.

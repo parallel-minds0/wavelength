@@ -1,110 +1,98 @@
-# Wavelength installer
+# wavelength installer
 
-The end-user distribution bundles its own standalone CPython. It does not use
-system Python or Blender's embedded Python. The current bundle targets Linux
-x86-64; macOS and Windows bundles are not provided yet.
+Download and extract `wavelength-v0.11.1-pre.alpha-linux-x86_64.tar.gz`, then run
+`./wavelength-installer`. The archive contains the editable source tree and a
+pinned private Python runtime. The smaller `wavelength-v0.11.1-pre.alpha-source.zip`
+contains the same source and installer; it downloads and verifies that runtime on
+first use (requires curl and network access). System Python is not required.
+Linux x86-64 is currently the supported installer platform.
 
-Extract the installer archive and run `./wavelength-installer --help`.
+## Install on an unknown or already-patched Blender
+
+Quit Blender, then run:
 
 ```sh
-./wavelength-installer install --blender /path/to/blender --addons /path/to/scripts/addons
+./wavelength-installer install --force
+```
+
+Local discovery prefers the previous installation and then local Blender builds.
+If discovery is ambiguous, supply the paths explicitly:
+
+```sh
+./wavelength-installer install --force \
+  --blender /home/moe/Applications/blender-5.2.2-linux-x64/blender \
+  --addons /home/moe/.config/blender/5.2/scripts/addons
+```
+
+Restart Blender and enable wavelength in Preferences → Add-ons. Existing
+activation preferences are preserved. The current Python workspace grid works
+without the experimental native shader patch.
+
+`--force` bypasses the verified-build allowlist and attempts native preparation.
+It recognizes original, current, and known legacy shader blocks. Already-current
+patches are kept without rewriting the executable. Unknown layouts, startup
+failures, missing executables (with explicit target paths), and native write
+failures allow a Python-only installation, with native support reported as
+unavailable. Add-on permission/checksum errors still fail the installation.
+
+`--force` no longer aliases `--allow-unverified` and requires no typed risk
+confirmation. Add `--require-native` to roll back if native support is unavailable.
+The older `--allow-unverified --accept-experimental-risk` mode still requires both
+components. A plain install requires a verified recipe for the exact binary;
+there are currently no certified builds in the allowlist.
+
+The native component remains an experimental embedded-shader patch, not a C++
+renderer bridge. Structural compatibility and successful startup do not certify
+rendering. The legacy native yellow overlay affects all native 3D grids and still
+uses native level of detail. AppImages are extracted to prepare and probe their
+payload; when changed, a reversible launcher uses the retained extracted runtime.
+
+## Diagnose, recover, and remove
+
+```sh
+./wavelength-installer diagnose --blender /path/to/blender
 ./wavelength-installer status
-./wavelength-installer remove
 ./wavelength-installer recover
+./wavelength-installer remove
 ```
 
-`--state /path/to/receipt-directory` before the subcommand selects a separate
-installation record when managing multiple Blender installations. Keep this
-folder: it contains the original executable/add-on backup and removal receipt.
-Quit Blender before installing/removing and restart it afterward. Removal
-restores the original Blender and the add-on that existed before installation,
-or removes Wavelength if there was no previous add-on. Blender preference
-activation is not changed by this version.
+`diagnose` reads bytes without modifying or running Blender. For AppImages it
+reports that payload extraction is required; install performs extraction and
+startup validation. `recover` leaves an installed transaction intact and rolls
+back a prepared transaction. Status reports external changes for inspection.
 
-Python owns discovery, verification, patch application, rollback and removal.
-C++ owns the native behavior being patched, not the injector. Both native and
-Python components are one product: unsupported native builds stop before either
-component is installed. The journal supports recovery; external Blender updates,
-edited add-on source, or damaged backups stop removal rather than overwriting
-those files. Python bytecode caches are ignored when checking for user edits.
+Use `--state /path/to/state` **before** the subcommand to manage another
+installation record. Keep this directory: it contains the journal and backups.
+Force installation archives stale/corrupt/relocated/replaced state under
+`state/stale/<timestamp>-<reason>/`. Earlier target installations remain intact
+when switching targets; their archived receipt can be managed separately with
+`--state`. Repeated installs preserve the original executable/add-on backup chain.
+Edited add-ons are backed up before a forced replacement. Removal refuses to
+discard later user edits or overwrite an external Blender update. Missing Blender
+executables are not recreated by forced-install removal.
 
-## Current limitation
+A preexisting patch that this installer did not apply is **adopted**. Removal
+leaves that executable unchanged. Receipts distinguish `native_state`,
+`native_changed` (this transaction), `native_ownership` (`owned`, `adopted`, `none`),
+and `installation_mode='forced'`. Original backups are retained after removal.
+Never delete installer state while an owned patch still needs removal.
 
-There is still **no verified native grid patch for Blender** in the manifest.
-Consequently this distribution runs without system Python, offers status/removal,
-and exercises the complete lifecycle in tests, but it will refuse a fresh real
-Blender installation. It is an installer-development milestone, not a working
-native-grid release. An AppImage requires an exact verified deployment recipe for
-its container/payload; no AppImage extraction/repack backend is shipped yet.
-The math `.so` prototype is not silently installed as a pretend renderer patch.
+Human summaries go to stderr; structured JSON goes to stdout. `-v` / `--verbose`
+works before or after subcommands. Interactive option 6 selects forced install.
+Exit codes: **0** success (including forced Python-only installation), **1** general
+failure, **3** state/recovery problem, **4** required native support unavailable.
 
-## Build and patch contract
+## Validation and build
 
-`python3 tools/build_installer.py` downloads the exact runtime from
-`installer/runtime-lock.json`, checks its SHA-256, preserves its license files,
-packages the current add-on and patch manifest, and smoke-tests the launcher.
-Runtime binaries are release artifacts, never Git source files.
+`python3 -m unittest discover -s tests` covers synthetic shader states, including
+both stages in a shared string, bounded replacement, transactions, fallback,
+rollback, discovery, and CLI behavior. On the available Blender 5.2.2 executable,
+structural diagnosis and two startup probes succeeded. An isolated force install,
+reinstall, and removal adopted the existing patch and preserved the executable's
+SHA-256 throughout. Fresh native patch rendering and AppImage deployment were not
+validated on a real installation in this release.
 
-A trusted release manifest identifies each supported Blender artifact by SHA-256
-and references a recipe with exact original bytes and expected output SHA-256.
-Only releases containing a renderer-validated recipe may claim native support.
-The current recipe backend supports same-length verified byte changes; it does
-not synthesize function detours, link arbitrary C++, or increase ELF sections.
-Future backend changes must retain this same paired lifecycle and receipt format.
-
-## 0.10.31: source tree is the installer
-
-Download `wavelength-v0.10.31-pre.alpha-linux-x86_64.tar.gz`, extract it, and run
-`./wavelength-installer` at the source root. It contains the editable Python,
-C++, installer, tests and documentation plus the pinned private Python runtime.
-There is no separate installer-only source layout. A Git checkout or GitHub's
-automatic source archive runs through the same launcher, which downloads and
-checksum-checks that runtime on first use (curl, tar and sha256sum required).
-Use the release archive when offline; GitHub's automatic source archives cannot
-contain generated, untracked runtime binaries.
-
-### Experimental installation
-
-Verified mode remains the default. Menu option **5** enables experimental mode.
-CLI equivalent:
-
-```sh
-./wavelength-installer install --blender /path/to/Blender.AppImage --addons /path/to/scripts/addons --allow-unverified
-```
-
-Read the printed limitations and type `INSTALL EXPERIMENTAL`. For unattended
-use, explicitly add `--accept-experimental-risk`. `--force` aliases
-`--allow-unverified`; it does not bypass byte, format, backup or transaction checks.
-
-Experimental mode does not require the whole executable SHA-256 in the verified
-manifest. The current generator accepts Linux x86-64 ELF payloads containing
-**both complete, fingerprinted grid shaders** from the researched Blender source.
-It discovers their offsets separately, validates ELF table bounds and unique
-anchors, keeps string/binary lengths unchanged, and verifies exact precondition
-bytes and the resulting checksum. It also starts the patched payload headlessly
-before deployment. A similar version string or matching short marker is insufficient.
-Different shader sources are rejected with a compatibility error; force cannot
-make an incompatible binary work.
-
-The native component installed by this mode is explicitly the **experimental
-embedded GPU grid shader**, not the unfinished C++ per-view state bridge. It
-requires scene units NONE and subdivisions 10; the installed add-on configures
-those in engine mode. It also colors applicable non-engine views. Native LOD
-still hides fine intervals at distant zoom. Startup and structural tests do not
-certify all graphics backends, layouts or unknown builds. The receipt records
-`installation_mode`, `native_component`, `validation`, and `limitations`; status
-reports component checksums, not a claim of renderer certification.
-
-For an AppImage, the installer extracts into temporary storage, patches its
-internal Blender executable, and stores the complete runtime in the installer
-state directory. The original AppImage path becomes a small launcher to that
-managed runtime. The original AppImage is backed up byte-for-byte and restored
-by Remove/Recover. ELF bytes are never patched into the AppImage container.
-Allow disk space for extraction, original backup and managed runtime. Keep the
-state directory at its original location while installed. Backups and runtime
-files are retained after removal for inspection; removal restores both host
-components and does not discard user-modified files.
-
-This section supersedes the earlier statement that every real installation must
-refuse. The verified manifest is still empty. The experimental mode is usable
-only when structural compatibility and patched startup checks pass.
+`python3 tools/build_installer.py` checks the pinned runtime SHA-256, builds the
+full source/runtime archive and lightweight source ZIP, and smoke-tests the
+bundled launcher. Binary recipes retain exact input/output hashes, equal-length
+spans, and non-overlap checks. Force mode does not disable these checks.
