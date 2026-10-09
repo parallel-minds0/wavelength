@@ -21,4 +21,4 @@ if [ ! -x "$HERE/runtime/bin/python3" ]; then
     fi
 fi
 if [ "${TEMP:-}" ]; then rm -rf -- "$TEMP"; trap - EXIT HUP INT TERM; fi
-exec "$HERE/runtime/bin/python3" -I "$HERE/installer/entry.py" "$@"
+exec "$HERE/runtime/bin/python3" -I -B "$HERE/installer/entry.py" "$@"

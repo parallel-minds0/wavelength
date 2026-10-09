@@ -1,4 +1,4 @@
-# v0.11.1-pre.alpha — installer force mode
+# v0.11.2-pre.alpha — installer force mode
 
 - `install --force` now installs Python even when native preparation or writing fails. `--require-native` restores strict rollback.
 - Structural shader classification recognizes current and known legacy patches, including shared shader strings. Existing patches are adopted without rewriting.

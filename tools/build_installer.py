@@ -45,6 +45,8 @@ def main():
         subprocess.run([str(launcher),'--help'],check=True,env={**os.environ,'PATH':'/bin'})
         subprocess.run([str(launcher),'install','--help'],check=True,env={**os.environ,'PATH':'/bin'})
         subprocess.run([str(launcher),'status'],check=True,env={**os.environ,'PATH':'/bin'})
+        for cache_dir in bundle.rglob('__pycache__'):
+            if cache_dir.relative_to(bundle).parts[0]!='runtime':shutil.rmtree(cache_dir)
         # Lightweight source download uses the same installer launcher, which
         # bootstraps the pinned runtime on first use. Never include local caches.
         source_zip=ROOT/'dist'/f'wavelength-v{version()}-source.zip'

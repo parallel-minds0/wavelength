@@ -1,8 +1,8 @@
 # wavelength installer
 
-Download and extract `wavelength-v0.11.1-pre.alpha-linux-x86_64.tar.gz`, then run
+Download and extract `wavelength-v0.11.2-pre.alpha-linux-x86_64.tar.gz`, then run
 `./wavelength-installer`. The archive contains the editable source tree and a
-pinned private Python runtime. The smaller `wavelength-v0.11.1-pre.alpha-source.zip`
+pinned private Python runtime. The smaller `wavelength-v0.11.2-pre.alpha-source.zip`
 contains the same source and installer; it downloads and verifies that runtime on
 first use (requires curl and network access). System Python is not required.
 Linux x86-64 is currently the supported installer platform.
