@@ -11,4 +11,3 @@ def binary(vertex='original', fragment='original', shared=False, capacity=1800):
     strings=[b'VERTEX_SHADER_CREATE_INFO(overlay_grid_next)\n'+v+b' '*capacity,
              b'FRAGMENT_SHADER_CREATE_INFO(overlay_grid_next)\n'+f+b' '*capacity]
     return bytes(header)+(b'\n' if shared else b'\0').join(strings)+b'\0'
-
