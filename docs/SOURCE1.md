@@ -1,3 +1,9 @@
+# v0.11.3 verified milestone
+
+A fresh sealed room containing stairs, an arch and an 80-face sphere compiles through Blender's Build Map operator and reaches visible gameplay in the installed Linux HL2. The fixture is `addon/wavelength/environment/maps/wavelength_playable.vmf`; regenerate the local textured .blend/BSP with `tests/blender_hl2_playable.py` using Blender in background mode. This opt-in test requires the installed game and Source compiler tools.
+
+Open the local `maps/hl2-playable/wavelength_playable.blend`, select the HL2 Linux profile, use Build Map, then Launch Game. Keep the compiled basename unchanged. Renamed BSPs with mismatched embedded default cubemap paths now ask for a rebuild. This verifies loading and rendering, not a completed automated collision test. Earlier runtime notes below are historical; full Source parity remains outside this milestone.
+
 # Half-Life 2 / Source 1 — initial support
 
 Choose **Half-Life 2 — Source 1 — Linux** or **Windows**. Both use VMF, inch-like

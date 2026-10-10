@@ -18,8 +18,7 @@ def defaults(platform):
     return {'launch_args':'["-console", "-dev", "-game", "{game_dir}", "+map", "{map}"]'}
 
 def compiler_args(stage,game_dir,map_name="level"):
-    import re
-    if not re.fullmatch(r'[A-Za-z0-9_-]+',map_name):raise ValueError('Source map name must use letters, digits, underscores or hyphens')
+    validate_map_name(map_name)
     directory=Path(game_dir)
     if not (directory/'gameinfo.txt').is_file():raise ValueError('Source game directory must contain gameinfo.txt')
     # Relative map paths work for native tools and Wine. Z: maps host absolute paths.
@@ -39,3 +38,26 @@ def runtime_game(directory):
     combined=directory.parent/'hl2_complete'
     if directory.name=='hl2' and (combined/'gameinfo.txt').is_file():return combined
     return directory
+
+
+def validate_map_name(value):
+    """The name must survive Linux paths, Source commands and embedded BSP assets."""
+    import re
+    if not re.fullmatch(r'[a-z0-9_-]+',value):
+        raise ValueError('Source map name must use lowercase letters, numbers, underscores or hyphens')
+    return value
+
+
+def validate_map_assets(data, name):
+    """Catch renamed compiled maps without rewriting their embedded resources."""
+    import io,zipfile
+    validate_bsp(data);validate_map_name(name)
+    offset,size=struct.unpack_from('<ii',data,8+16*40)
+    if not size:return
+    try:
+        with zipfile.ZipFile(io.BytesIO(data[offset:offset+size])) as archive:
+            for entry in archive.infolist():
+                parts=entry.filename.replace('\\','/').lower().split('/')
+                if len(parts)>=4 and parts[:2]==['materials','maps'] and parts[-1].startswith('cubemapdefault') and parts[2]!=name:
+                    raise ValueError(f"BSP contains embedded assets for '{parts[2]}', but is named '{name}'. Rebuild with this output filename; do not rename the compiled BSP.")
+    except zipfile.BadZipFile as exc:raise ValueError('Invalid embedded BSP asset archive; rebuild the map') from exc

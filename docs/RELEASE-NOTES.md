@@ -1,3 +1,11 @@
+# v0.11.3-pre.alpha — playable HL2 validation milestone
+
+- Adds a sealed, textured Source room with editable stairs, arch and 80-face sphere, plus an opt-in Blender build regression.
+- Rejects renamed BSPs whose embedded default cubemaps still refer to a different map name. Rebuild instead of renaming the compiled file.
+- Source build filenames now follow the same lowercase rule as launching.
+- Verified real Blender export and VBSP/VVIS/VRAD compilation, followed by visible HL2 gameplay and client sign-on. Local .blend, BSP and screenshot are in maps/hl2-playable outside the source repository.
+- Automated movement/collision verification, Build & Play, and launch monitoring were stopped at the user's request and are not included. The legacy custom-map failure's full cause is not established; freshly rebuilt test geometry loads successfully.
+
 # v0.11.2-pre.alpha — installer force mode
 
 - `install --force` now installs Python even when native preparation or writing fails. `--require-native` restores strict rollback.

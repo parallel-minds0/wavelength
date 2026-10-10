@@ -915,7 +915,10 @@ class WL_OT_launch(SafeOperator,bpy.types.Operator):
         else:
             exe=Path(bpy.path.abspath(s.game_executable))
             if not exe.is_file():raise ValueError('Configure an existing game executable')
-        if profiles.is_source(s.engine):s.map_name=Path(s.last_build).stem
+        if profiles.is_source(s.engine):
+            from .source_tools import validate_map_assets
+            s.map_name=Path(s.last_build).stem
+            validate_map_assets(Path(s.last_build).read_bytes(),s.map_name)
         arguments=json.loads(s.launch_args)
         if not isinstance(arguments,list) or not all(isinstance(x,str) for x in arguments):raise ValueError('Launch arguments must be an array')
         if profiles.is_source(s.engine) and '-game' in arguments:

@@ -55,3 +55,19 @@ class SourceTests(unittest.TestCase):
             self.assertEqual(source_tools.compiler_args('vbsp',folder,'my_room')[-1],'my_room.vmf')
             self.assertEqual(source_tools.compiler_args('vrad',folder,'my_room')[-1],'my_room.bsp')
             with self.assertRaises(ValueError):source_tools.compiler_args('vbsp',folder,'../escape')
+
+    def test_renamed_embedded_map_rejected(self):
+        import io,zipfile
+        pak=io.BytesIO()
+        with zipfile.ZipFile(pak,'w') as z:z.writestr('materials/maps/original/cubemapdefault.vtf',b'fixture')
+        data=bytearray(b'VBSP'+struct.pack('<i',20)+bytes(1028))
+        struct.pack_into('<ii',data,8+16*40,len(data),len(pak.getvalue()));data.extend(pak.getvalue())
+        source_tools.validate_map_assets(data,'original')
+        with self.assertRaisesRegex(ValueError,'Rebuild'):source_tools.validate_map_assets(data,'renamed')
+    def test_source_lowercase_filename_required(self):
+        with self.assertRaisesRegex(ValueError,'lowercase'):source_tools.validate_map_name('MyRoom')
+        self.assertEqual(source_tools.validate_map_name('my_room-1'),'my_room-1')
+    def test_invalid_embedded_archive_rejected(self):
+        data=bytearray(b'VBSP'+struct.pack('<i',20)+bytes(1028))
+        struct.pack_into('<ii',data,8+16*40,len(data),3);data.extend(b'bad')
+        with self.assertRaisesRegex(ValueError,'asset archive'):source_tools.validate_map_assets(data,'room')
