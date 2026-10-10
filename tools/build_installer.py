@@ -36,7 +36,7 @@ def main():
         # Release is the full editable source tree plus the private Python runtime.
         for relative in ('addon','installer','native','patches','tools','tests','docs','documentation','third-party','.github','pro'):
             if (ROOT/relative).is_dir():
-                shutil.copytree(ROOT/relative,bundle/relative,ignore=shutil.ignore_patterns('__pycache__','*.pyc','.git','experimental-grid.json'))
+                shutil.copytree(ROOT/relative,bundle/relative,ignore=shutil.ignore_patterns('__pycache__','*.pyc','.git','experimental-grid.json','dev'))
         for relative in ('LICENSE','README.md','.gitignore','wavelength-installer','edition.json'):
             if (ROOT/relative).is_file():shutil.copy2(ROOT/relative,bundle/relative)
         launcher=bundle/'wavelength-installer'

@@ -1,3 +1,12 @@
+# v0.12.0-pre.alpha — installer lifecycle
+
+- Replacement is the default for an existing install; versions can be upgraded, downgraded or reinstalled while retaining the original backup chain. Interactive installs offer replace, side-by-side or cancel.
+- Side-by-side instances have separate add-ons, receipts and Blender executable copies. Only one wavelength add-on should be enabled in Blender at a time. A copy that cannot be created requires `--force` for Python-only fallback; `--require-native` still fails.
+- `uninstall` (`remove` alias) now removes adopted native shader patches too. Exact original bytes are restored from an intact original backup; adopted patches are structurally reverted to pristine shader behavior, without claiming byte identity.
+- `repair` restores add-on files with edit backups, repairs recognized native states, and rolls back interrupted transactions. Unknown external binary replacements or corrupt receipts require `--force`; corrupt receipts also require explicit target paths.
+- Managed runtimes with intact full inventories are removed. User backups/stale archives are preserved outside the removed instance. Unknown or changed runtimes are retained and reported.
+- Validation: 129 automated tests passed. New native lifecycle checks use synthetic ELF fixtures with startup probes mocked; this release does not certify compatibility with any real Blender build. Both deliberate mutations (skipping replacement and skipping structural revert) were caught by the new tests.
+
 # v0.11.3-pre.alpha — playable HL2 validation milestone
 
 - Adds a sealed, textured Source room with editable stairs, arch and 80-face sphere, plus an opt-in Blender build regression.

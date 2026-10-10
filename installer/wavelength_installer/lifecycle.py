@@ -69,7 +69,7 @@ def select_recipe(bundle,blender,*,allow_unverified=False):
 
 
 def _restore(state,data):
-    if data.get('installation_mode')=='forced':
+    if data.get('schema',1)>=2 or data.get('installation_mode')=='forced':
         from .forced import restore
         return restore(state,data)
     target=Path(data['blender']);addon=Path(data['addon'])
@@ -96,7 +96,7 @@ def _restore(state,data):
         data['phase']='removed';write_json(state/'receipt.json',data)
 
 
-def install(bundle,blender,addons,state,*,allow_unverified=False,confirm_experimental=False,force=False,require_native=False):
+def _install_legacy(bundle,blender,addons,state,*,allow_unverified=False,confirm_experimental=False,force=False,require_native=False):
     if force:
         from .forced import install_forced
         return install_forced(bundle,blender,addons,state,require_native=require_native)
@@ -126,7 +126,12 @@ def install(bundle,blender,addons,state,*,allow_unverified=False,confirm_experim
     with prepare(blender) if experimental else nullcontext(None) as prepared:
         if experimental and prepared.get('recipe') is None:
             from .forced import install_forced
-            return install_forced(bundle,blender,addons,state,require_native=True)
+            @contextmanager
+            def prepared_factory(_):yield prepared
+            result=install_forced(bundle,blender,addons,state,require_native=True,prepared_factory=prepared_factory)
+            receipt=read_receipt(state);receipt.update(installation_mode="experimental",allow_unverified=True)
+            write_json(state/"receipt.json",receipt)
+            return status(state)
         return _install_prepared(bundle,blender,addons,state,archive,manifest,addon,initial_hash,
                                  prepared,patched if not experimental else prepared['patched'])
 
@@ -177,7 +182,7 @@ def _install_prepared(bundle,blender,addons,state,archive,manifest,addon,initial
     return status(state)
 
 
-def remove(state):
+def _remove_legacy(state):
     state=Path(state).expanduser().resolve()
     with locked(state):
         data=status(state)
@@ -202,7 +207,7 @@ def read_receipt(state):
     if not path.exists():return {'phase':'not-installed'}
     try:
         data=json.loads(path.read_text())
-        if not isinstance(data,dict) or data.get('phase') not in {'prepared','installed','removed'}:
+        if not isinstance(data,dict) or data.get('phase') not in {'prepared','removing','installed','removed'}:
             raise ValueError('Invalid receipt phase')
         for key in ('blender','addon','addon_inventory','previous_addon_inventory','original_sha256','patched_sha256'):
             if key not in data:raise ValueError('Incomplete receipt: '+key)
@@ -236,7 +241,7 @@ def status(state):
     return data
 
 
-def recover(state):
+def _recover_legacy(state):
     state=Path(state).expanduser().resolve()
     with locked(state):
         data=status(state)
@@ -244,3 +249,30 @@ def recover(state):
         if data['phase']=='corrupt':raise StateError('Corrupt receipt; use install --force with explicit target paths')
         _restore(state,data)
         return status(state)
+
+
+def install(bundle,blender,addons,state,*,allow_unverified=False,confirm_experimental=False,
+            force=False,require_native=False,existing='replace',instance=None):
+    from .management import install_instance
+    return install_instance(bundle,blender,addons,state,allow_unverified=allow_unverified,
+                            confirm_experimental=confirm_experimental,force=force,
+                            require_native=require_native,existing=existing,instance=instance)
+
+
+def uninstall(state,*,force=False,keep_state=False):
+    from .management import uninstall_instance
+    return uninstall_instance(state,force=force,keep_state=keep_state)
+
+
+def remove(state,*,force=False,keep_state=False):
+    return uninstall(state,force=force,keep_state=keep_state)
+
+
+def recover(state):
+    from .management import recover_instance
+    return recover_instance(state)
+
+
+def repair(bundle,state,*,blender=None,addons=None,force=False,require_native=False):
+    from .management import repair_instance
+    return repair_instance(bundle,state,blender=blender,addons=addons,force=force,require_native=require_native)

@@ -18,7 +18,7 @@ def fingerprint(path):
 
 def archive(state, reason):
     destination=state/'stale'/(datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%S')+'-'+reason+'-'+uuid.uuid4().hex[:8])
-    entries=[p for p in state.iterdir() if p.name not in {'lock','stale'} and not p.name.startswith('runtime-')]
+    entries=[p for p in state.iterdir() if p.name not in {'lock','stale','backups'} and not p.name.startswith('runtime-') and not (p.is_dir() and (p/'receipt.json').is_file())]
     if not entries:return None
     destination.mkdir(parents=True)
     for entry in entries:shutil.move(str(entry),destination/entry.name)
@@ -53,10 +53,10 @@ def restore(state, data):
         data['phase']='removed';write_json(state/'receipt.json',data)
 
 
-def install_forced(bundle, blender, addons, state, *, require_native=False):
+def install_forced(bundle, blender, addons, state, *, require_native=False, prepared_factory=None, addon_name="wavelength", reconcile=True, expected_fingerprint=None, repair_native=False, metadata=None):
     from .deployment import prepare, stage_runtime
     bundle=Path(bundle).resolve();blender=Path(blender).expanduser().resolve()
-    addons=Path(addons).expanduser().resolve();state=Path(state).expanduser().resolve();addon=addons/'wavelength'
+    addons=Path(addons).expanduser().resolve();state=Path(state).expanduser().resolve();addon=addons/addon_name
     if state==addon or state.is_relative_to(addon) or addon.is_relative_to(state):
         raise ValueError('Installer state and add-on directories must be separate')
     if blender.is_relative_to(state) or blender.is_relative_to(addon):
@@ -66,7 +66,7 @@ def install_forced(bundle, blender, addons, state, *, require_native=False):
         raise ValueError('Bundled Python add-on checksum mismatch')
     with locked(state):
         old=read_receipt(state)
-        if old['phase']=='prepared':
+        if reconcile and old['phase']=='prepared':
             # Finish a safe rollback first; incompatible/interrupted remnants are retained.
             try:
                 from .lifecycle import _restore
@@ -74,6 +74,8 @@ def install_forced(bundle, blender, addons, state, *, require_native=False):
                 old=read_receipt(state)
             except (OSError,ValueError,RuntimeError):pass
         initial=fingerprint(blender)
+        if expected_fingerprint is not None and initial!=expected_fingerprint:
+            raise StateError("Blender changed after native preparation; retry with Blender closed")
         # A killed reconciliation can leave the previous journal in stale/ before
         # the new journal is committed. Recover ownership only from matching bytes.
         if old['phase']!='removed' and not (state/'original-blender').is_file():
@@ -88,20 +90,20 @@ def install_forced(bundle, blender, addons, state, *, require_native=False):
                         shutil.copytree(snapshot/'original-addon',state/'original-addon')
                     break
         same=old.get('blender')==str(blender)
-        owned=(same and old.get('phase') in {'installed','prepared'} and
+        owned=(same and old.get('phase') in {'installed','prepared','removing'} and
                old.get('native_ownership','owned')=='owned' and
-               initial==old.get('patched_sha256') and (state/'original-blender').is_file() and
+               (repair_native or initial in {old.get('patched_sha256'),old.get('original_sha256')}) and (state/'original-blender').is_file() and
                sha256(state/'original-blender')==old.get('original_sha256'))
         previous=inventory(addon)
         try:backup_inventory=inventory(state/'original-addon')
         except (OSError,ValueError):backup_inventory='invalid'
-        chain=(old.get('addon')==str(addon) and old.get('phase')=='installed' and
-               previous==old.get('addon_inventory') and
+        chain=(old.get('addon')==str(addon) and old.get('phase') in {'installed','prepared','removing'} and
+               previous in (None,old.get('addon_inventory'),old.get('previous_addon_inventory')) and
                backup_inventory==old.get('previous_addon_inventory'))
         saved=archive(state,old['phase'])
         try:
             native_target=saved/'original-blender' if owned and old.get('runtime_dir') else blender
-            with prepare(native_target,strict=False) as prepared:
+            with (prepared_factory(native_target) if prepared_factory else prepare(native_target,strict=False)) as prepared:
                 available=prepared.get('native_state')!='unavailable'
                 if require_native and not available:raise NativeRequiredError(prepared.get('reason','Native support unavailable'))
                 if (fingerprint(blender))!=initial:
@@ -116,8 +118,11 @@ def install_forced(bundle, blender, addons, state, *, require_native=False):
                     if owned:shutil.copy2(saved/'original-blender',state/'original-blender')
                     elif initial is not None:shutil.copy2(blender,state/'original-blender')
                     action=prepared.get('action','patch')
-                    changed=available and action!='keep'
+                    changed=(available or prepared.get('restore_only',False)) and action!='keep'
                     runtime_info={}
+                    retained=list(old.get('managed_runtimes',[]))
+                    if old.get('runtime_dir'):
+                        retained.append({'runtime_dir':old['runtime_dir'],'runtime_inventory':old.get('runtime_inventory')})
                     patched=prepared.get('patched')
                     if changed and prepared.get('runtime'):
                         patched,runtime_info=stage_runtime(prepared,state)
@@ -134,7 +139,8 @@ def install_forced(bundle, blender, addons, state, *, require_native=False):
                           'native_action':action,'native_changed':False,
                           'native_ownership':'owned' if owned else ('adopted' if available and not changed else 'none'),
                           'native_reason':prepared.get('reason',prepared.get('analysis',{}).get('reason','')),
-                          'stale_archive':str(saved) if saved else None,**runtime_info}
+                          'stale_archive':str(saved) if saved else None,'managed_runtimes':retained,**runtime_info}
+                    data.update(metadata or {})
                     if prepared.get('recipe'):write_json(state/'experimental-recipe.json',prepared['recipe'])
                     # Record ownership before writing: recovery after a process kill can restore bytes.
                     if changed:data['native_ownership']='owned'
@@ -167,6 +173,6 @@ def install_forced(bundle, blender, addons, state, *, require_native=False):
             archive(state,'failed')
             if saved:
                 for entry in saved.iterdir():
-                    if entry.is_dir():shutil.copytree(entry,state/entry.name)
+                    if entry.is_dir():shutil.copytree(entry,state/entry.name,dirs_exist_ok=True)
                     else:shutil.copy2(entry,state/entry.name)
             raise

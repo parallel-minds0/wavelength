@@ -38,18 +38,23 @@ def _prepare(blender):
             else:
                 fd,path=tempfile.mkstemp(prefix='.wl-probe-',dir=blender.parent)
                 os.close(fd);probe=Path(path);probe.write_bytes(patched);shutil.copymode(blender,probe);command=probe
-            with (folder/'startup.log').open('w+') as log:
-                try:
-                    subprocess.run([str(command),'--background','--factory-startup','--python-exit-code','19','--python-expr',
-                                    'import bpy; print("WL_NATIVE_STARTUP_OK")'],stdout=log,stderr=log,timeout=60,check=True)
-                except (subprocess.SubprocessError,OSError) as exc:
-                    log.seek(0);detail=log.read()[-2000:]
-                    raise ValueError('Patched Blender startup failed; nothing installed. '+detail) from exc
-                log.seek(0)
-                if 'WL_NATIVE_STARTUP_OK' not in log.read():raise ValueError('Patched executable did not confirm Blender startup')
+            _startup_probe(command,folder/'startup.log')
         finally:
             if probe:probe.unlink(missing_ok=True)
         yield {'recipe':recipe,'patched':patched,'runtime':runtime,'limitations':LIMITATIONS,'native_state':'available','action':analysis['action'],'analysis':{k:v for k,v in analysis.items() if k!='changes'}}
+
+
+def _startup_probe(command,log_path):
+    with Path(log_path).open('w+') as log:
+        try:
+            subprocess.run([str(command),'--background','--factory-startup','--python-exit-code','19',
+                            '--python-expr','import bpy; print("WL_NATIVE_STARTUP_OK")'],
+                           stdout=log,stderr=log,timeout=60,check=True)
+        except (subprocess.SubprocessError,OSError) as exc:
+            log.seek(0)
+            raise ValueError('Patched Blender startup failed. '+log.read()[-2000:]) from exc
+        log.seek(0)
+        if 'WL_NATIVE_STARTUP_OK' not in log.read():raise ValueError('Patched executable did not confirm Blender startup')
 
 
 def stage_runtime(prepared,state):
@@ -59,7 +64,8 @@ def stage_runtime(prepared,state):
     app=destination/'AppRun'
     launcher=('#!/bin/sh\n# Wavelength experimental AppImage deployment; remove through installer.\n'
               'export WL_EXPERIMENTAL_GRID=1\nexec '+shlex.quote(str(app))+' "$@"\n').encode()
-    return launcher,{'runtime_dir':str(destination),'runtime_payload_sha256':sha256(destination/'blender'),
+    from .management import tree_snapshot
+    return launcher,{'runtime_inventory':tree_snapshot(destination),'runtime_dir':str(destination),'runtime_payload_sha256':sha256(destination/'blender'),
                      'runtime_launcher_sha256':sha256(app)}
 
 

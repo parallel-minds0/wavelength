@@ -145,3 +145,29 @@ def build_recipe(data,analysis=None):
 
 
 def generate(data):return build_recipe(data)
+
+
+def revert_binary(data):
+    """Remove recognized shader edits without shifting ELF offsets.
+
+    This restores shader behavior, not the original file's formatting/hash.
+    """
+    inspection=analyze(data)
+    if inspection['action']=='unavailable':raise ValueError(inspection['reason'])
+    if inspection['state']=='pristine':return data
+    spans={}
+    for kind in ('vertex','fragment'):
+        marker=re.compile(kind.upper().encode()+rb'_SHADER_CREATE_INFO\s*\(\s*overlay_grid_next\s*\)')
+        hits=list(marker.finditer(data))
+        if len(hits)!=1:raise ValueError('Cannot uniquely locate shader for structural removal')
+        hit=hits[0];start=data.rfind(b'\0',0,hit.start())+1;end=data.find(b'\0',hit.end())
+        spans.setdefault((start,end),[]).append(kind)
+    result=bytearray(data)
+    for (start,end),kinds in spans.items():
+        text=data[start:end]
+        for kind in kinds:text=revert(text,kind)
+        result[start:end]=_fit(text,end-start)
+    result=bytes(result)
+    if len(result)!=len(data) or analyze(result)['state']!='pristine':
+        raise ValueError('Structural removal did not produce pristine shader state')
+    return result

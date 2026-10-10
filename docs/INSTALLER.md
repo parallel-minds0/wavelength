@@ -1,8 +1,8 @@
 # wavelength installer
 
-Download and extract `wavelength-v0.11.2-pre.alpha-linux-x86_64.tar.gz`, then run
+Download and extract `wavelength-v0.12.0-pre.alpha-linux-x86_64.tar.gz`, then run
 `./wavelength-installer`. The archive contains the editable source tree and a
-pinned private Python runtime. The smaller `wavelength-v0.11.2-pre.alpha-source.zip`
+pinned private Python runtime. The smaller `wavelength-v0.12.0-pre.alpha-source.zip`
 contains the same source and installer; it downloads and verifies that runtime on
 first use (requires curl and network access). System Python is not required.
 Linux x86-64 is currently the supported installer platform.
@@ -47,52 +47,78 @@ rendering. The legacy native yellow overlay affects all native 3D grids and stil
 uses native level of detail. AppImages are extracted to prepare and probe their
 payload; when changed, a reversible launcher uses the retained extracted runtime.
 
-## Diagnose, recover, and remove
+## Install, replace, and select instances
 
 ```sh
-./wavelength-installer diagnose --blender /path/to/blender
-./wavelength-installer status
-./wavelength-installer recover
-./wavelength-installer remove
+./wavelength-installer install --force --existing replace --yes
+./wavelength-installer install --force --existing side-by-side --yes
+./wavelength-installer status --instance default
+./wavelength-installer status --instance INSTANCE_ID
 ```
 
-`diagnose` reads bytes without modifying or running Blender. For AppImages it
-reports that payload extraction is required; install performs extraction and
-startup validation. `recover` leaves an installed transaction intact and rolls
-back a prepared transaction. Status reports external changes for inspection.
+The existing-install policy is `replace`, `side-by-side`, or `abort`. Without a
+policy, interactive installs ask; non-interactive installs replace. `--yes`
+suppresses prompts but does not accept experimental risk. Use the explicit
+`--accept-experimental-risk` flag with `--allow-unverified` for that mode.
 
-Use `--state /path/to/state` **before** the subcommand to manage another
-installation record. Keep this directory: it contains the journal and backups.
-Force installation archives stale/corrupt/relocated/replaced state under
-`state/stale/<timestamp>-<reason>/`. Earlier target installations remain intact
-when switching targets; their archived receipt can be managed separately with
-`--state`. Repeated installs preserve the original executable/add-on backup chain.
-Edited add-ons are backed up before a forced replacement. Removal refuses to
-discard later user edits or overwrite an external Blender update. Missing Blender
-executables are not recreated by forced-install removal.
+Replacement preserves pristine backups across upgrades, downgrades and
+reinstalls. Edited add-ons, damaged backups or externally replaced executables
+stop ordinary replacement. `--force` retains edits under `backups` and archives
+stale state under `stale` before proceeding.
 
-A preexisting patch that this installer did not apply is **adopted**. Removal
-leaves that executable unchanged. Receipts distinguish `native_state`,
-`native_changed` (this transaction), `native_ownership` (`owned`, `adopted`, `none`),
-and `installation_mode='forced'`. Original backups are retained after removal.
-Never delete installer state while an owned patch still needs removal.
+Side-by-side creates a separate state subdirectory, add-on directory and Blender
+executable copy next to the original. It does not change the first instance's
+executable. Use the new executable path printed in the result. Enable only one
+wavelength add-on at a time: the registered Blender classes would otherwise clash.
+If an independent copy cannot be made (including AppImage/launcher layouts), use
+`--force` for Python-only fallback. `--require-native` never permits that fallback.
 
-Human summaries go to stderr; structured JSON goes to stdout. `-v` / `--verbose`
-works before or after subcommands. Interactive option 6 selects forced install.
-Exit codes: **0** success (including forced Python-only installation), **1** general
-failure, **3** state/recovery problem, **4** required native support unavailable.
+When several instances exist, specify `--instance default` or the generated ID.
+Interactive commands can ask for a selection; non-interactive commands list IDs
+and exit 3 without guessing. `--state /path/to/state`, placed before the command,
+selects a different installation-state root.
 
-## Validation and build
+## Repair, recover, and uninstall
 
-`python3 -m unittest discover -s tests` covers synthetic shader states, including
-both stages in a shared string, bounded replacement, transactions, fallback,
-rollback, discovery, and CLI behavior. On the available Blender 5.2.2 executable,
-structural diagnosis and two startup probes succeeded. An isolated force install,
-reinstall, and removal adopted the existing patch and preserved the executable's
-SHA-256 throughout. Fresh native patch rendering and AppImage deployment were not
-validated on a real installation in this release.
+```sh
+./wavelength-installer repair --instance default
+./wavelength-installer uninstall --instance default
+./wavelength-installer remove --instance default
+./wavelength-installer recover --instance default
+./wavelength-installer diagnose --blender /path/to/blender
+```
 
-`python3 tools/build_installer.py` checks the pinned runtime SHA-256, builds the
-full source/runtime archive and lightweight source ZIP, and smoke-tests the
-bundled launcher. Binary recipes retain exact input/output hashes, equal-length
-spans, and non-overlap checks. Force mode does not disable these checks.
+Repair leaves healthy installs unchanged. Missing or edited add-on files are
+restored; edits are backed up. Recognized pristine, partial and legacy native
+shader states are repaired. If experimental startup validation fails, repair
+reverts identifiable shader patches fully and reports native unavailable;
+`--require-native` instead fails without deploying that fallback. Unknown external
+binary replacements require `--force`. For a corrupt receipt, give repair
+`--force --blender /path/to/blender --addons /path/to/addons` to quarantine state
+and reinstall. For a relocated executable, give its new path explicitly.
+
+Recover rolls back interrupted installation/removal. It never uninstalls a healthy
+installed instance. Diagnose is read-only; it does not launch Blender.
+
+Uninstall now removes adopted native patches as well as installer-owned patches.
+An intact original backup permits byte-exact restoration. Without a pristine
+backup, recognized shaders are structurally reverted and checked as pristine;
+this restores original behavior but may retain different whitespace. Missing
+Blender executables stay missing, and the result reports the limitation.
+
+Edited add-ons stop uninstall unless `--force` is supplied, in which case edits
+are backed up. Managed copies and runtimes are removed after successful
+restoration. Runtimes with unknown/changed inventories and foreign files are
+retained and reported. Edit backups and stale archives are moved into an adjacent
+`*-uninstalled-*` archive instead of being discarded. `--keep-state` retains the
+final receipt; otherwise the receipt and empty instance state directory are
+removed. Repeated uninstall is safe.
+
+Run the launcher without arguments for the seven-entry menu: Install, Uninstall,
+Repair, Status, Recover, Experimental install, Force install. Commands accept
+`--verbose` for additional diagnostic details.
+
+Exit codes: **0** success, **1** general failure, **2** command usage error,
+**3** inconsistent/interrupted/ambiguous state, **4** unavailable or required native
+support. New lifecycle tests use synthetic ELF fixtures with a mocked startup
+probe; they do not certify a real Blender build.

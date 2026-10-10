@@ -45,10 +45,16 @@ class ForceTests(unittest.TestCase):
         life.remove(self.state)
         self.assertEqual(self.blender.read_bytes(),b'original!')
         self.assertFalse((self.addons/'wavelength').exists())
-    def test_adopted_patch_never_written_or_removed(self):
-        with self.native('keep'),patch.object(forced,'replace_file',side_effect=AssertionError('unexpected write')):
-            data=self.install();life.remove(self.state)
+    def test_adopted_patch_removed_structurally(self):
+        from tests.test_native_states import binary
+        from installer.wavelength_installer.experimental import analyze
+        self.blender.write_bytes(binary('current','current',shared=True))
+        with self.native('keep'),patch.object(forced,'replace_file',side_effect=AssertionError('unexpected install write')):
+            data=self.install()
+        result=life.remove(self.state)
         self.assertEqual(data['native_ownership'],'adopted')
+        self.assertEqual(analyze(self.blender.read_bytes())['state'],'pristine')
+        self.assertEqual(result['native_restoration'],'structural')
     def test_native_write_failure_keeps_python(self):
         with self.native(),patch.object(forced,'replace_file',side_effect=PermissionError('readonly')):
             data=self.install()
@@ -144,7 +150,7 @@ class ForceTests(unittest.TestCase):
         life.remove(self.state)
         self.assertEqual(self.blender.read_bytes(),b'original!')
     def test_menu_force_without_confirmation(self):
-        with patch.object(sys,'argv',['installer']),patch.object(sys.stdin,'isatty',return_value=True),patch('builtins.input',side_effect=['6',str(self.blender),str(self.addons)]),patch.object(app,'install',return_value={'phase':'installed','native_state':'unavailable'}) as install,patch('sys.stdout',io.StringIO()):
+        with patch.object(sys,'argv',['installer']),patch.object(sys.stdin,'isatty',return_value=True),patch('builtins.input',side_effect=['7',str(self.blender),str(self.addons),'1']),patch.object(app,'install',return_value={'phase':'installed','native_state':'unavailable'}) as install,patch('sys.stdout',io.StringIO()):
             app.main()
         self.assertTrue(install.call_args.kwargs['force'])
     def test_corrupt_recover_exit3(self):
