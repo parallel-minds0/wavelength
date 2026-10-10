@@ -2,7 +2,7 @@
 bl_info = {
     "name": "Wavelength",
     "author": "Wavelength contributors",
-    "version": (0, 12, 0),
+    "version": (0, 12, 1),
     "blender": (4, 5, 0),
     "location": "3D View > Sidebar > Wavelength",
     "description": "Quake and GoldSrc level authoring",

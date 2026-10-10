@@ -214,7 +214,9 @@ class WLSettings(bpy.types.PropertyGroup):
     unit_scale:FloatProperty(name='Meters per engine unit',default=.0254,min=.000001,update=lambda s,c:grid.update(s,c))
     asset_paths:StringProperty(name='Additional asset roots (JSON)',default='[]')
     engine:EnumProperty(name='Profile',items=[('blender','Blender — No Engine — Any Platform','Neutral Blender authoring; Wavelength does not impose engine rules'),('quake','Quake — Quake — Custom Platform','Classic Quake MAP; user-configured platform/toolchain'),('goldsrc','Half-Life — GoldSrc — Custom Platform','Valve 220 MAP; user-configured platform/toolchain'),('goldsrc_linux','Half-Life — GoldSrc — Linux','Native Half-Life 1 for Linux; discovers and indexes stock WAD3 libraries'),('goldsrc_linux_steam','Half Life 1, GoldSrc, Linux, Steam','Launch Half-Life 1 through Steam App ID 70; discovers stock WAD3 libraries'),('source_hl2_linux','Half-Life 2 — Source 1 — Linux','VMF and native Linux game runtime'),('source_hl2_windows','Half-Life 2 — Source 1 — Windows','VMF and Windows game runtime; configure Steam Proton on Linux')],default='blender',update=engine_changed)
-    grid_mode:EnumProperty(name='Grid',items=[('BLENDER','Blender','Use your original Blender grid'),('ENGINE','Engine','Fixed engine-unit grid overlay')],default='BLENDER',update=grid.update)
+    grid_mode:EnumProperty(name='Grid',items=[('BLENDER','Metric','wavelength grid using meter-based spacing'),('ENGINE','Profile','wavelength grid using the active engine units')],default='BLENDER',update=grid.update)
+    metric_grid_step:FloatProperty(name='Metric Step',default=1.0,min=.001,max=1024,update=grid.update,subtype='DISTANCE')
+    grid_subdivisions:IntProperty(name='Subdivisions',default=0,min=0,max=64,description='0 uses profile default: 8 for engines, 10 for Blender',update=grid.update)
     grid_step:EnumProperty(name='Step',items=[(str(x),str(x),'Engine units') for x in (1,2,4,8,16,32,64,128,256)],default='16',update=grid.update)
     project_dir:StringProperty(name='Project directory',subtype='DIR_PATH')
     map_name:StringProperty(name='Map name',default='wavelength_test')
@@ -413,8 +415,14 @@ class WL_OT_snap(SafeOperator,bpy.types.Operator):
 class WL_OT_grid_step(bpy.types.Operator):
     bl_idname='wavelength.grid_step';bl_label='Change Grid Step';bl_options={'UNDO'}
     direction:IntProperty(default=1)
+    @classmethod
+    def poll(cls,context):
+        return bool(workspace.active(context) and context.area and context.area.type=='VIEW_3D' and getattr(context.scene,'wavelength',None) is not None)
     def execute(self,context):
-        s=context.scene.wavelength;steps=[1,2,4,8,16,32,64,128,256]
+        s=context.scene.wavelength
+        if not grid.engine_enabled(s):
+            s.metric_grid_step=max(.001,min(1024,s.metric_grid_step*(2 if self.direction>0 else .5)));return {'FINISHED'}
+        steps=[1,2,4,8,16,32,64,128,256]
         index=steps.index(int(s.grid_step));s.grid_step=str(steps[max(0,min(len(steps)-1,index+self.direction))]);return {'FINISHED'}
 
 def _spawn_point_entity(context, classname):
@@ -965,7 +973,8 @@ class WL_PT_main(bpy.types.Panel):
         if not workspace.draw_controls(l,context):return
         l.prop(s,'engine');l.label(text=s.status[:65],icon='INFO')
         box=l.box();box.label(text='Grid & Units',icon='GRID');box.prop(s,'grid_mode',expand=True)
-        row=box.row(align=True);row.enabled=s.engine!='blender' and s.grid_mode=='ENGINE';row.operator('wavelength.grid_step',text='−').direction=-1;row.prop(s,'grid_step',text='');row.operator('wavelength.grid_step',text='+').direction=1
+        row=box.row(align=True);row.operator('wavelength.grid_step',text='−').direction=-1;row.prop(s,'grid_step' if grid.engine_enabled(s) else 'metric_grid_step',text='');row.operator('wavelength.grid_step',text='+').direction=1
+        box.prop(s,'grid_subdivisions')
         box.label(text=('Blender units / native grid' if s.engine=='blender' else '1 engine unit ≈ 2.54 cm'));box.operator('wavelength.snap_grid')
         row=l.row(align=True)
         for kind in ('STAIRS','ARCH','SPHERE'):row.operator('wavelength.primitive',text=kind.title()).kind=kind
@@ -1359,7 +1368,7 @@ class WL_OT_bake(SafeOperator,bpy.types.Operator):
                 with context.temp_override(object=copy,active_object=copy,selected_objects=[copy],selected_editable_objects=[copy]):bpy.ops.rigidbody.object_remove()
             copy.name=obj.name+' settled';obj['wl_exclude']=True
 
-_PROJECT_FIELDS=('engine','unit_scale','asset_paths','profile_id','profile_name','grid_mode','grid_step','project_dir','build_output','map_name','compiler_dir','qbsp_path','vis_path','light_path','qbsp_args','vis_args','light_args','source_vbsp_args','source_vvis_args','source_vrad_args','game_executable','game_dir','wad_path','palette_path','quake_pak_dir','texture_wads','fgd_path','wrapper','environment','launch_args','timeout')
+_PROJECT_FIELDS=('engine','unit_scale','asset_paths','profile_id','profile_name','grid_mode','grid_step','metric_grid_step','grid_subdivisions','project_dir','build_output','map_name','compiler_dir','qbsp_path','vis_path','light_path','qbsp_args','vis_args','light_args','source_vbsp_args','source_vvis_args','source_vrad_args','game_executable','game_dir','wad_path','palette_path','quake_pak_dir','texture_wads','fgd_path','wrapper','environment','launch_args','timeout')
 class WL_OT_save_project(SafeOperator,bpy.types.Operator,ExportHelper):
     bl_idname='wavelength.save_project';bl_label='Save Project';filename_ext='.json'
     def run(self,context):

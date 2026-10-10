@@ -1,3 +1,12 @@
+# v0.12.1-pre.alpha — profile grid and shortcuts
+
+- wavelength owns both parent lines and grey subdivisions in its workspace. Engine profiles default to eight subdivisions; Blender/metric mode defaults to a one-meter parent interval and ten subdivisions. The subdivision count is configurable and saved with profiles/projects.
+- `[` halves and `]` doubles grid spacing. Engine spacing retains its 1–256 unit range; metric spacing uses meters. Shortcuts are workspace-scoped.
+- Native grid plane visibility is restored when leaving the workspace, disabling the grid/add-on, or saving/loading files. Blender axis colors remain intact.
+- Added the nine-milestone / 101-package roadmap status document.
+- Validation: 133 unit tests passed; Blender 5.2.2 UI checks covered rendering, spacing, bounds, shortcut bindings, workspace restoration and cleanup.
+- Existing experimental native shader patches can still tint Blender's own grid. The development host was structurally reverted to pristine shaders, with a backup, and visually checked. That local executable change is not part of the add-on download. The optional legacy native coloring patch should not be reapplied for this workspace grid.
+
 # v0.12.0-pre.alpha — installer lifecycle
 
 - Replacement is the default for an existing install; versions can be upgraded, downgraded or reinstalled while retaining the original backup chain. Interactive installs offer replace, side-by-side or cancel.

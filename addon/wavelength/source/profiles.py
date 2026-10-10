@@ -81,3 +81,11 @@ def snap_world_length(settings, value, minimum_steps=1):
     step = grid_step_units(settings)
     units = abs(world_to_engine(settings, value))
     return engine_to_world(settings, max(float(minimum_steps) * step, round(units / step) * step))
+
+
+def display_grid(settings):
+    """Parent spacing in meters and subdivisions, independent of Blender LOD."""
+    metric = settings.engine == 'blender' or settings.grid_mode == 'BLENDER'
+    spacing = float(getattr(settings, 'metric_grid_step', 1.0)) if metric else active_grid_step_meters(settings)
+    count = int(getattr(settings, 'grid_subdivisions', 0)) or (10 if metric else int(get(settings.engine).get('grid_subdivisions', 8)))
+    return spacing, max(2, count)

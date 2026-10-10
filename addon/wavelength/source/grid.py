@@ -7,6 +7,8 @@ import bpy
 from . import profiles
 
 _handles = []
+_keymaps = []
+_native = {}
 _shader = None
 _batch = None
 _error = None
@@ -16,8 +18,37 @@ def engine_enabled(settings):
     return settings is not None and settings.engine != 'blender' and settings.grid_mode == 'ENGINE'
 
 
+def sync_native():
+    """Hide only native grid planes while this workspace owns their rendering."""
+    from .workspace import active
+    owned = set()
+    for window in bpy.context.window_manager.windows:
+        with bpy.context.temp_override(window=window):
+            if not active(bpy.context, 'grid'):continue
+            for area in window.screen.areas:
+                if area.type != 'VIEW_3D':continue
+                space=area.spaces.active;key=space.as_pointer();owned.add(key)
+                if key not in _native:
+                    _native[key]=(space,space.overlay.show_floor,space.overlay.show_ortho_grid)
+                space.overlay.show_floor=False;space.overlay.show_ortho_grid=False
+    for key in list(_native):
+        if key not in owned:
+            space,floor,ortho=_native.pop(key)
+            try:space.overlay.show_floor=floor;space.overlay.show_ortho_grid=ortho
+            except ReferenceError:pass
+    return .1
+
+
+@bpy.app.handlers.persistent
+def restore_native(*_):
+    for space,floor,ortho in list(_native.values()):
+        try:space.overlay.show_floor=floor;space.overlay.show_ortho_grid=ortho
+        except ReferenceError:pass
+    _native.clear()
+
+
 def update(settings, context):
-    # The native grid, unit system, subdivisions and visibility are never changed.
+    # Spacing is shader-owned; native grid visibility is restored on leaving.
     for window in bpy.context.window_manager.windows:
         for area in window.screen.areas:
             if area.type == 'VIEW_3D': area.tag_redraw()
@@ -36,6 +67,7 @@ def _create_shader():
     info.fragment_out(0, 'VEC4', 'color')
     info.push_constant('MAT4', 'view_projection')
     info.push_constant('FLOAT', 'spacing')
+    info.push_constant('FLOAT', 'subdivisions')
     info.push_constant('INT', 'plane_axis')
     info.push_constant('VEC2', 'axis_visibility')
     info.depth_write('ANY')
@@ -63,10 +95,12 @@ void main() {
     vec2 footprint = max(fwidth(p), vec2(1e-7));
     float pixel_world = max(footprint.x, footprint.y);
     // Only the selected interval is yellow. Subpixel lines fade out instead of
-    // being relabelled as larger yellow units. Coarser context stays neutral.
+    // being relabelled as larger yellow units. Minor lines stay profile-relative.
     float selected = line_coverage(p, footprint, spacing) *
                      smoothstep(2.0, 6.0, spacing / pixel_world);
-    float context_line = 0.0; // Blender supplies the adaptive neutral grid.
+    float minor_spacing = spacing / subdivisions;
+    float context_line = line_coverage(p, footprint, minor_spacing) *
+                         smoothstep(2.0, 6.0, minor_spacing / pixel_world);
     float alpha = max(selected * 0.65, context_line * 0.28);
     vec2 axis_coverage = 1.0 - smoothstep(vec2(0.25), vec2(1.25), abs(p) / footprint);
     alpha *= 1.0 - max(axis_coverage.x * axis_visibility.x, axis_coverage.y * axis_visibility.y);
@@ -87,7 +121,7 @@ def _draw_grid():
     from .workspace import active
     if not active(context, 'grid'): return
     settings = getattr(context.scene, 'wavelength', None)
-    if not engine_enabled(settings) or not context.space_data.overlay.show_overlays:
+    if settings is None or not context.space_data.overlay.show_overlays:
         return
     region = context.region_data
     if region is None:
@@ -109,7 +143,9 @@ def _draw_grid():
         gpu.state.depth_mask_set(False)
         _shader.bind()
         _shader.uniform_float('view_projection', region.perspective_matrix)
-        _shader.uniform_float('spacing', profiles.active_grid_step_meters(settings))
+        spacing, subdivisions = profiles.display_grid(settings)
+        _shader.uniform_float('spacing', spacing)
+        _shader.uniform_float('subdivisions', float(subdivisions))
         _shader.uniform_int('plane_axis', axis)
         overlay = context.space_data.overlay
         axes = (overlay.show_axis_x, overlay.show_axis_y, overlay.show_axis_z)
@@ -132,16 +168,28 @@ def _draw_label():
     from .workspace import active
     if not active(bpy.context, 'grid'): return
     settings = getattr(bpy.context.scene, 'wavelength', None)
-    if not engine_enabled(settings) or not bpy.context.space_data.overlay.show_overlays:
+    if settings is None or not bpy.context.space_data.overlay.show_overlays:
         return
     blf.size(0, 15)
     blf.color(0, 1.0, 0.85, 0.10, 1.0)
     blf.position(0, 20, 46, 0)
-    label = 'GRID ERROR: ' + _error if _error else f'GRID SNAP  |  {settings.grid_step} engine units'
+    spacing, subdivisions = profiles.display_grid(settings)
+    units = f'{settings.grid_step} engine units' if engine_enabled(settings) else f'{spacing:g} m'
+    label = 'GRID ERROR: ' + _error if _error else f'GRID  |  {units}  |  {subdivisions} subdivisions'
     blf.draw(0, label)
 
 
 def register():
+    if not bpy.app.timers.is_registered(sync_native):bpy.app.timers.register(sync_native, persistent=True)
+    bpy.app.handlers.save_pre.append(restore_native)
+    bpy.app.handlers.load_pre.append(restore_native)
+    config = bpy.context.window_manager.keyconfigs.addon
+    if config:
+        keymap = config.keymaps.new(name='3D View', space_type='VIEW_3D')
+        for key, direction in (('LEFT_BRACKET', -1), ('RIGHT_BRACKET', 1)):
+            item = keymap.keymap_items.new('wavelength.grid_step', key, 'PRESS')
+            item.properties.direction = direction
+            _keymaps.append((keymap, item))
     if not _handles:
         _handles.append(bpy.types.SpaceView3D.draw_handler_add(_draw_grid, (), 'WINDOW', 'POST_VIEW'))
         _handles.append(bpy.types.SpaceView3D.draw_handler_add(_draw_label, (), 'WINDOW', 'POST_PIXEL'))
@@ -149,6 +197,13 @@ def register():
 
 def unregister():
     global _shader, _batch
+    if bpy.app.timers.is_registered(sync_native):bpy.app.timers.unregister(sync_native)
+    if restore_native in bpy.app.handlers.save_pre:bpy.app.handlers.save_pre.remove(restore_native)
+    if restore_native in bpy.app.handlers.load_pre:bpy.app.handlers.load_pre.remove(restore_native)
+    restore_native()
+    for keymap, item in _keymaps:
+        keymap.keymap_items.remove(item)
+    _keymaps.clear()
     for handle in _handles:
         bpy.types.SpaceView3D.draw_handler_remove(handle, 'WINDOW')
     _handles.clear()
