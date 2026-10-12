@@ -36,10 +36,17 @@ jobs:
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
           git -C C:/wl-source apply "$env:GITHUB_WORKSPACE/native/blender/grid-5.2.2.patch"
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
+      - name: Preserve OptiX backend support
+        shell: pwsh
+        run: |
+          Invoke-WebRequest -Uri https://codeload.github.com/NVIDIA/optix-dev/tar.gz/refs/tags/v8.0.0 -OutFile C:/optix.tar.gz
+          if ((Get-FileHash C:/optix.tar.gz -Algorithm SHA256).Hash.ToLowerInvariant() -ne 'b32e74c9f5c13549ff3a9760076271b5b6ec28f93fe6a8dd0bde74d7e5c58e05') { throw 'OptiX header checksum mismatch' }
+          tar -xzf C:/optix.tar.gz -C C:/
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
       - name: Compile internal patched executable
         shell: pwsh
         run: |
-          cmake -S C:/wl-source -B C:/wl-build -G Ninja -C C:/wl-source/build_files/cmake/config/blender_release.cmake -DCMAKE_BUILD_TYPE=Release -DWITH_GTESTS=OFF -DWITH_CYCLES_CUDA_BINARIES=OFF -DWITH_CYCLES_HIP_BINARIES=OFF -DWITH_CYCLES_ONEAPI_BINARIES=OFF
+          cmake -S C:/wl-source -B C:/wl-build -G Ninja -C C:/wl-source/build_files/cmake/config/blender_release.cmake -DCMAKE_BUILD_TYPE=Release -DOPTIX_ROOT_DIR=C:/optix-dev-8.0.0 -DWITH_GTESTS=OFF -DWITH_CYCLES_CUDA_BINARIES=OFF -DWITH_CYCLES_HIP_BINARIES=OFF -DWITH_CYCLES_ONEAPI_BINARIES=OFF
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
           cmake --build C:/wl-build --parallel 4
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
