@@ -61,7 +61,9 @@ def install_forced(bundle, blender, addons, state, *, require_native=False, prep
         raise ValueError('Installer state and add-on directories must be separate')
     if blender.is_relative_to(state) or blender.is_relative_to(addon):
         raise ValueError('Blender executable must be outside installer state and add-on directories')
-    manifest=json.loads((bundle/'bundle.json').read_text());source=(bundle/manifest['addon']).resolve()
+    manifest=json.loads((bundle/'bundle.json').read_text())
+    require_native = require_native or manifest.get('native_policy') == 'required'
+    source=(bundle/manifest['addon']).resolve()
     if not source.is_relative_to(bundle) or sha256(source)!=manifest['addon_sha256']:
         raise ValueError('Bundled Python add-on checksum mismatch')
     with locked(state):
@@ -103,7 +105,7 @@ def install_forced(bundle, blender, addons, state, *, require_native=False, prep
         saved=archive(state,old['phase'])
         try:
             native_target=saved/'original-blender' if owned and old.get('runtime_dir') else blender
-            api_options={'native_grid_abi':manifest['native_grid_abi']} if 'native_grid_abi' in manifest else {}
+            api_options={'native_grid_abi':manifest['native_grid_abi'],'patch_directory':bundle/'patches/native'} if 'native_grid_abi' in manifest else {}
             with (prepared_factory(native_target) if prepared_factory else prepare(native_target,strict=False,**api_options)) as prepared:
                 available=prepared.get('native_state')!='unavailable'
                 if require_native and not available:raise NativeRequiredError(prepared.get('reason','Native support unavailable'))

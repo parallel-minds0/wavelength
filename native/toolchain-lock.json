@@ -1,0 +1,10 @@
+{
+  "schema": 1,
+  "linux_to_windows_x86_64": {
+    "name": "llvm-mingw",
+    "version": "20261006",
+    "url": "https://github.com/mstorsjo/llvm-mingw/releases/download/20261006/llvm-mingw-20261006-ucrt-ubuntu-22.04-x86_64.tar.xz",
+    "sha256": "5f9c6ed95b2d4bdb2869a488c5fd5857fbdabcf288a0aa3eb1da43f6a08d8ab4",
+    "directory": "llvm-mingw-20261006-ucrt-ubuntu-22.04-x86_64"
+  }
+}

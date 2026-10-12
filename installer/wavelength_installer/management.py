@@ -42,7 +42,7 @@ def native_plan(bundle,blender,state,old,*,force,allow_unverified,confirmed,requ
     if allow_unverified and not confirmed and not force:raise ValueError('Experimental installation requires explicit risk confirmation')
     native_api=json.loads((Path(bundle)/'bundle.json').read_text()).get('native_grid_abi')
     if native_api is not None:
-        with prepare(blender,strict=not (force or repair_mode),native_grid_abi=native_api) as prepared:yield prepared
+        with prepare(blender,strict=not (force or repair_mode),native_grid_abi=native_api,patch_directory=Path(bundle)/'patches/native') as prepared:yield prepared
         return
     if force:
         # Runtime-backed launchers must be prepared from the original container.
@@ -69,6 +69,7 @@ def _perform_install(bundle,blender,addons,state,*,allow_unverified,confirm_expe
                      require_native,addon_name='wavelength',metadata=None,repair_mode=False):
     from .forced import install_forced
     bundle=Path(bundle).resolve();blender=Path(blender).expanduser().resolve();addons=Path(addons).expanduser().resolve();state=Path(state).expanduser().resolve()
+    require_native = require_native or json.loads((bundle/'bundle.json').read_text()).get('native_policy') == 'required'
     old=life.read_receipt(state);addon=addons/addon_name
     check_replace(state,old,blender,addon,force,repair_mode)
     if old.get('phase')=='removing' and old.get('removal_journal'):

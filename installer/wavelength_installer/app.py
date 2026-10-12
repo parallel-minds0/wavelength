@@ -1,6 +1,7 @@
 """Bundled-runtime entry point: add/remove both Wavelength components together."""
 import argparse
 import json
+import os
 import sys
 from pathlib import Path
 from .lifecycle import install,remove,status,recover,repair,read_receipt
@@ -9,14 +10,14 @@ from .instances import select
 def main():
     parser=argparse.ArgumentParser(description='wavelength installer — Python add-on + native Blender patch')
     parser.add_argument('--bundle',type=Path,default=Path(__file__).resolve().parents[2])
-    parser.add_argument('--state',type=Path,default=Path.home()/'.local/share/wavelength/install')
+    parser.add_argument('--state',type=Path,default=(Path(os.environ.get('LOCALAPPDATA', str(Path.home()/'AppData/Local')))/'wavelength/install' if os.name == 'nt' else Path.home()/'.local/share/wavelength/install'))
     parser.add_argument('-v','--verbose',action='store_true')
     sub=parser.add_subparsers(dest='action',required=True)
-    add=sub.add_parser('install',help='Install wavelength; use --force for optional native support')
+    add=sub.add_parser('install',help='Install wavelength; use --force for experimental installation')
     add.add_argument('--blender',type=Path)
     add.add_argument('--addons',type=Path)
     add.add_argument('--allow-unverified',action='store_true',help='Attempt structurally compatible experimental native patch; never ignore byte validation')
-    add.add_argument('--force',action='store_true',help='Install Python even when native support is unavailable')
+    add.add_argument('--force',action='store_true',help='Reconcile unverified installations; current packages still require a compatible native patch')
     add.add_argument('--require-native',action='store_true',help='Roll back if native support is unavailable')
     add.add_argument('--accept-experimental-risk',action='store_true',help='Explicitly accept experimental limitations without an interactive prompt')
     add.add_argument('--existing',choices=['replace','side-by-side','abort'])

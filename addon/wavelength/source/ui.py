@@ -977,7 +977,7 @@ class WL_PT_main(bpy.types.Panel):
         box.prop(s,'grid_subdivisions')
         box.label(text=('Metric grid / meters' if s.engine=='blender' else '1 engine unit ≈ 2.54 cm'));box.operator('wavelength.snap_grid')
         if not grid.native_available(context.space_data):
-            box.label(text='Grid requires wavelength-enabled Blender',icon='ERROR')
+            box.label(text='Native grid patch missing: run installer repair',icon='ERROR')
         row=l.row(align=True)
         for kind in ('STAIRS','ARCH','SPHERE'):row.operator('wavelength.primitive',text=kind.title()).kind=kind
         l.operator('wavelength.index_assets',text='Publish to Native Asset Browser',icon='ASSET_MANAGER')

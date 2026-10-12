@@ -62,7 +62,7 @@ def sync_native():
                     _assign(space.overlay, name, value)
             except ReferenceError:
                 pass
-    _error = 'Native grid unavailable: launch the wavelength-enabled Blender build' if unavailable else None
+    _error = 'Native grid unavailable: close Blender and repair its native patch with the wavelength installer' if unavailable else None
     return .1
 
 

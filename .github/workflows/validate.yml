@@ -1,4 +1,4 @@
-name: Validate and package
+name: Validate source
 on: [push, pull_request, workflow_dispatch]
 permissions:
   contents: read
@@ -11,30 +11,10 @@ jobs:
         with:
           python-version: '3.12'
       - run: python tools/release.py
-      - name: Bundle installer runtime for tags
-        if: startsWith(github.ref, 'refs/tags/')
-        run: python tools/build_installer.py
       - uses: actions/upload-artifact@v4
         with:
           name: wavelength-addon
-          path: |
-            dist/wavelength-addon-*.zip
-            dist/wavelength-v*-source.zip
-            dist/wavelength-v*.tar.gz
-            dist/wavelength-v*.sha256
-  release:
-    if: startsWith(github.ref, 'refs/tags/')
-    needs: test
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/download-artifact@v4
-        with:
-          name: wavelength-addon
-          path: dist
-      - name: Publish prerelease artifacts
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: gh release create "$GITHUB_REF_NAME" dist/* --prerelease --title "$GITHUB_REF_NAME" --notes-file docs/RELEASE-NOTES.md
+          path: dist/wavelength-addon-*.zip
+# Native patch releases are assembled only after the real Linux install/repair/
+# uninstall and viewport checks. tools/build_installer.py creates the payload;
+# no CI job publishes an unvalidated Blender runtime or Python-only installer.

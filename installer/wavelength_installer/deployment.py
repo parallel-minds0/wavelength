@@ -6,7 +6,7 @@ from .core import inspect_blender,sha256
 from .experimental import generate,analyze,LIMITATIONS
 
 @contextmanager
-def _prepare(blender, native_grid_abi=None):
+def _prepare(blender, native_grid_abi=None, patch_directory=None):
     with tempfile.TemporaryDirectory(prefix='wl-native-') as folder:
         folder=Path(folder)
         runtime=None
@@ -40,9 +40,15 @@ def _prepare(blender, native_grid_abi=None):
                    'analysis':{'reason':'Native grid RNA API verified at startup'}}
             return
         if native_grid_abi is not None:
-            raise ValueError('This add-on requires the wavelength native Blender build; the legacy shader-color patch cannot provide its grid API')
-        analysis=analyze(payload_bytes)
-        recipe,patched=generate(payload_bytes)
+            from .delta_patch import prepare_bytes
+            if patch_directory is None:
+                raise ValueError('No native patch supplied for this Blender executable. Nothing installed.')
+            patched, entry = prepare_bytes(payload_bytes, patch_directory)
+            recipe = None
+            analysis = {'action': 'patch', 'reason': 'Checksum-bound native binary patch'}
+        else:
+            analysis=analyze(payload_bytes)
+            recipe,patched=generate(payload_bytes)
         # Structural compatibility is established here. This is not renderer certification.
         if runtime:
             payload.write_bytes(patched)
@@ -50,14 +56,15 @@ def _prepare(blender, native_grid_abi=None):
         probe=None
         try:
             if runtime:command=runtime/'AppRun'
-            elif recipe is None:command=blender
+            elif recipe is None and native_grid_abi is None:command=blender
             else:
-                fd,path=tempfile.mkstemp(prefix='.wl-probe-',dir=blender.parent)
+                fd,path=tempfile.mkstemp(prefix='.wl-probe-',suffix='.exe' if os.name == 'nt' else '',dir=blender.parent)
                 os.close(fd);probe=Path(path);probe.write_bytes(patched);shutil.copymode(blender,probe);command=probe
-            _startup_probe(command,folder/'startup.log')
+            _startup_probe(command,folder/'startup.log',native_grid=native_grid_abi is not None)
         finally:
             if probe:probe.unlink(missing_ok=True)
-        yield {'recipe':recipe,'patched':patched,'runtime':runtime,'limitations':LIMITATIONS,'native_state':'available','action':analysis['action'],'analysis':{k:v for k,v in analysis.items() if k!='changes'}}
+        yield {'recipe':recipe,'patched':patched,'runtime':runtime,'limitations':LIMITATIONS,'native_state':'available','action':analysis['action'],'analysis':{k:v for k,v in analysis.items() if k!='changes'},
+               **({'native_component':'native-grid-abi1','limitations':'Experimental exact-executable native patch','patch_metadata':entry} if native_grid_abi is not None else {})}
 
 
 def _startup_probe(command,log_path,*,native_grid=False):
@@ -91,12 +98,12 @@ def stage_runtime(prepared,state):
 
 
 @contextmanager
-def prepare(blender, strict=True, native_grid_abi=None):
+def prepare(blender, strict=True, native_grid_abi=None, patch_directory=None):
     # Catch preparation failures only, never exceptions from the caller's transaction.
     from contextlib import ExitStack
     with ExitStack() as stack:
         try:
-            prepared=stack.enter_context(_prepare(Path(blender), native_grid_abi))
+            prepared=stack.enter_context(_prepare(Path(blender), native_grid_abi, patch_directory))
         except (OSError,ValueError,subprocess.SubprocessError) as exc:
             if strict:
                 from .lifecycle import NativeRequiredError

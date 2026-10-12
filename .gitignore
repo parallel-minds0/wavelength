@@ -22,3 +22,6 @@ third-party/python/*
 /.runtime-*/
 
 /environment/dev/
+
+/patches/native/*.bsdiff
+/.runtime-windows.lock

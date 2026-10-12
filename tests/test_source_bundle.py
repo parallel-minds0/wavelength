@@ -17,6 +17,6 @@ class SourceBundleTests(unittest.TestCase):
         self.assertFalse(bundle.exists())
     def test_bootstrap_runtime_pin_matches_builder(self):
         root=Path(__file__).resolve().parents[1]
-        lock=json.loads((root/'installer/runtime-lock.json').read_text())
+        lock=json.loads((root/'installer/runtime-lock.json').read_text())['runtimes']['linux-x86_64']
         launcher=(root/'wavelength-installer').read_text()
         self.assertIn(lock['sha256'],launcher);self.assertIn(lock['url'],launcher)

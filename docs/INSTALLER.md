@@ -1,3 +1,10 @@
+# Current Linux release
+
+For v0.14.0, follow [the release instructions](RELEASE-NOTES.md). Native support is
+required even with `--force`: incompatible binaries are rejected before Python
+installation. Earlier Python-only force behavior described below is historical.
+Windows bootstrap support is present, but this milestone only supplies a Linux native patch.
+
 # wavelength installer
 
 **Native grid:** use the separate wavelength-native Blender package and

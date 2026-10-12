@@ -1,3 +1,28 @@
+# v0.14.0 Linux patch validation
+
+- 143 automated tests passed.
+- Generated binary difference round-tripped to the exact intended output.
+- Actual `--force` install on a temporary copy of the user's stock Blender 5.2.2
+  patched the executable and installed the add-on together.
+- Native API startup used the existing installation's libraries and resources.
+- Repair passed; uninstall restored the exact original bytes and removed the add-on.
+- Final OpenGL viewport passed yellow-parent/grey-subdivision, orthographic and
+  perspective occlusion, and workspace restoration checks on Radeon 780M.
+- The user's host executable was left untouched during verification.
+- CUDA, HIP, HIPRT, OptiX and oneAPI host support are enabled in the internal
+  reference used for this delta. Existing Blender kernel resources remain installed.
+- Windows C ABI grid-math helper compiled on Linux using LLVM-MinGW; not executed.
+  It is not a Windows Blender grid patch. Windows injection is untested and not supplied.
+
+Base executable SHA-256: `51dd3d8f494b1a47959307bd5d52c67e3d586fa8540243628ac89e2185743868`.
+Patched executable SHA-256: `fc0c055d06c23d0f646300c2c4250f3d9705546981d2c3b874b7794f9128c02f`.
+
+This patch is experimental and verified on this Linux host, not every distribution.
+The startup probe prevents installation when the resulting executable cannot run
+against the selected host's resources. No separate Blender runtime is shipped.
+
+## Earlier internal build verification (historical)
+
 # Native grid validation — 0.13.0-pre.alpha
 
 Validated on 12 October 2026 using the separately compiled Blender 5.2.2 LTS.

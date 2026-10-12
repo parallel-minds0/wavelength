@@ -24,12 +24,24 @@ def write_json(path, value):
 def locked(state):
     state.mkdir(parents=True,exist_ok=True)
     # Kernel releases the lock even after a killed installer process.
-    import fcntl
-    with (state/'lock').open('a') as stream:
-        try:fcntl.flock(stream,fcntl.LOCK_EX|fcntl.LOCK_NB)
-        except BlockingIOError:raise RuntimeError('Another installer is running')
-        try:yield
-        finally:fcntl.flock(stream,fcntl.LOCK_UN)
+    with (state/'lock').open('a+b') as stream:
+        if os.name == 'nt':
+            import msvcrt
+            stream.seek(0, os.SEEK_END)
+            if stream.tell() == 0:
+                stream.write(b'0'); stream.flush()
+            stream.seek(0)
+            try: msvcrt.locking(stream.fileno(), msvcrt.LK_NBLCK, 1)
+            except OSError as exc: raise RuntimeError('Another installer is running') from exc
+            try: yield
+            finally:
+                stream.seek(0); msvcrt.locking(stream.fileno(), msvcrt.LK_UNLCK, 1)
+        else:
+            import fcntl
+            try: fcntl.flock(stream, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except BlockingIOError: raise RuntimeError('Another installer is running')
+            try: yield
+            finally: fcntl.flock(stream, fcntl.LOCK_UN)
 
 
 def inventory(path):
