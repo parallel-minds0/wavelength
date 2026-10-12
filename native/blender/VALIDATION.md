@@ -1,3 +1,12 @@
+# v0.15.0 Windows patch validation
+
+- Windows x64 MSVC compilation and exact binary-patch reconstruction passed in
+  [GitHub run 38279076226](https://github.com/parallel-minds0/wavelength/actions/runs/38279076226).
+- Downloaded patch SHA-256 matches the build manifest.
+- Windows installation, injection, and rendering have not been tested.
+- No Windows executable was run by the maintainer. Manual verification is required.
+- The Linux native payload remains unchanged from the tested v0.14.0 payload below.
+
 # v0.14.0 Linux patch validation
 
 - 143 automated tests passed.

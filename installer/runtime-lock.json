@@ -16,7 +16,7 @@
       "implementation": "CPython",
       "version": "3.12.10",
       "url": "https://www.python.org/ftp/python/3.12.10/python-3.12.10-embed-amd64.zip",
-      "sha256": "2cf15b5368c1512d3f9e215014d31ed17fae1b02e85be75d6f2fae7ab5271eae",
+      "sha256": "4acbed6dd1c744b0376e3b1cf57ce906f9dc9e95e68824584c8099a63025a3c3",
       "provider": "https://www.python.org/",
       "license_note": "Preserve the complete embeddable runtime including LICENSE.txt.",
       "archive": "zip"

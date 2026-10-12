@@ -12,8 +12,9 @@ the selected installation before committing changes. The user's existing resourc
 and libraries stay in place. Original bytes are retained for uninstall and rollback.
 
 See [release instructions](../../docs/RELEASE-NOTES.md). Linux x86_64 is the tested
-installation target for v0.14.0. Windows cross-compilation of the standalone C ABI
-helper does not constitute a complete native Blender grid patch.
+installation target retained in v0.15.0. The Windows v0.15.0 native grid patch was
+compiled with MSVC and its binary reconstruction checked. Windows installation
+and rendering remain untested; see the Windows manual verification guide.
 
 Internal build: `tools/build_native_blender.py`. Delta generation:
 `tools/make_binary_patch.py` (maintainer-only bsdiff4 dependency). Installation uses

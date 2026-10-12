@@ -12,6 +12,20 @@
       "url": "https://github.com/parallel-minds0/wavelength/releases/download/v0.14.0-pre.alpha/linux-x86_64-51dd3d8f494b1a47.bsdiff",
       "blender_version": "5.2.2",
       "experimental": true
+    },
+    {
+      "platform": "windows-x86_64",
+      "input_sha256": "c9f9c33e538dd3e195ccb8dcc5986721f49df795e91288d4f6e82295a028e1c1",
+      "output_sha256": "483586a61bef8184f7786396efa77dac4383c847644b7e93063658b9b9ae5dcd",
+      "output_size": 97557504,
+      "patch_sha256": "fd0bfea636969983438c7cc158be30de6121276d8469fe0a3c94256a80bdedca",
+      "file": "windows-x86_64-c9f9c33e538dd3e1.bsdiff",
+      "native_grid_abi": 1,
+      "url": "https://github.com/parallel-minds0/wavelength/releases/download/v0.15.0-pre.alpha/windows-x86_64-c9f9c33e538dd3e1.bsdiff",
+      "blender_version": "5.2.2",
+      "experimental": true,
+      "windows_installation_tested": false,
+      "build_run": "https://github.com/parallel-minds0/wavelength/actions/runs/38279076226"
     }
   ]
 }

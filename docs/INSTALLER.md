@@ -1,9 +1,11 @@
-# Current Linux release
+# Current Linux and Windows preview
 
-For v0.14.0, follow [the release instructions](RELEASE-NOTES.md). Native support is
-required even with `--force`: incompatible binaries are rejected before Python
-installation. Earlier Python-only force behavior described below is historical.
-Windows bootstrap support is present, but this milestone only supplies a Linux native patch.
+For v0.15.0, follow [the release instructions](RELEASE-NOTES.md) and
+[Windows manual verification guide](WINDOWS-INSTALL.md). Both packages include
+Python and a native patch. Windows installation and rendering are untested.
+Native support remains required with `--force`; checksum or startup failure leaves
+the existing installation unchanged. Earlier Python-only behavior below is historical.
+
 
 # wavelength installer
 

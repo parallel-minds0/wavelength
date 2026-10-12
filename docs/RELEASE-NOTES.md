@@ -1,41 +1,51 @@
-# v0.14.0-pre.alpha — installable Linux native-grid patch
+# v0.15.0-pre.alpha — Windows native-grid patch preview
 
-The installer now applies a checksum-bound binary patch to the selected Blender
-executable and installs the Python add-on in one transaction. Users keep launching
-their existing Blender. This release does not distribute a Blender runtime.
+The Windows package now includes a native Blender grid binary patch, not just the
+standalone grid-math helper. It bundles Windows Python and installs through
+`wavelength-installer.cmd`. Linux retains the tested v0.14 native patch.
 
-## Install on Linux x86_64
+**Windows is published for manual verification:** the C++ code is compiled and
+binary patch reconstruction is checked, but Windows installation, injection, and
+rendering have not been tested. No Wine/Proton or Windows Blender runtime tests
+were run by the maintainer.
 
-Close Blender, extract the Linux installer archive, open a terminal in that folder:
+## Windows x86_64
+
+Target: official **Blender 5.2.2 Windows x64 ZIP executable**, with the exact hash
+recorded in `patches/native/manifest.json`. Close Blender, extract the Windows
+installer ZIP, and run PowerShell in the extracted folder:
+
+```powershell
+.\wavelength-installer.cmd install --force --blender "C:\path\to\blender.exe" --yes
+```
+
+Use an Administrator terminal for a Program Files target, or install into a writable
+portable Blender folder. Reopen the same executable, enable Wavelength, and enter
+its workspace. Follow [the Windows verification guide](https://github.com/parallel-minds0/wavelength/blob/v0.15.0-pre.alpha/docs/WINDOWS-INSTALL.md) and report errors.
+
+```powershell
+.\wavelength-installer.cmd status
+.\wavelength-installer.cmd repair --force --yes
+.\wavelength-installer.cmd uninstall --yes
+```
+
+## Linux x86_64
 
 ```sh
 ./wavelength-installer install --force --blender /home/moe/Applications/blender-5.2.2-linux-x64/blender --yes
 ```
 
-Then launch that same Blender executable. Enable **Wavelength** in Preferences →
-Add-ons if needed, and use the Wavelength workspace. `[` / `]` adjust grid spacing.
-Yellow lines are the selected parent spacing; grey lines are its subdivisions.
-Leaving Wavelength restores Blender's regular grid.
+The Linux native payload is unchanged from v0.14.0, where real install, repair,
+byte-exact uninstall, native grid spacing, occlusion, and workspace restoration passed.
 
-```sh
-./wavelength-installer status
-./wavelength-installer repair --force --yes
-./wavelength-installer uninstall --yes
-```
+## Installation behavior
 
-The original executable and previous add-on are backed up. Uninstall restores them;
-external modifications are protected. `--force` permits experimental installation
-and reconciles previous installer state, but never bypasses patch checksums or the
-native startup check. Unsupported binaries fail before installing the add-on.
+Both packages contain source, a private platform-specific Python runtime, and native
+binary differences. No replacement Blender distribution, system Python, or compiler
+is required. The installer checks input/output hashes and probes native API startup
+before committing installation. It retains the original executable for rollback and
+uninstall. `--force` does not bypass binary matching or the startup check.
 
-## Scope
-
-This release targets the exact Linux Blender 5.2.2 executable identified in
-`patches/native/manifest.json`. This initial payload is experimental and built for
-the tested Linux host; other distributions may fail its startup compatibility check.
-Windows installer groundwork and cross-compilation tooling are included as source.
-Windows native-grid injection is not provided or claimed as working in this Linux milestone.
-
-The archive contains the source tree, the native binary difference, and a pinned
-private Python runtime. A source-only checkout downloads the same checksum-pinned
-patch on demand. Internal Blender builds are development tools only.
+Only listed executable fingerprints are supported. Other Blender versions, modified
+executables, ARM64, and macOS need separate patches. The read-only `diagnose` command
+now recognizes native patch fingerprints on both platforms.
