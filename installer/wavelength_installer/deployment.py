@@ -105,6 +105,8 @@ def prepare(blender, strict=True, native_grid_abi=None, patch_directory=None):
         try:
             prepared=stack.enter_context(_prepare(Path(blender), native_grid_abi, patch_directory))
         except (OSError,ValueError,subprocess.SubprocessError) as exc:
+            if isinstance(exc, PermissionError) and os.name == 'nt':
+                exc = ValueError(str(exc) + ' Close Blender. For a Program Files installation, run the installer from an Administrator terminal, or use a writable portable Blender folder.')
             if strict:
                 from .lifecycle import NativeRequiredError
                 raise NativeRequiredError(str(exc)) from exc

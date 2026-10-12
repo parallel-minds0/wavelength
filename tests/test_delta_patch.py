@@ -77,3 +77,34 @@ class PairedPatchTests(unittest.TestCase):
                 lifecycle.install(self.bundle,self.blender,self.addons,self.state,force=True)
         self.assertFalse((self.addons/'wavelength').exists())
         self.assertEqual(self.blender.read_bytes(),b'original!')
+
+class WindowsDeltaSelectionTests(unittest.TestCase):
+    def test_windows_payload_selection_without_executing_it(self):
+        data,entry=fixture();entry['platform']='windows-x86_64'
+        with tempfile.TemporaryDirectory() as folder:
+            root=Path(folder)
+            (root/'test.bsdiff').write_bytes(data)
+            (root/'manifest.json').write_text(json.dumps({'schema':1,'patches':[entry]}))
+            with patch('installer.wavelength_installer.delta_patch.host_platform',return_value='windows-x86_64'):
+                result,metadata=prepare_bytes(b'original!',root)
+                self.assertEqual(result,b'patched!!')
+                self.assertEqual(metadata['platform'],'windows-x86_64')
+            with patch('installer.wavelength_installer.delta_patch.host_platform',return_value='linux-x86_64'):
+                with self.assertRaisesRegex(ValueError,'No native patch matches'):
+                    prepare_bytes(b'original!',root)
+
+class NativeDiagnosisTests(unittest.TestCase):
+    def test_windows_native_fingerprints_are_reported_without_a_linux_shader_probe(self):
+        from installer.wavelength_installer.delta_patch import diagnose
+        data,entry=fixture();entry['platform']='windows-x86_64'
+        with tempfile.TemporaryDirectory() as folder:
+            root=Path(folder);binary=root/'blender.exe'
+            (root/'manifest.json').write_text(json.dumps({'schema':1,'patches':[entry]}))
+            binary.write_bytes(b'original!')
+            self.assertEqual(diagnose(binary,root)['native_state'],'patch-available')
+            binary.write_bytes(b'patched!!')
+            result=diagnose(binary,root)
+            self.assertEqual(result['state'],'patched')
+            self.assertFalse(result['runtime_verified'])
+            binary.write_bytes(b'foreign executable')
+            self.assertEqual(diagnose(binary,root)['state'],'unsupported')

@@ -32,7 +32,7 @@ def main():
     fix.add_argument('--require-native',action='store_true')
     sub.add_parser('recover',help='Roll back an interrupted installation/removal')
     sub.add_parser('status')
-    diagnostic=sub.add_parser('diagnose',help='Read-only structural shader inspection')
+    diagnostic=sub.add_parser('diagnose',help='Read-only native patch compatibility check')
     diagnostic.add_argument('--blender',type=Path,required=True)
     for command in sub.choices.values():
         command.add_argument('--instance')
@@ -88,9 +88,8 @@ def main():
                 result=repair(bundle,args.state,blender=args.blender,addons=args.addons,force=args.force,require_native=args.require_native)
         elif args.action=='recover':result=recover(args.state)
         elif args.action=='diagnose':
-            from .experimental import analyze
-            result=analyze(args.blender.expanduser().read_bytes())
-            result.pop('changes',None)
+            from .delta_patch import diagnose
+            result=diagnose(args.blender,args.bundle/'patches/native')
         else:result=status(args.state)
     except (OSError,ValueError,RuntimeError) as exc:
         parser.exit(getattr(exc,'exit_code',1),f'wavelength: {exc}\n')

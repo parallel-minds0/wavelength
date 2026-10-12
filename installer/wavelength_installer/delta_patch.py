@@ -109,3 +109,21 @@ def prepare_bytes(original, directory):
                     staging.write(block)
             staging.seek(0); payload = staging.read()
     return apply(original, payload, entry), entry
+
+
+def diagnose(binary, directory):
+    """Read-only exact-build diagnosis; never execute or modify Blender."""
+    path = Path(binary).expanduser().resolve(strict=True)
+    value = digest(path.read_bytes())
+    manifest = Path(directory)/'manifest.json'
+    entries = json.loads(manifest.read_text()).get('patches', []) if manifest.is_file() else []
+    for entry in entries:
+        if value in {entry['input_sha256'], entry['output_sha256']}:
+            installed = value == entry['output_sha256']
+            return {'action': 'keep' if installed else 'patch', 'state': 'patched' if installed else 'pristine',
+                    'sha256': value, 'platform': entry['platform'],
+                    'native_state': 'available' if installed else 'patch-available',
+                    'reason': 'Exact native patch fingerprint; startup is checked during installation',
+                    'runtime_verified': False}
+    return {'action': 'unavailable', 'state': 'unsupported', 'sha256': value,
+            'native_state': 'unavailable', 'reason': 'No exact native patch fingerprint in this package'}

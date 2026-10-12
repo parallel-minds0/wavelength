@@ -34,18 +34,17 @@ def main():
     # Source downloads and full installers use the same pinned native payload.
     native=ROOT/'patches/native'
     manifest=native/'manifest.json'
-    if not windows:
-        if not manifest.is_file(): raise ValueError('Linux native patch manifest is missing')
-        entries=[e for e in json.loads(manifest.read_text())['patches'] if e['platform']==args.platform]
-        if not entries: raise ValueError('No native patch for this installer platform')
-        for entry in entries:
-            target=(native/entry['file']).resolve()
-            if not target.is_relative_to(native.resolve()): raise ValueError('Invalid native patch path')
-            if not target.exists():
-                with urllib.request.urlopen(entry['url'],timeout=120) as incoming,target.open('wb') as output:
-                    shutil.copyfileobj(incoming,output)
-            if hashlib.sha256(target.read_bytes()).hexdigest()!=entry['patch_sha256']:
-                raise ValueError('Native patch checksum mismatch')
+    if not manifest.is_file(): raise ValueError('Native patch manifest is missing')
+    entries=[e for e in json.loads(manifest.read_text())['patches'] if e['platform']==args.platform]
+    if not entries: raise ValueError('No native patch for this installer platform')
+    for entry in entries:
+        target=(native/entry['file']).resolve()
+        if not target.is_relative_to(native.resolve()): raise ValueError('Invalid native patch path')
+        if not target.exists():
+            with urllib.request.urlopen(entry['url'],timeout=120) as incoming,target.open('wb') as output:
+                shutil.copyfileobj(incoming,output)
+        if hashlib.sha256(target.read_bytes()).hexdigest()!=entry['patch_sha256']:
+            raise ValueError('Native patch checksum mismatch')
     addon=package()
     name=f'wavelength-v{version()}-{args.platform}'
     output=ROOT/'dist'/(name+('.zip' if windows else '.tar.gz'))
