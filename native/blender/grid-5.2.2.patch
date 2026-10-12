@@ -1,0 +1,237 @@
+diff --git a/source/blender/blenloader/intern/versioning_520.cc b/source/blender/blenloader/intern/versioning_520.cc
+index eedb53cc..4d2d2bec 100644
+--- a/source/blender/blenloader/intern/versioning_520.cc
++++ b/source/blender/blenloader/intern/versioning_520.cc
+@@ -14,6 +14,8 @@
+ #include "DNA_brush_types.h"
+ #include "DNA_camera_types.h"
+ #include "DNA_curve_types.h"
++#include "DNA_genfile.h"
++#include "DNA_view3d_types.h"
+ #include "DNA_mesh_types.h"
+ #include "DNA_modifier_types.h"
+ #include "DNA_node_tree_interface_types.h"
+@@ -543,8 +545,26 @@ static void version_solid_color_width_height_defaults(Main &bmain)
+   }
+ }
+ 
+-void blo_do_versions_520(FileData * /*fd*/, Library * /*lib*/, Main *bmain)
++void blo_do_versions_520(FileData *fd, Library * /*lib*/, Main *bmain)
+ {
++  /* Stock files have no wavelength fields. Initialize valid dormant settings
++   * without enabling the renderer outside its owning workspace. */
++  if (!DNA_struct_member_exists_without_alias(
++          fd->filesdna, "View3D", "float", "wavelength_grid_spacing")) {
++    for (bScreen &screen : bmain->screens) {
++      for (ScrArea &area : screen.areabase) {
++        for (SpaceLink &sl : area.spacedata) {
++          if (sl.spacetype == SPACE_VIEW3D) {
++            View3D *v3d = reinterpret_cast<View3D *>(&sl);
++            v3d->wavelength_grid_enabled = 0;
++            v3d->wavelength_grid_spacing = 1.0f;
++            v3d->wavelength_grid_subdivisions = 10;
++          }
++        }
++      }
++    }
++  }
++
+   if (!MAIN_VERSION_FILE_ATLEAST(bmain, 502, 1)) {
+     for (Scene &scene : bmain->scenes) {
+       scene.r.mode |= R_SAVE_OUTPUT;
+diff --git a/source/blender/draw/engines/overlay/overlay_grid.hh b/source/blender/draw/engines/overlay/overlay_grid.hh
+index 4263e93c..6b951244 100644
+--- a/source/blender/draw/engines/overlay/overlay_grid.hh
++++ b/source/blender/draw/engines/overlay/overlay_grid.hh
+@@ -100,7 +100,17 @@ class Grid : Overlay {
+         }
+         if (grid_flag_) {
+           sub.push_constant("grid_flag", &grid_flag_);
+-          sub.draw_procedural(GPUPrimType::GPU_PRIM_LINES, -1, grid_vertex_count, 0);
++          if (grid_ubo_.wavelength.x != 0.0f) {
++            /* Same analytic intervals as the authoring grid, submitted by Blender's
++             * native depth-aware grid pass. No Python draw callback or LOD recoloring. */
++            if (grid_iter == 0) {
++              sub.state_set(ps_draw_state | DRW_STATE_DEPTH_LESS_EQUAL | DRW_STATE_WRITE_DEPTH);
++              sub.draw_procedural(GPUPrimType::GPU_PRIM_TRIS, -1, 6, 0);
++            }
++          }
++          else {
++            sub.draw_procedural(GPUPrimType::GPU_PRIM_LINES, -1, grid_vertex_count, 0);
++          }
+         }
+       }
+     }
+@@ -135,6 +145,7 @@ class Grid : Overlay {
+   {
+     /* Set config flags to default values. */
+     grid_flag_ = axis_flag_ = 0;
++    grid_ubo_.wavelength = float4(0.0f);
+ 
+     if (state.hide_overlays) {
+       return false;
+@@ -231,6 +242,10 @@ class Grid : Overlay {
+ 
+     const View3D *v3d = state.v3d;
+     const RegionView3D *rv3d = state.rv3d;
++    if (v3d->wavelength_grid_enabled && v3d->wavelength_grid_spacing > 0.0f) {
++      grid_ubo_.wavelength = float4(1.0f, v3d->wavelength_grid_spacing,
++                                  float(std::clamp(v3d->wavelength_grid_subdivisions, 2, 64)), 0.0f);
++    }
+ 
+     /* Set `grid_flag_` dependent on view configuration. */
+     if (rv3d->is_persp || rv3d->view == RV3D_VIEW_USER) {
+diff --git a/source/blender/draw/engines/overlay/overlay_shader_shared.hh b/source/blender/draw/engines/overlay/overlay_shader_shared.hh
+index ab775e57..bf4b05a4 100644
+--- a/source/blender/draw/engines/overlay/overlay_shader_shared.hh
++++ b/source/blender/draw/engines/overlay/overlay_shader_shared.hh
+@@ -144,6 +144,8 @@ struct [[host_shared]] OVERLAY_GridData {
+   uint num_lines;
+   uint _pad0;
+   uint _pad1;
++  /* enabled, exact parent interval, subdivisions, reserved (native ABI 1). */
++  float4 wavelength;
+ };
+ 
+ #ifdef GPU_SHADER
+diff --git a/source/blender/draw/engines/overlay/shaders/infos/overlay_grid_infos.hh b/source/blender/draw/engines/overlay/shaders/infos/overlay_grid_infos.hh
+index 98e9b7e2..919ae679 100644
+--- a/source/blender/draw/engines/overlay/shaders/infos/overlay_grid_infos.hh
++++ b/source/blender/draw/engines/overlay/shaders/infos/overlay_grid_infos.hh
+@@ -30,6 +30,7 @@ GPU_SHADER_INTERFACE_END()
+ 
+ GPU_SHADER_CREATE_INFO(overlay_grid_next)
+ DO_STATIC_COMPILATION()
++DEPTH_WRITE(DepthWrite::ANY)
+ TYPEDEF_SOURCE("overlay_shader_shared.hh")
+ VERTEX_IN(0, float3, pos)
+ VERTEX_OUT(overlay_grid_iface)
+diff --git a/source/blender/draw/engines/overlay/shaders/overlay_grid_frag.glsl b/source/blender/draw/engines/overlay/shaders/overlay_grid_frag.glsl
+index 57dec2e2..7ea3c6a3 100644
+--- a/source/blender/draw/engines/overlay/shaders/overlay_grid_frag.glsl
++++ b/source/blender/draw/engines/overlay/shaders/overlay_grid_frag.glsl
+@@ -18,8 +18,57 @@ bool is_equal(float2 a, float2 b, float epsilon)
+   return all(lessThanEqual(abs(a - b), float2(epsilon)));
+ }
+ 
++float wavelength_coverage(float2 p, float2 footprint, float interval)
++{
++  float2 distance_to_line = abs(mod(p + interval * 0.5f, interval) - interval * 0.5f);
++  float2 coverage = 1.0f - smoothstep(float2(0.25f), float2(1.25f), distance_to_line / footprint);
++  return max(coverage.x, coverage.y);
++}
++
++void wavelength_grid_fragment()
++{
++  float2 ndc = gl_FragCoord.xy / uniform_buf.size_viewport * 2.0f - 1.0f;
++  float4 near_h = drw_view().viewinv * (drw_view().wininv * float4(ndc, -1.0f, 1.0f));
++  float4 far_h = drw_view().viewinv * (drw_view().wininv * float4(ndc, 1.0f, 1.0f));
++  float3 near_p = near_h.xyz / near_h.w;
++  float3 far_p = far_h.xyz / far_h.w;
++  float3 ray = far_p - near_p;
++  int axis = flag_test(grid_flag, PLANE_XZ) ? 1 : (flag_test(grid_flag, PLANE_YZ) ? 0 : 2);
++  if (abs(ray[axis]) < 1e-8f) { gpu_discard_fragment(); return; }
++  float t = -near_p[axis] / ray[axis];
++  if (t < 0.0f || t > 1.0f) { gpu_discard_fragment(); return; }
++  float3 world = near_p + t * ray;
++  float2 p = axis == 2 ? world.xy : (axis == 1 ? world.xz : world.yz);
++  float2 footprint = max(gpu_fwidth(p), float2(1e-7f));
++  float pixel_world = max(footprint.x, footprint.y);
++  float parent = grid_buf.wavelength.y;
++  float minor = parent / grid_buf.wavelength.z;
++  float selected = wavelength_coverage(p, footprint, parent) * smoothstep(2.0f, 6.0f, parent / pixel_world);
++  float grey = wavelength_coverage(p, footprint, minor) * smoothstep(2.0f, 6.0f, minor / pixel_world);
++  float alpha = max(selected * 0.65f, grey * 0.28f);
++  float2 axes = axis == 2 ? float2(flag_test(grid_flag, AXIS_Y),flag_test(grid_flag, AXIS_X)) :
++                (axis == 1 ? float2(flag_test(grid_flag, AXIS_Z),flag_test(grid_flag, AXIS_X)) :
++                             float2(flag_test(grid_flag, AXIS_Z),flag_test(grid_flag, AXIS_Y)));
++  float2 axis_coverage = 1.0f - smoothstep(float2(0.25f),float2(1.25f),abs(p)/footprint);
++  alpha *= 1.0f - max(axis_coverage.x*axes.x,axis_coverage.y*axes.y);
++  if (alpha < 0.005f) { gpu_discard_fragment(); return; }
++  out_color = float4(mix(float3(0.43f),float3(1.0f,0.85f,0.10f),selected),alpha);
++  line_output = float4(0.0f);
++  float4 clip = drw_view().winmat * (drw_view().viewmat * float4(world,1.0f));
++  /* Match Blender's native aligned-view grid ordering. Perspective uses actual
++   * plane depth, never a Python POST_VIEW offset or a second depth buffer. */
++  gl_FragDepth = flag_test(grid_flag, GRID_BEHIND_GEOMETRY) ? 1.0f :
++                  clamp(0.5f * clip.z / clip.w + 0.5f,0.0f,1.0f);
++}
++
+ void main()
+ {
++  gl_FragDepth = gl_FragCoord.z;
++  if (grid_buf.wavelength.x != 0.0f && flag_test(grid_flag, SHOW_GRID) &&
++      !flag_test(grid_flag, GRID_SIMA)) {
++    wavelength_grid_fragment();
++    return;
++  }
+   /* Test if a vertex output position overlaps with an active axis line. */
+   constexpr float axis_epsilon = 2e-7f;
+   bool3 axis_mask = bool3(
+diff --git a/source/blender/draw/engines/overlay/shaders/overlay_grid_vert.glsl b/source/blender/draw/engines/overlay/shaders/overlay_grid_vert.glsl
+index ddcc4d96..7b28860f 100644
+--- a/source/blender/draw/engines/overlay/shaders/overlay_grid_vert.glsl
++++ b/source/blender/draw/engines/overlay/shaders/overlay_grid_vert.glsl
+@@ -93,6 +93,18 @@ bool use_level_offset(uint grid_flag)
+ 
+ void main()
+ {
++  if (grid_buf.wavelength.x != 0.0f && flag_test(grid_flag, SHOW_GRID) &&
++      !flag_test(grid_flag, GRID_SIMA)) {
++    const float2 wl_corners[6] = {float2(-1.0f,-1.0f), float2(1.0f,-1.0f),
++      float2(1.0f,1.0f), float2(-1.0f,-1.0f), float2(1.0f,1.0f), float2(-1.0f,1.0f)};
++    gl_Position = float4(wl_corners[gl_VertexID], 0.0f, 1.0f);
++    vertex_out.pos = float3(0.0f);
++    vertex_out.coord = float2(0.0f);
++    vertex_out_flat.alpha = 1.0f;
++    vertex_out_flat.emphasis = 0.0f;
++    edge_start = edge_pos = float2(0.0f);
++    return;
++  }
+   gl_Position = float4(NAN_FLT); /* Discard by default. */
+   LineData line = flag_test(grid_flag, SHOW_GRID) ? decode_grid_data(gl_VertexID) :
+                                                     decode_axis_data(gl_VertexID);
+diff --git a/source/blender/makesdna/DNA_view3d_types.h b/source/blender/makesdna/DNA_view3d_types.h
+index 5a1c5ee4..c0ad8eca 100644
+--- a/source/blender/makesdna/DNA_view3d_types.h
++++ b/source/blender/makesdna/DNA_view3d_types.h
+@@ -798,6 +798,11 @@ struct View3D {
+   short gridlines = 16;
+   /** Number of subdivisions in the grid between each highlighted grid line. */
+   short gridsubdiv = 10;
++  /* wavelength native grid ABI 1: explicit per-viewport state, never global theme state. */
++  int wavelength_grid_enabled = 0;
++  float wavelength_grid_spacing = 1.0f;
++  int wavelength_grid_subdivisions = 10;
++  int _pad_wavelength = 0;
+ 
+   /** Actually only used to define the opacity of the grease pencil vertex in edit mode. */
+   float vertex_opacity = 1.0f;
+diff --git a/source/blender/makesrna/intern/rna_space.cc b/source/blender/makesrna/intern/rna_space.cc
+index ef6c3a80..524023fa 100644
+--- a/source/blender/makesrna/intern/rna_space.cc
++++ b/source/blender/makesrna/intern/rna_space.cc
+@@ -5043,6 +5043,23 @@ static void rna_def_space_view3d_overlay(BlenderRNA *brna)
+   RNA_def_property_range(prop, 1, 1024);
+   RNA_def_property_update(prop, NC_SPACE | ND_SPACE_VIEW3D, nullptr);
+ 
++  prop = RNA_def_property(srna, "wavelength_grid_enabled", PROP_BOOLEAN, PROP_NONE);
++  RNA_def_property_boolean_sdna(prop, nullptr, "wavelength_grid_enabled", 1);
++  RNA_def_property_ui_text(prop, "wavelength Grid", "Use the native wavelength grid pass for this viewport");
++  RNA_def_property_update(prop, NC_SPACE | ND_SPACE_VIEW3D, nullptr);
++
++  prop = RNA_def_property(srna, "wavelength_grid_spacing", PROP_FLOAT, PROP_NONE);
++  RNA_def_property_float_sdna(prop, nullptr, "wavelength_grid_spacing");
++  RNA_def_property_range(prop, 0.000001f, 1000000.0f);
++  RNA_def_property_ui_text(prop, "wavelength Parent Spacing", "World-space parent interval, independent of scene unit display");
++  RNA_def_property_update(prop, NC_SPACE | ND_SPACE_VIEW3D, nullptr);
++
++  prop = RNA_def_property(srna, "wavelength_grid_subdivisions", PROP_INT, PROP_NONE);
++  RNA_def_property_int_sdna(prop, nullptr, "wavelength_grid_subdivisions");
++  RNA_def_property_range(prop, 2, 64);
++  RNA_def_property_ui_text(prop, "wavelength Subdivisions", "Grey subdivisions within each parent interval");
++  RNA_def_property_update(prop, NC_SPACE | ND_SPACE_VIEW3D, nullptr);
++
+   prop = RNA_def_property(srna, "grid_scale_unit", PROP_FLOAT, PROP_NONE);
+   RNA_def_property_clear_flag(prop, PROP_EDITABLE);
+   RNA_def_property_float_funcs(prop, "rna_View3DOverlay_GridScaleUnit_get", nullptr, nullptr);

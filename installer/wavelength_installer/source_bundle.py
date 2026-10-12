@@ -23,5 +23,5 @@ def bundle_from_source(root):
                     z.write(file,Path('wavelength')/file.relative_to(addon))
         tree=ast.parse((addon/'__init__.py').read_text())
         info=next(ast.literal_eval(n.value) for n in tree.body if isinstance(n,ast.Assign) and any(isinstance(t,ast.Name) and t.id=='bl_info' for t in n.targets))
-        (bundle/'bundle.json').write_text(json.dumps({'schema':1,'version':'.'.join(map(str,info['version']))+'-pre.alpha','addon':'addon.zip','addon_sha256':sha256(archive)}))
+        (bundle/'bundle.json').write_text(json.dumps({'schema':1,'native_grid_abi':1,'version':'.'.join(map(str,info['version']))+'-pre.alpha','addon':'addon.zip','addon_sha256':sha256(archive)}))
         yield bundle

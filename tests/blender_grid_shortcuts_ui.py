@@ -19,7 +19,10 @@ def test():
    view=next(a for a in bpy.context.screen.areas if a.type=='VIEW_3D')
    overlay=view.spaces.active.overlay
    grid.sync_native()
-   assert not overlay.show_floor and not overlay.show_ortho_grid
+   assert grid.native_available(view.spaces.active)
+   assert overlay.show_floor and overlay.show_ortho_grid and overlay.wavelength_grid_enabled
+   assert abs(overlay.wavelength_grid_spacing - 32*.0254)<1e-6
+   assert overlay.wavelength_grid_subdivisions==8
    baseline=(overlay.grid_scale,overlay.grid_subdivisions,overlay.show_floor,overlay.show_ortho_grid)
    assert abs(profiles.display_grid(s)[0]-32*.0254)<1e-6 and profiles.display_grid(s)[1]==8
    with bpy.context.temp_override(area=view,region=next(r for r in view.regions if r.type=='WINDOW')):
@@ -41,15 +44,18 @@ def test():
   elif stage==2:
    assert grid._error is None,grid._error
    bpy.ops.screen.screenshot(filepath=str(out/'selected-grid.png'))
+   bpy.ops.wm.save_as_mainfile(filepath=str(out/'native-grid.blend'),check_existing=False)
+   assert not grid._native, 'Native state leaked into saved file'
+   grid.sync_native()
    saved_native=list(grid._native.values())
    bpy.context.window.workspace=original
   else:
    grid.sync_native();assert not grid._native
-   for space,floor,ortho in saved_native:
-    assert (space.overlay.show_floor,space.overlay.show_ortho_grid)==(floor,ortho)
+   for space,values in saved_native:
+    assert tuple(getattr(space.overlay,name) for name in grid._FIELDS)==values
    assert not ui.WL_OT_grid_step.poll(bpy.context)
    wavelength.unregister();assert not grid._keymaps
-   (out/'result.txt').write_text('PASS: spacing, bounds, keymap bindings, neutral native settings, workspace scope, cleanup, GPU draw')
+   (out/'result.txt').write_text('PASS: spacing, bounds, keymap bindings, native RNA settings, workspace scope, cleanup, native grid draw')
    print('PASS GRID SHORTCUTS',flush=True);bpy.ops.wm.quit_blender();return
   stage+=1;return 2
  except Exception:

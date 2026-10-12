@@ -1,5 +1,9 @@
 # wavelength installer
 
+**Native grid:** use the separate wavelength-native Blender package and
+`Launch-wavelength`. The source-level native renderer cannot be installed by the
+legacy shader-string patcher described below. See [native build instructions](../native/blender/README.md).
+
 Download and extract `wavelength-v0.12.0-pre.alpha-linux-x86_64.tar.gz`, then run
 `./wavelength-installer`. The archive contains the editable source tree and a
 pinned private Python runtime. The smaller `wavelength-v0.12.0-pre.alpha-source.zip`
@@ -25,27 +29,25 @@ If discovery is ambiguous, supply the paths explicitly:
 ```
 
 Restart Blender and enable wavelength in Preferences → Add-ons. Existing
-activation preferences are preserved. The current Python workspace grid works
-without the experimental native shader patch.
+activation preferences are preserved. The Python authoring tools can run on an ordinary Blender build, but the new
+grid requires the wavelength-enabled native build. No Python grid fallback is used.
 
-`--force` bypasses the verified-build allowlist and attempts native preparation.
-It recognizes original, current, and known legacy shader blocks. Already-current
-patches are kept without rewriting the executable. Unknown layouts, startup
-failures, missing executables (with explicit target paths), and native write
-failures allow a Python-only installation, with native support reported as
-unavailable. Add-on permission/checksum errors still fail the installation.
+Current source bundles require native grid API version 1. On a separately built
+wavelength Blender, the installer verifies that API at startup and adopts the
+runtime without rewriting its executable. Uninstall removes the installed
+add-on and leaves this externally supplied runtime in place. Its renderer is
+inactive without the workspace state supplied by the add-on.
 
-`--force` no longer aliases `--allow-unverified` and requires no typed risk
-confirmation. Add `--require-native` to roll back if native support is unavailable.
-The older `--allow-unverified --accept-experimental-risk` mode still requires both
-components. A plain install requires a verified recipe for the exact binary;
-there are currently no certified builds in the allowlist.
+`--force` allows the Python authoring tools to install on unsupported Blender
+builds. It does not substitute the legacy yellow-line patch for the new API.
+The Grid & Units panel reports native grid unavailability. `--require-native`
+rolls back instead of allowing that fallback. A normal install requires the
+native API; there is no arbitrary executable injection bypass.
 
-The native component remains an experimental embedded-shader patch, not a C++
-renderer bridge. Structural compatibility and successful startup do not certify
-rendering. The legacy native yellow overlay affects all native 3D grids and still
-uses native level of detail. AppImages are extracted to prepare and probe their
-payload; when changed, a reversible launcher uses the retained extracted runtime.
+Legacy bundle/receipt recovery is retained for older versions. The older
+shader-string patch is not the current native renderer. Use `repair --force`
+or uninstall to reconcile an older managed installation before switching.
+For an AppImage native runtime, use an extracted executable and its resources.
 
 ## Install, replace, and select instances
 

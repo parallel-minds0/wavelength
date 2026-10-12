@@ -103,7 +103,8 @@ def install_forced(bundle, blender, addons, state, *, require_native=False, prep
         saved=archive(state,old['phase'])
         try:
             native_target=saved/'original-blender' if owned and old.get('runtime_dir') else blender
-            with (prepared_factory(native_target) if prepared_factory else prepare(native_target,strict=False)) as prepared:
+            api_options={'native_grid_abi':manifest['native_grid_abi']} if 'native_grid_abi' in manifest else {}
+            with (prepared_factory(native_target) if prepared_factory else prepare(native_target,strict=False,**api_options)) as prepared:
                 available=prepared.get('native_state')!='unavailable'
                 if require_native and not available:raise NativeRequiredError(prepared.get('reason','Native support unavailable'))
                 if (fingerprint(blender))!=initial:
@@ -130,12 +131,13 @@ def install_forced(bundle, blender, addons, state, *, require_native=False, prep
                     if changed:
                         candidate.write_bytes(patched);shutil.copymode(blender,candidate)
                     if available:
-                        (staged/'experimental-grid.json').write_text(json.dumps({'native_component':'embedded-grid-shader-prototype','limitations':prepared.get('limitations','')}))
+                        (staged/'experimental-grid.json').write_text(json.dumps({'native_component':prepared.get('native_component','embedded-grid-shader-prototype'),'limitations':prepared.get('limitations','')}))
                     data={'schema':2,'version':manifest['version'],'phase':'prepared','blender':str(blender),
                           'addon':str(addon),'original_sha256':old['original_sha256'] if owned else initial,
                           'patched_sha256':sha256(candidate) if changed else initial,
                           'addon_inventory':inventory(staged),'previous_addon_inventory':previous_inventory,
                           'installation_mode':'forced','native_state':'available' if available else 'unavailable',
+                          'native_component':prepared.get('native_component','embedded-grid-shader-prototype') if available else None,
                           'native_action':action,'native_changed':False,
                           'native_ownership':'owned' if owned else ('adopted' if available and not changed else 'none'),
                           'native_reason':prepared.get('reason',prepared.get('analysis',{}).get('reason','')),

@@ -1,6 +1,6 @@
-# Wavelength — 0.11.0-pre.alpha
+# Wavelength — 0.13.0-pre.alpha
 
-Current usable workspace, native-asset and parametric-primitive instructions: [Milestones 1–2](docs/MILESTONES-1-2.md). Tested on unpatched Blender 5.2.2 Linux; this grid needs no native binary patch.
+The grid now requires the wavelength-enabled Blender build. See [native grid usage and build instructions](native/blender/README.md). The authoring tools remain in the Python add-on; grid geometry is rendered inside Blender.
 
 Blender authoring tools for Quake, Half-Life/GoldSrc and Half-Life 2/Source 1 brush mapping, with an experimental native-grid integration workspace.
 
@@ -8,7 +8,7 @@ Blender authoring tools for Quake, Half-Life/GoldSrc and Half-Life 2/Source 1 br
 |---|---|---|
 | Blender Python add-on | `addon/wavelength/` | Authoring, entities, textures, MAP/build tools |
 | Standalone Python installer | `installer/` | Paired install/remove/recover; verified or explicit experimental mode |
-| C++17 library | `native/` | Loadable grid-line math prototype; **no Blender renderer hook yet** |
+| Native grid | `native/blender/` | Blender C++/RNA state bridge and native grid shader patch; separate Blender build required |
 | Build-specific patch recipes | `patches/` | Verified list empty; structurally matched experimental shader generator |
 
 Read the [current-state audit](docs/CURRENT-STATE.md), [Blender source/injection findings](docs/BLENDER-INTEGRATION.md), and [architecture](docs/ARCHITECTURE.md).
@@ -19,7 +19,7 @@ Read the [current-state audit](docs/CURRENT-STATE.md), [Blender source/injection
 python3 tools/release.py
 ```
 
-Runs Python syntax checks, installer/native tests, builds the C++ library, and creates `dist/wavelength-addon-v0.11.0-pre.alpha.zip`. Install that ZIP through Blender's add-on installation UI. No game assets or native host patch are bundled. GitHub Actions runs the same checks and retains the ZIP artifact. Blender UI and game-runtime validation are separate checks.
+Runs Python syntax checks, installer/native tests, builds the C++ library, and creates `dist/wavelength-addon-v0.13.0-pre.alpha.zip`. Install that ZIP through Blender's add-on installation UI. No game assets or native host patch are bundled. GitHub Actions runs the same checks and retains the ZIP artifact. Blender UI and game-runtime validation are separate checks.
 
 ## Native research and host inspection
 
@@ -46,11 +46,11 @@ The repository root is this native workspace, not the outer directory containing
 
 ## Self-contained Linux installer
 
-`python3 tools/build_installer.py` produces an installer with bundled, pinned CPython. See [installer lifecycle and current native support limits](docs/INSTALLER.md). Launch `wavelength-installer` for the terminal menu or use install/remove/status/recover commands. Native grid support is still unavailable; unsupported installations are refused as a whole.
+`python3 tools/build_installer.py` produces an installer with bundled, pinned CPython. See [installer lifecycle and current native support limits](docs/INSTALLER.md). Launch `wavelength-installer` for the terminal menu or use install/remove/status/recover commands. The legacy installer shader experiment is not the new native grid. Use the native Blender package for grid rendering; `--force` still allows installation of the Python authoring tools on unsupported hosts.
 
-## Experimental native grid test
+## Native grid
 
-A hash-locked, copied-Blender shader experiment now renders selective yellow grid lines. See [GRID-PROTOTYPE.md](docs/GRID-PROTOTYPE.md) to reproduce and test it. This is not yet the C++ state bridge or a supported installer patch.
+Use the separate native Blender package and its `Launch-wavelength` launcher. The former [shader experiment](docs/GRID-PROTOTYPE.md) is historical and should not be applied to this build.
 
 Source 1 Linux/Windows profiles, VMF interchange and compiler wiring are documented in [SOURCE1.md](docs/SOURCE1.md). Displacements and VTF previews remain unsupported.
 

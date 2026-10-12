@@ -22,8 +22,9 @@ def test():
    assert any(a.type=='FILE_BROWSER' and a.ui_type=='ASSETS' for a in bpy.context.screen.areas)
    s=bpy.context.scene.wavelength;s.engine='source_hl2_linux';s.grid_mode='ENGINE'
    view=next(a for a in bpy.context.screen.areas if a.type=='VIEW_3D');overlay=view.spaces.active.overlay
-   native=(overlay.show_floor,overlay.show_ortho_grid,overlay.grid_scale,overlay.grid_subdivisions)
-   grid.update(s,bpy.context);assert native==(overlay.show_floor,overlay.show_ortho_grid,overlay.grid_scale,overlay.grid_subdivisions)
+   native=(overlay.grid_scale,overlay.grid_subdivisions)
+   grid.update(s,bpy.context);assert native==(overlay.grid_scale,overlay.grid_subdivisions)
+   assert overlay.wavelength_grid_enabled
    with bpy.context.temp_override(area=view,region=next(r for r in view.regions if r.type=='WINDOW')):bpy.ops.view3d.view_axis(type='TOP')
    view.spaces.active.region_3d.view_distance=12
    bpy.ops.wavelength.primitive(kind='STAIRS')

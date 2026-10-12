@@ -40,6 +40,10 @@ def native_plan(bundle,blender,state,old,*,force,allow_unverified,confirmed,requ
     from .deployment import prepare
     from .binary_patch import validate_recipe
     if allow_unverified and not confirmed and not force:raise ValueError('Experimental installation requires explicit risk confirmation')
+    native_api=json.loads((Path(bundle)/'bundle.json').read_text()).get('native_grid_abi')
+    if native_api is not None:
+        with prepare(blender,strict=not (force or repair_mode),native_grid_abi=native_api) as prepared:yield prepared
+        return
     if force:
         # Runtime-backed launchers must be prepared from the original container.
         base=state/'original-blender' if old.get('runtime_dir') and fingerprint(state/'original-blender')==old.get('original_sha256') else blender
@@ -164,6 +168,8 @@ def _native_removal(state,data,force):
     target=Path(data['blender']);notes=[]
     if not target.exists():return None,'missing',['Blender is missing or relocated; its old path was not recreated.']
     current=target.read_bytes();digest=fingerprint(target)
+    if data.get('native_component')=='native-grid-abi1' and data.get('native_ownership')=='adopted' and not data.get('managed_copy'):
+        return None,'externally-provided',['Externally supplied native Blender retained; removing the add-on disables wavelength workspace integration.']
     if data.get('managed_copy'):
         if digest!=data.get('patched_sha256'):
             if not force:raise life.StateError('Managed Blender copy changed; use --force to retain a backup before removal')

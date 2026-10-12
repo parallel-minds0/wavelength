@@ -97,9 +97,10 @@ def _restore(state,data):
 
 
 def _install_legacy(bundle,blender,addons,state,*,allow_unverified=False,confirm_experimental=False,force=False,require_native=False):
-    if force:
+    native_api=json.loads((Path(bundle)/'bundle.json').read_text()).get('native_grid_abi')
+    if force or native_api is not None:
         from .forced import install_forced
-        return install_forced(bundle,blender,addons,state,require_native=require_native)
+        return install_forced(bundle,blender,addons,state,require_native=require_native or not force)
     bundle=Path(bundle).resolve();blender=Path(blender).expanduser().resolve(strict=True)
     addons=Path(addons).expanduser().resolve();state=Path(state).expanduser().resolve()
     if allow_unverified and not confirm_experimental:

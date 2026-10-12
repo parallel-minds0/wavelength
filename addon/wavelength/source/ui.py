@@ -975,7 +975,9 @@ class WL_PT_main(bpy.types.Panel):
         box=l.box();box.label(text='Grid & Units',icon='GRID');box.prop(s,'grid_mode',expand=True)
         row=box.row(align=True);row.operator('wavelength.grid_step',text='−').direction=-1;row.prop(s,'grid_step' if grid.engine_enabled(s) else 'metric_grid_step',text='');row.operator('wavelength.grid_step',text='+').direction=1
         box.prop(s,'grid_subdivisions')
-        box.label(text=('Blender units / native grid' if s.engine=='blender' else '1 engine unit ≈ 2.54 cm'));box.operator('wavelength.snap_grid')
+        box.label(text=('Metric grid / meters' if s.engine=='blender' else '1 engine unit ≈ 2.54 cm'));box.operator('wavelength.snap_grid')
+        if not grid.native_available(context.space_data):
+            box.label(text='Grid requires wavelength-enabled Blender',icon='ERROR')
         row=l.row(align=True)
         for kind in ('STAIRS','ARCH','SPHERE'):row.operator('wavelength.primitive',text=kind.title()).kind=kind
         l.operator('wavelength.index_assets',text='Publish to Native Asset Browser',icon='ASSET_MANAGER')

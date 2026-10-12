@@ -1,3 +1,30 @@
+# v0.13.0-pre.alpha — native grid renderer
+
+- Moves grid drawing into Blender’s native C++/shader grid pass. Python supplies
+  per-viewport state and the text label; it no longer draws grid geometry.
+- Preserves world-aligned yellow parent intervals, grey profile subdivisions,
+  meter-based neutral mode, adjustable spacing, and `[` / `]` shortcuts.
+- Restores Blender’s original grid on workspace exit. Old files receive valid
+  dormant defaults; saving does not leave wavelength rendering enabled without
+  the add-on.
+- Adds a separate Linux Blender package with `Launch-wavelength`, the matching
+  add-on, source patch, and a corresponding Blender source archive. Your regular
+  Blender installation is not replaced by this launcher.
+- New installer bundles verify the actual native API and do not apply the old
+  shader-color patch. `--force` still permits Python-only installation on an
+  unsupported host, with an explicit missing-grid message.
+- Verified 137 automated tests; real OpenGL and Vulkan pixel/depth tests; UI
+  shortcuts, saving and workspace checks; and real-runtime install/repair/remove.
+
+**Use:** extract `wavelength-native-v0.13.0-pre.alpha-linux-x86_64.tar.gz` and run
+`Launch-wavelength`. Open **wavelength → Grid & Units**. The ordinary add-on ZIP
+alone cannot provide the new renderer.
+
+**Preview limits:** built on Debian sid (glibc 2.43 / GCC 16.2), Linux x86-64-v2.
+Older systems may need a source build. Cycles CPU is included; CUDA/HIP/oneAPI/
+OptiX device backends are disabled in this preview. See
+[native validation](https://github.com/parallel-minds0/wavelength/blob/v0.13.0-pre.alpha/native/blender/VALIDATION.md).
+
 # v0.12.1-pre.alpha — profile grid and shortcuts
 
 - wavelength owns both parent lines and grey subdivisions in its workspace. Engine profiles default to eight subdivisions; Blender/metric mode defaults to a one-meter parent interval and ten subdivisions. The subdivision count is configurable and saved with profiles/projects.

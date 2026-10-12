@@ -6,7 +6,7 @@ from .core import inspect_blender,sha256
 from .experimental import generate,analyze,LIMITATIONS
 
 @contextmanager
-def _prepare(blender):
+def _prepare(blender, native_grid_abi=None):
     with tempfile.TemporaryDirectory(prefix='wl-native-') as folder:
         folder=Path(folder)
         runtime=None
@@ -25,8 +25,24 @@ def _prepare(blender):
                 if item.is_symlink() and not item.resolve().is_relative_to(runtime.resolve()):
                     raise ValueError('AppImage contains an external symlink; refusing deployment')
         else:payload=blender
-        analysis=analyze(payload.read_bytes())
-        recipe,patched=generate(payload.read_bytes())
+        payload_bytes=payload.read_bytes()
+        if native_grid_abi not in (None, 1):
+            raise ValueError('Unsupported native grid API version')
+        # A separately compiled renderer is adopted, never rewritten with the
+        # legacy shader-string recipe. Validate the actual RNA API at startup.
+        if all(name in payload_bytes for name in
+               (b'wavelength_grid_enabled', b'wavelength_grid_spacing', b'wavelength_grid_subdivisions')):
+            if runtime:
+                raise ValueError('Extract the native Blender runtime before installing the add-on')
+            _startup_probe(blender,folder/'startup.log',native_grid=True)
+            yield {'recipe':None,'patched':None,'runtime':None,'limitations':'Externally supplied native Blender runtime',
+                   'native_state':'available','native_component':'native-grid-abi1','action':'keep',
+                   'analysis':{'reason':'Native grid RNA API verified at startup'}}
+            return
+        if native_grid_abi is not None:
+            raise ValueError('This add-on requires the wavelength native Blender build; the legacy shader-color patch cannot provide its grid API')
+        analysis=analyze(payload_bytes)
+        recipe,patched=generate(payload_bytes)
         # Structural compatibility is established here. This is not renderer certification.
         if runtime:
             payload.write_bytes(patched)
@@ -44,11 +60,16 @@ def _prepare(blender):
         yield {'recipe':recipe,'patched':patched,'runtime':runtime,'limitations':LIMITATIONS,'native_state':'available','action':analysis['action'],'analysis':{k:v for k,v in analysis.items() if k!='changes'}}
 
 
-def _startup_probe(command,log_path):
+def _startup_probe(command,log_path,*,native_grid=False):
+    expression='import bpy; '
+    if native_grid:
+        expression += ('p=bpy.types.View3DOverlay.bl_rna.properties; '
+                       'assert all(n in p for n in ("wavelength_grid_enabled","wavelength_grid_spacing","wavelength_grid_subdivisions")); ')
+    expression += 'print("WL_NATIVE_STARTUP_OK")'
     with Path(log_path).open('w+') as log:
         try:
-            subprocess.run([str(command),'--background','--factory-startup','--python-exit-code','19',
-                            '--python-expr','import bpy; print("WL_NATIVE_STARTUP_OK")'],
+            subprocess.run([str(command),'-noaudio','--background','--factory-startup','--python-exit-code','19',
+                           '--python-expr',expression],
                            stdout=log,stderr=log,timeout=60,check=True)
         except (subprocess.SubprocessError,OSError) as exc:
             log.seek(0)
@@ -70,12 +91,12 @@ def stage_runtime(prepared,state):
 
 
 @contextmanager
-def prepare(blender, strict=True):
+def prepare(blender, strict=True, native_grid_abi=None):
     # Catch preparation failures only, never exceptions from the caller's transaction.
     from contextlib import ExitStack
     with ExitStack() as stack:
         try:
-            prepared=stack.enter_context(_prepare(Path(blender)))
+            prepared=stack.enter_context(_prepare(Path(blender), native_grid_abi))
         except (OSError,ValueError,subprocess.SubprocessError) as exc:
             if strict:
                 from .lifecycle import NativeRequiredError
