@@ -13,15 +13,22 @@ ROOT=Path(__file__).resolve().parents[1]
 
 def main():
     parser=argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--build',type=Path,required=True)
+    parser.add_argument('--build',type=Path)
+    parser.add_argument('--download-only',action='store_true')
     args=parser.parse_args()
     folder=ROOT/'build/windows-original'
     folder.mkdir(parents=True,exist_ok=True)
     archive=folder/'blender.zip'
-    with urllib.request.urlopen('https://download.blender.org/release/Blender5.2/blender-5.2.2-windows-x64.zip',timeout=120) as src,archive.open('wb') as dst:
-        shutil.copyfileobj(src,dst)
+    if not archive.exists():
+        subprocess.run(['curl','--fail','--location','--retry','5','--retry-all-errors',
+                        '--output',str(archive),
+                        'https://download.blender.org/release/Blender5.2/blender-5.2.2-windows-x64.zip'],check=True)
     if hashlib.sha256(archive.read_bytes()).hexdigest()!='3849d17a682cba006075aaa3f3597ecb5c9c30ec31035b2e092c53e40679b535':
         raise SystemExit('Official Blender archive checksum mismatch')
+    if args.download_only:
+        return
+    if args.build is None:
+        parser.error('--build is required when generating a patch')
     with zipfile.ZipFile(archive) as z:
         matches=[name for name in z.namelist() if name.endswith('/blender.exe')]
         if len(matches)!=1:raise SystemExit('Unexpected Blender archive layout')

@@ -19,6 +19,8 @@ jobs:
       - uses: ilammy/msvc-dev-cmd@v1
         with:
           arch: x64
+      - name: Verify original archive before compiling
+        run: python tools/prepare_windows_delta.py --download-only
       - name: Fetch pinned sources and Windows dependencies (internal build only)
         shell: pwsh
         run: |
@@ -50,6 +52,13 @@ jobs:
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
           cmake --build C:/wl-build --parallel 4
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
+      - name: Retain internal executable for packaging recovery
+        uses: actions/upload-artifact@v4
+        with:
+          name: internal-reference-not-for-release
+          path: C:/wl-build/bin/blender.exe
+          if-no-files-found: error
+          retention-days: 3
       - name: Produce binary difference (no Windows injection or Blender execution)
         shell: pwsh
         run: |
