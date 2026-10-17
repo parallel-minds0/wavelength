@@ -22,11 +22,14 @@ def snapshot(context,name,identity=None):
 
 
 def apply(context,value):
+    from . import textures
     value=validate(value);s=context.scene.wavelength
     s.engine=value['settings']['engine']
     for key,val in value['settings'].items():
         if hasattr(s,key):setattr(s,key,val)
     s.profile_id=value['id'];s.profile_name=value['name']
+    textures.refresh(s,context)
+
 
 
 class WL_OT_profile(bpy.types.Operator):

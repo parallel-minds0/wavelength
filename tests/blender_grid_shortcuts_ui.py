@@ -39,9 +39,26 @@ def test():
     bpy.ops.view3d.view_axis(type='TOP')
     bpy.ops.object.select_all(action='SELECT');bpy.ops.object.delete()
    assert baseline==(overlay.grid_scale,overlay.grid_subdivisions,overlay.show_floor,overlay.show_ortho_grid)
-   assert [(item.type,item.properties.direction) for km,item in grid._keymaps]==[('LEFT_BRACKET',-1),('RIGHT_BRACKET',1)]
+   assert [(km.name,item.type,item.properties.direction) for km,item in grid._keymaps]==[
+    (name,key,direction) for name,_ in grid._KEYMAP_SPECS for key,direction in (('LEFT_BRACKET',-1),('RIGHT_BRACKET',1))
+   ]
    view.spaces.active.region_3d.view_distance=12
+   reg=next(r for r in view.regions if r.type=='WINDOW')
+   x,y=reg.x+reg.width//2,reg.y+reg.height//2
+   bpy.context.window.event_simulate(type='MOUSEMOVE',value='NOTHING',x=x,y=y)
+   bpy.context.window.event_simulate(type='LEFT_BRACKET',value='PRESS',x=x,y=y)
+   bpy.context.window.event_simulate(type='LEFT_BRACKET',value='RELEASE',x=x,y=y)
   elif stage==2:
+   s=bpy.context.scene.wavelength
+   assert s.grid_step=='16',f'Expected 16 after simulated [, got {s.grid_step}'
+   view=next(a for a in bpy.context.screen.areas if a.type=='VIEW_3D')
+   reg=next(r for r in view.regions if r.type=='WINDOW')
+   x,y=reg.x+reg.width//2,reg.y+reg.height//2
+   bpy.context.window.event_simulate(type='RIGHT_BRACKET',value='PRESS',x=x,y=y)
+   bpy.context.window.event_simulate(type='RIGHT_BRACKET',value='RELEASE',x=x,y=y)
+  elif stage==3:
+   s=bpy.context.scene.wavelength
+   assert s.grid_step=='32',f'Expected 32 after simulated ], got {s.grid_step}'
    assert grid._error is None,grid._error
    bpy.ops.screen.screenshot(filepath=str(out/'selected-grid.png'))
    bpy.ops.wm.save_as_mainfile(filepath=str(out/'native-grid.blend'),check_existing=False)

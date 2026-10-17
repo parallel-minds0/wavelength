@@ -9,6 +9,6 @@
   "windows_reference_sha256": "483586a61bef8184f7786396efa77dac4383c847644b7e93063658b9b9ae5dcd",
   "windows_runtime_tested": false,
   "verification": "Linux x86_64 native build tested on OpenGL and Vulkan; see VALIDATION.md",
-  "tested_binary_sha256": "fc0c055d06c23d0f646300c2c4250f3d9705546981d2c3b874b7794f9128c02f",
+  "tested_binary_sha256": "a4f1c671f7198c23f310b7010b6d7c34fd0d8d5fec848d26bbb2102a214fb81c",
   "distribution": "Checksum-bound binary differences applied to the existing executable; internal builds are not distributed"
 }

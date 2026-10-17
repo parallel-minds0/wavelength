@@ -84,20 +84,20 @@ def cache_directory(settings):
     return folder
 
 
-def material(settings,name,preferred=None):
+def material(settings,name,preferred=None,target_mat=None):
     if profiles.is_source(settings.engine):
         from . import source_assets
-        return source_assets.material(settings,name)
+        return source_assets.material(settings,name,target_mat=target_mat)
     wad,item=find(settings,name,preferred)
     expected=b'WAD3' if profiles.is_goldsrc(settings.engine) else b'WAD2'
     if wad.kind!=expected:raise ValueError('Texture WAD belongs to the other engine mode')
     pal=palette(settings) if not item.wad3 else None
     key=hashlib.sha256(item.blob+(pal or b'')).hexdigest()
     label='wl_'+hashlib.sha256((name.casefold()+':'+key).encode()).hexdigest()[:20]
-    existing=bpy.data.materials.get(label)
-    if existing:
+    existing=target_mat or bpy.data.materials.get(label) or next((m for m in bpy.data.materials if m.get('wl_asset_profile')==settings.engine and str(m.get('wl_texture','')).casefold()==item.name.casefold()),None)
+    if existing and (existing.get('wl_realized') or (existing.use_nodes and any(n.type=='TEX_IMAGE' and n.image for n in existing.node_tree.nodes))):
         # Keep the current source path even when an identical texture moved.
-        existing['wl_wad']=str(wad.path)
+        existing['wl_wad']=str(wad.path);existing['wl_realized']=True
         for node in existing.node_tree.nodes if existing.use_nodes else []:
             if node.type=='TEX_IMAGE' and node.image and not node.image.packed_file:
                 try:node.image.pack()
@@ -105,30 +105,70 @@ def material(settings,name,preferred=None):
         return existing
     w,h,rgba=item.rgba(pal)
     path=cache_directory(settings)/(key+'.png')
-    image=bpy.data.images.new(label,width=w,height=h,alpha=True)
-    image.colorspace_settings.name='sRGB';image.pixels.foreach_set(array('f',rgba));image.update()
-    image.filepath_raw=str(path);image.file_format='PNG'
-    try:
-        image.save()
-    except (OSError,RuntimeError):
-        pass
-    # File-backed reference survives save/reopen without packing game assets.
-    if path.is_file():
-        image.source='FILE'
-    if image.source=='FILE':
-        image.pack()  # Keep the preview pixels inside the .blend on save.
-    mat=bpy.data.materials.new(label);mat.use_nodes=True
+    image=bpy.data.images.get(label)
+    if image is None:
+        image=bpy.data.images.new(label,width=w,height=h,alpha=True)
+        image.colorspace_settings.name='sRGB';image.pixels.foreach_set(array('f',rgba));image.update()
+        image.filepath_raw=str(path);image.file_format='PNG'
+        try:
+            image.save()
+        except (OSError,RuntimeError):
+            pass
+        # File-backed reference survives save/reopen without packing game assets.
+        if path.is_file():
+            image.source='FILE'
+        if image.source=='FILE':
+            image.pack()  # Keep the preview pixels inside the .blend on save.
+    mat=existing or bpy.data.materials.new(label);mat.use_nodes=True
     mat['wl_texture']=item.name;mat['wl_wad']=str(wad.path);mat['wl_width']=w;mat['wl_height']=h
+    mat['wl_asset_profile']=settings.engine;mat['wl_realized']=True
     mat['wl_asset_origin']='User-installed game/WAD; local use, not bundled'
-    nodes=mat.node_tree.nodes;shader=nodes.get('Principled BSDF')
-    tex=nodes.new('ShaderNodeTexImage');tex.image=image;tex.interpolation='Closest';tex.extension='REPEAT'
-    uv=nodes.new('ShaderNodeUVMap');uv.uv_map='wavelength'
+    nodes=mat.node_tree.nodes;shader=nodes.get('Principled BSDF') or next((n for n in nodes if n.type=='BSDF_PRINCIPLED'),None) or nodes.new('ShaderNodeBsdfPrincipled')
+    tex=next((n for n in nodes if n.type=='TEX_IMAGE'),None) or nodes.new('ShaderNodeTexImage');tex.image=image;tex.interpolation='Closest';tex.extension='REPEAT'
+    uv=next((n for n in nodes if n.type=='UVMAP'),None) or nodes.new('ShaderNodeUVMap');uv.uv_map='wavelength'
     mat.node_tree.links.new(uv.outputs['UV'],tex.inputs['Vector'])
     mat.node_tree.links.new(tex.outputs['Color'],shader.inputs['Base Color']);shader.inputs['Roughness'].default_value=1
     if item.wad3 and item.name.startswith('{'):
         mat.node_tree.links.new(tex.outputs['Alpha'],shader.inputs['Alpha'])
         if hasattr(mat,'surface_render_method'):mat.surface_render_method='DITHERED'
     return mat
+
+
+def realize_material(settings,mat):
+    """Ensure a lightweight Asset Browser material has its full-res shader nodes."""
+    if mat is None or not mat.get('wl_texture'):
+        return mat
+    if mat.get('wl_realized') and mat.use_nodes and any(n.type=='TEX_IMAGE' and n.image for n in mat.node_tree.nodes):
+        return mat
+    return material(settings,str(mat['wl_texture']),preferred=mat.get('wl_wad'),target_mat=mat)
+
+
+def sync_faces_from_materials(obj):
+    """Mirror polygon material slots into persistent wl_faces records after drag-and-drop."""
+    if obj is None or obj.type!='MESH' or not obj.data:
+        return False
+    attribute=obj.data.attributes.get('wl_face_id')
+    if attribute is None:
+        return False
+    try:
+        records=json.loads(obj.data.get('wl_faces','{}'))
+    except (TypeError,ValueError,json.JSONDecodeError):
+        return False
+    changed=False
+    mats=obj.data.materials
+    for poly in obj.data.polygons:
+        if poly.material_index>=len(mats):
+            continue
+        mat=mats[poly.material_index]
+        if mat and mat.get('wl_texture'):
+            fid=str(attribute.data[poly.index].value)
+            tex=str(mat['wl_texture'])
+            if fid in records and records[fid].get('texture')!=tex:
+                records[fid]['texture']=tex
+                changed=True
+    if changed:
+        obj.data['wl_faces']=json.dumps(records)
+    return changed
 
 
 def assign(obj,indices,mat):
@@ -169,6 +209,12 @@ def refresh(settings,context=None):
         settings.status=f'{len(names)} textures · page {page+1}/{pages}'
     except (ValueError,OSError,UnicodeError) as exc:
         settings.status=str(exc)
+    try:
+        from . import asset_browser
+        asset_browser.schedule_profile_sync(context,settings=settings)
+    except Exception:
+        pass
+
 
 
 def all_names(settings, search=''):

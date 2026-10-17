@@ -11,6 +11,8 @@ class WL_OT_precision_move(bpy.types.Operator):
     @classmethod
     def poll(cls,context):return workspace.active(context,'snapping') and context.area and context.area.type=='VIEW_3D' and context.mode=='OBJECT' and context.selected_objects and context.scene.wavelength.engine!='blender' and context.scene.wavelength.grid_mode=='ENGINE'
     def invoke(self,context,event):
+        from . import primitive_ui
+        primitive_ui.sync_assemblies(force=True)
         self._objects=[(o,o.matrix_world.copy()) for o in context.selected_objects if not any(p.select_get() for p in self.parents(o))]
         self._anchor=context.object.matrix_world.translation.copy();self._mouse=Vector((event.mouse_region_x,event.mouse_region_y));self._value='';self._step=profiles.active_grid_step_meters(context.scene.wavelength)
         self._start=view3d_utils.region_2d_to_location_3d(context.region,context.region_data,self._mouse,self._anchor)
@@ -29,6 +31,9 @@ class WL_OT_precision_move(bpy.types.Operator):
             context.area.header_text_set(None);return {'FINISHED'}
         if event.value=='PRESS':
             if event.type in {'X','Y','Z'}:self.axis=event.type
+            elif event.type in {'LEFT_BRACKET','RIGHT_BRACKET'}:
+                bpy.ops.wavelength.grid_step(direction=-1 if event.type=='LEFT_BRACKET' else 1)
+                self._step=profiles.active_grid_step_meters(context.scene.wavelength)
             elif event.type=='BACK_SPACE':self._value=self._value[:-1]
             elif event.unicode and event.unicode in '0123456789.-':self._value+=event.unicode
         if event.type=='MOUSEMOVE' or event.value=='PRESS':

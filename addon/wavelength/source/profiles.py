@@ -66,21 +66,58 @@ def engine_to_world(settings, value):
 def world_to_engine(settings, value):
     return float(value) / unit_meters(settings)
 
-def snap_world_value(settings, value):
-    """Snap a world-space scalar through engine-unit space, then convert back."""
-    if not get(settings.engine).get('brush_semantics'):
-        return float(value)
-    step = grid_step_units(settings)
-    return engine_to_world(settings, round(world_to_engine(settings, value) / step) * step)
+def snap_enabled(settings, context=None):
+    """Whether grid snapping should be enforced for the active profile."""
+    if get(settings.engine).get('brush_semantics'):
+        return True
+    if bool(getattr(settings, 'snap_to_grid', False)):
+        return True
+    if context is not None:
+        ts = getattr(getattr(context, 'scene', None), 'tool_settings', None)
+        if bool(getattr(ts, 'use_snap', False)):
+            return True
+    return False
 
 
-def snap_world_length(settings, value, minimum_steps=1):
-    """Snap a positive world-space length to an exact engine-grid multiple."""
-    if not get(settings.engine).get('brush_semantics'):
-        return float(value)
-    step = grid_step_units(settings)
-    units = abs(world_to_engine(settings, value))
-    return engine_to_world(settings, max(float(minimum_steps) * step, round(units / step) * step))
+def active_snap_step_units(settings, context=None):
+    """Active snap step in authoring units (engine units or Blender meters), or None if unsnapped."""
+    if get(settings.engine).get('brush_semantics'):
+        return grid_step_units(settings)
+    if snap_enabled(settings, context):
+        return max(1e-4, float(getattr(settings, 'metric_grid_step', 1.0)))
+    return None
+
+
+def active_snap_step_meters(settings, context=None):
+    """Active snap step in world meters, or None if unsnapped."""
+    if get(settings.engine).get('brush_semantics'):
+        return engine_to_world(settings, grid_step_units(settings))
+    if snap_enabled(settings, context):
+        return max(1e-4, float(getattr(settings, 'metric_grid_step', 1.0)))
+    return None
+
+
+def snap_world_value(settings, value, context=None):
+    """Snap a world-space scalar through engine-unit space (or Blender grid if enabled), then convert back."""
+    if get(settings.engine).get('brush_semantics'):
+        step = grid_step_units(settings)
+        return engine_to_world(settings, round(world_to_engine(settings, value) / step) * step)
+    step_m = active_snap_step_meters(settings, context)
+    if step_m:
+        return round(float(value) / step_m) * step_m
+    return float(value)
+
+
+def snap_world_length(settings, value, minimum_steps=1, context=None):
+    """Snap a positive world-space length to an exact grid multiple when snapping is active."""
+    if get(settings.engine).get('brush_semantics'):
+        step = grid_step_units(settings)
+        units = abs(world_to_engine(settings, value))
+        return engine_to_world(settings, max(float(minimum_steps) * step, round(units / step) * step))
+    step_m = active_snap_step_meters(settings, context)
+    if step_m:
+        return max(float(minimum_steps) * step_m, round(abs(float(value)) / step_m) * step_m)
+    return max(1e-4, abs(float(value)))
 
 
 def display_grid(settings):
@@ -89,3 +126,4 @@ def display_grid(settings):
     spacing = float(getattr(settings, 'metric_grid_step', 1.0)) if metric else active_grid_step_meters(settings)
     count = int(getattr(settings, 'grid_subdivisions', 0)) or (10 if metric else int(get(settings.engine).get('grid_subdivisions', 8)))
     return spacing, max(2, count)
+

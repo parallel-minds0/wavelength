@@ -4,9 +4,9 @@
     {
       "platform": "linux-x86_64",
       "input_sha256": "51dd3d8f494b1a47959307bd5d52c67e3d586fa8540243628ac89e2185743868",
-      "output_sha256": "fc0c055d06c23d0f646300c2c4250f3d9705546981d2c3b874b7794f9128c02f",
+      "output_sha256": "a4f1c671f7198c23f310b7010b6d7c34fd0d8d5fec848d26bbb2102a214fb81c",
       "output_size": 172512656,
-      "patch_sha256": "825d96570897e077c6dcdaf34679d617ca8880d5d729c0d5b8a43279f34b3f66",
+      "patch_sha256": "76779a3d06f3b090cb55dc4df5e05455a01449f65e4d106b32f22f10c5fe924f",
       "file": "linux-x86_64-51dd3d8f494b1a47.bsdiff",
       "native_grid_abi": 1,
       "url": "https://github.com/parallel-minds0/wavelength/releases/download/v0.14.0-pre.alpha/linux-x86_64-51dd3d8f494b1a47.bsdiff",

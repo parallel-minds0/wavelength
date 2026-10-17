@@ -97,9 +97,24 @@ def _draw_label():
     units = f'{settings.grid_step} engine units' if engine_enabled(settings) else f'{spacing:g} m'
     label = _error or f'NATIVE GRID  |  {units}  |  {subdivisions} subdivisions'
     blf.size(0, 15)
-    blf.color(0, 1.0, 0.85, 0.10, 1.0)
+    blf.color(0, 0.78, 0.66, 0.16, 0.90)
     blf.position(0, 20, 46, 0)
     blf.draw(0, label)
+
+
+_KEYMAP_SPECS = (
+    ('3D View', 'VIEW_3D'),
+    ('3D View Generic', 'VIEW_3D'),
+    ('Object Mode', 'EMPTY'),
+    ('Mesh', 'EMPTY'),
+    ('Curve', 'EMPTY'),
+    ('Armature', 'EMPTY'),
+    ('Pose', 'EMPTY'),
+    ('Sculpt', 'EMPTY'),
+    ('Vertex Paint', 'EMPTY'),
+    ('Weight Paint', 'EMPTY'),
+    ('Image Paint', 'EMPTY'),
+)
 
 
 def register():
@@ -110,11 +125,12 @@ def register():
             handlers.append(restore_native)
     config = bpy.context.window_manager.keyconfigs.addon
     if config:
-        keymap = config.keymaps.new(name='3D View', space_type='VIEW_3D')
-        for key, direction in (('LEFT_BRACKET', -1), ('RIGHT_BRACKET', 1)):
-            item = keymap.keymap_items.new('wavelength.grid_step', key, 'PRESS')
-            item.properties.direction = direction
-            _keymaps.append((keymap, item))
+        for name, space_type in _KEYMAP_SPECS:
+            keymap = config.keymaps.new(name=name, space_type=space_type)
+            for key, direction in (('LEFT_BRACKET', -1), ('RIGHT_BRACKET', 1)):
+                item = keymap.keymap_items.new('wavelength.grid_step', key, 'PRESS', repeat=True)
+                item.properties.direction = direction
+                _keymaps.append((keymap, item))
     if not _handles:
         # Text only. No POST_VIEW handler, GPU shader, batch, or depth override.
         _handles.append(bpy.types.SpaceView3D.draw_handler_add(_draw_label, (), 'WINDOW', 'POST_PIXEL'))

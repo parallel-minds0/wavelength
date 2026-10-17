@@ -18,7 +18,10 @@ def origin_to_geometry(obj):
     """Move a mesh object's origin to its vertex median without moving geometry in world space."""
     if obj is None or obj.type != 'MESH' or not obj.data.vertices:
         return
+    if obj.parent and (obj.parent.get('wl_primitive') or obj.parent.get('wl_assembly')):
+        return
     center = Vector((0.0, 0.0, 0.0))
+
     for vertex in obj.data.vertices:
         center += vertex.co
     center /= len(obj.data.vertices)

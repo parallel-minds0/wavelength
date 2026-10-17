@@ -26,36 +26,32 @@ def _world_bounds(obj):
 
 
 def _snap_object(obj, settings, previous_matrix):
-    step = profiles.active_grid_step_meters(settings)
+    step = profiles.active_snap_step_meters(settings)
     if not step or step <= 0:
         return
     current = obj.matrix_world.copy()
-    # Translation: exact engine-grid coordinates, independent of Blender display scale.
+    # Translation: exact grid coordinates, independent of Blender display scale.
     current.translation = Vector(tuple(profiles.snap_world_value(settings, x) for x in current.translation))
 
-    # Scale: Blender's scale factor is dimensionless, so snapping that factor is wrong.
-    # Resolve the resulting world-space brush dimensions to exact engine-grid multiples.
-    prev_scale = previous_matrix.to_scale() if previous_matrix is not None else current.to_scale()
-    cur_scale = current.to_scale()
-    scale_changed = any(abs(cur_scale[i] - prev_scale[i]) > 1e-7 for i in range(3))
-    if scale_changed:
-        obj.matrix_world = current
-        bounds = _world_bounds(obj)
-        if bounds:
-            lo, hi = bounds
-            dims = hi - lo
-            factors = [1.0, 1.0, 1.0]
-            for i in range(3):
-                if dims[i] > 1e-9:
-                    snapped = profiles.snap_world_length(settings, dims[i])
-                    factors[i] = snapped / dims[i]
-            # Preserve Blender's pivot-centred scale semantics by changing object scale,
-            # not translating an arbitrary boundary.
-            # Matrix-column scaling handles rotated objects correctly.
-            for col in range(3):
-                f = factors[col]
-                for row in range(3):
-                    current[row][col] *= f
+    if obj.type == 'MESH' and obj.data is not None:
+        prev_scale = previous_matrix.to_scale() if previous_matrix is not None else current.to_scale()
+        cur_scale = current.to_scale()
+        scale_changed = any(abs(cur_scale[i] - prev_scale[i]) > 1e-7 for i in range(3))
+        if scale_changed:
+            obj.matrix_world = current
+            bounds = _world_bounds(obj)
+            if bounds:
+                lo, hi = bounds
+                dims = hi - lo
+                factors = [1.0, 1.0, 1.0]
+                for i in range(3):
+                    if dims[i] > 1e-9:
+                        snapped = profiles.snap_world_length(settings, dims[i])
+                        factors[i] = snapped / dims[i]
+                for col in range(3):
+                    f = factors[col]
+                    for row in range(3):
+                        current[row][col] *= f
     obj.matrix_world = current
 
 
@@ -63,11 +59,21 @@ def tick():
     live = set()
     for owner in bpy.data.scenes:
         settings = getattr(owner, 'wavelength', None)
-        if not settings or settings.engine == 'blender' or settings.grid_mode != 'ENGINE':
+        if not settings or not profiles.snap_enabled(settings):
+            continue
+        if settings.engine != 'blender' and settings.grid_mode != 'ENGINE':
             continue
         for obj in owner.objects:
-            if obj.type != 'MESH' or obj.get('wl_role') != 'BRUSH' or obj.mode != 'OBJECT' or obj.library:
+            if obj.library or getattr(obj, 'mode', 'OBJECT') != 'OBJECT':
                 continue
+            is_root = bool(obj.get('wl_primitive') or obj.get('wl_assembly'))
+            if not is_root:
+                if obj.type != 'MESH':
+                    continue
+                if settings.engine != 'blender' and obj.get('wl_role') != 'BRUSH':
+                    continue
+                if obj.parent and (obj.parent.get('wl_primitive') or obj.parent.get('wl_assembly')) and obj.parent.get('wl_assembly_locked', True):
+                    continue
             key = obj.as_pointer(); live.add(key)
             sig = _signature(obj)
             st = _state.get(key)
@@ -88,6 +94,7 @@ def tick():
     for key in list(_state):
         if key not in live: _state.pop(key, None)
     return .08
+
 
 
 def register():

@@ -24,7 +24,7 @@
   It is not a Windows Blender grid patch. Windows injection is untested and not supplied.
 
 Base executable SHA-256: `51dd3d8f494b1a47959307bd5d52c67e3d586fa8540243628ac89e2185743868`.
-Patched executable SHA-256: `fc0c055d06c23d0f646300c2c4250f3d9705546981d2c3b874b7794f9128c02f`.
+Patched executable SHA-256: `a4f1c671f7198c23f310b7010b6d7c34fd0d8d5fec848d26bbb2102a214fb81c`.
 
 This patch is experimental and verified on this Linux host, not every distribution.
 The startup probe prevents installation when the resulting executable cannot run

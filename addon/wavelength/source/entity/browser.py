@@ -35,16 +35,23 @@ def _asset_collection(scene):
     return collection
 
 
-def rebuild(context):
+def rebuild_for_scene(scn, context=None, quiet=False):
     """Rebuild Current File entity assets for the active Wavelength profile."""
-    s=context.scene.wavelength
+    s=scn.wavelength
     if s.engine=='blender':
         raise ValueError('Choose Quake or Half-Life / GoldSrc before opening the Entity Browser')
-    collection=_asset_collection(context.scene)
+    for other_col in list(bpy.data.collections):
+        if other_col.name.startswith(_ASSET_COLLECTION+'_') and other_col.name!=_ASSET_COLLECTION+'_'+s.engine:
+            for obj in list(other_col.objects):
+                if obj.asset_data is not None:
+                    try:obj.asset_clear()
+                    except Exception:pass
+    collection=_asset_collection(scn)
     for obj in list(collection.objects):
         bpy.data.objects.remove(obj, do_unlink=True)
+    from . import catalog as entities
     count=0
-    for classname, label, description in _catalog(context):
+    for classname, label, description in list(entities.items(s, context)):
         obj=bpy.data.objects.new(classname, None)
         collection.objects.link(obj)
         obj.empty_display_type='PLAIN_AXES'
@@ -56,9 +63,6 @@ def rebuild(context):
         obj['wl_pairs']=json.dumps(pairs)
         obj['wl_entity_browser_profile']=s.engine
 
-        # TODO: attach deterministic cached PNG/SVG previews here.
-        # Runtime model-preview generation was intentionally removed: Blender does
-        # not reliably render our temporary collection-instance templates.
         try:
             obj.asset_mark()
             if obj.asset_data:
@@ -69,16 +73,21 @@ def rebuild(context):
                 try: obj.asset_data.tags.new('Wavelength')
                 except Exception: pass
         except Exception:
-            # Asset marking exists in supported Blender versions; keep templates
-            # harmless if Blender changes this API.
             continue
         from ..asset_browser import preview,metadata
         from ..asset_index import record
         metadata(obj,record(s.engine,classname,'ENTITY',source=s.fgd_path or 'Built-in registry'))
         preview(obj)
         count+=1
-    s.status=f'Entity Browser: {count} {s.engine} entities published as Current File assets'
+    if not quiet:
+        s.status=f'Entity Browser: {count} {s.engine} entities published as Current File assets'
     return count
+
+
+def rebuild(context):
+    """Rebuild Current File entity assets for the active Wavelength profile."""
+    scn=getattr(context,'scene',None) or bpy.context.scene
+    return rebuild_for_scene(scn, context=context, quiet=False)
 
 
 def _is_template_source(obj):
@@ -130,25 +139,57 @@ def _depsgraph(scene, depsgraph):
 
 _LAYOUT_MARKER = 'wl_asset_browser_layout_v2'
 _CATALOG_ID = '7d3c0fd7-53ef-4b20-9c3b-b6e2f8a7a119'
+_OTHER_ID_FILTERS = (
+    'filter_action',
+    'filter_annotations',
+    'filter_brush',
+    'filter_group',
+    'filter_node_tree',
+    'filter_palettes',
+    'filter_scene',
+    'filter_world',
+)
 
 
-def _configure_asset_area(area):
-    """Configure one FILE_BROWSER area as a Wavelength-only Asset Browser host."""
+def _apply_section_id_filter(params, section):
+    """Strictly separate Textures (Material assets) from Entities (Object assets)."""
+    id_filter=getattr(params,'filter_asset_id',None)
+    if id_filter is None:
+        return
+    is_textures=(section!='ENTITIES')
+    for attr in _OTHER_ID_FILTERS:
+        if hasattr(id_filter,attr):
+            try:setattr(id_filter,attr,False)
+            except Exception:pass
+    if hasattr(id_filter,'filter_material'):
+        try:id_filter.filter_material=bool(is_textures)
+        except Exception:pass
+    if hasattr(id_filter,'filter_object'):
+        try:id_filter.filter_object=bool(not is_textures)
+        except Exception:pass
+
+
+def _configure_asset_area(area, section=None):
+    """Configure one FILE_BROWSER area as a Wavelength Asset Browser host."""
     if not area:
         return
+    if section is None:
+        scn=getattr(bpy.context,'scene',None)
+        if scn and hasattr(scn,'wavelength'):
+            section=getattr(scn.wavelength,'asset_browser_section','TEXTURES')
+        else:
+            section=area.get('wl_asset_section','TEXTURES')
     area.type='FILE_BROWSER'
     area.ui_type='ASSETS'
     try:
         area['wl_asset_browser']=True
+        area['wl_asset_section']=section
     except Exception:
         pass
     try:
         space=area.spaces.active
         params=getattr(space,'params',None)
         if params:
-            # Wavelength uses Current File assets so drag/drop remains native, but this
-            # area is a distinct Asset Browser instance.  Prefer a dedicated catalog
-            # filter where Blender exposes it; fall back to a Wavelength search scope.
             for attr in ('asset_library_reference','asset_library_ref'):
                 if hasattr(params,attr):
                     try:setattr(params,attr,'LOCAL')
@@ -156,13 +197,31 @@ def _configure_asset_area(area):
             if hasattr(params,'catalog_id'):
                 try: params.catalog_id='00000000-0000-0000-0000-000000000000'
                 except Exception: pass
-            # Do not mutate any other Asset Browser area; this filter belongs only here.
-            if hasattr(params,'filter_search'):
-                try: params.filter_search=''
-                except Exception: pass
+            _apply_section_id_filter(params, section)
+            if hasattr(params,'filter_search') and area.get('_wl_init_search') is None:
+                try:
+                    params.filter_search=''
+                    area['_wl_init_search']=True
+                except Exception:
+                    pass
     except Exception:
         pass
     area.tag_redraw()
+
+
+def apply_section_to_open_browsers(context, section):
+    """Switch all open Wavelength Asset Browser areas to the selected section."""
+    from .. import asset_browser
+    asset_browser.schedule_profile_sync(context)
+    wm=getattr(context,'window_manager',None) or getattr(bpy.context,'window_manager',None)
+    if not wm:
+        return
+    for window in wm.windows:
+        if not window.screen:
+            continue
+        for area in window.screen.areas:
+            if _is_wavelength_asset_area(area):
+                _configure_asset_area(area, section=section)
 
 
 def _is_wavelength_asset_area(area):
@@ -180,7 +239,7 @@ def _find_browser(screen):
     return next((a for a in screen.areas if _is_wavelength_asset_area(a)),None)
 
 
-def ensure_browser_layout(context):
+def ensure_browser_layout(context, section=None):
     """Create/reuse the Wavelength browser only on explicit user request.
 
     The largest VIEW_3D is split.  The lower slice becomes the browser, leaving the
@@ -194,7 +253,7 @@ def ensure_browser_layout(context):
     screen=window.screen
     existing=_find_browser(screen)
     if existing:
-        _configure_asset_area(existing)
+        _configure_asset_area(existing, section=section)
         return window,screen,existing
 
     viewports=[a for a in screen.areas if a.type=='VIEW_3D']
@@ -225,7 +284,7 @@ def ensure_browser_layout(context):
             if len(pair_now)==2:
                 lower=min(pair_now,key=lambda a:a.y);upper=max(pair_now,key=lambda a:a.y)
                 upper.type='VIEW_3D';upper.spaces.active.show_region_ui=True
-                _configure_asset_area(lower)
+                _configure_asset_area(lower, section=section)
         except ReferenceError:pass
         return None
     bpy.app.timers.register(finish_layout,first_interval=.05)
@@ -237,16 +296,19 @@ def ensure_browser_layout(context):
 class WL_OT_entity_browser_refresh(bpy.types.Operator):
     bl_idname='wavelength.entity_browser_refresh'
     bl_label='Refresh Wavelength Asset Browser'
-    bl_description='Rebuild Wavelength assets from the active game profile/FGD'
+    bl_description='Rebuild Wavelength textures and entities from the active game profile'
     def execute(self,context):
         try:
+            from .. import asset_browser
             s=context.scene.wavelength
             if s.engine=='blender':
                 raise ValueError('Choose Quake or Half-Life / GoldSrc first')
             count=rebuild(context)
+            asset_browser.schedule_profile_sync(context,settings=s,force=True)
+            pub,total,_=asset_browser.sync_status(s)
             area=_find_browser(context.screen) if getattr(context,'screen',None) else None
-            if area: _configure_asset_area(area)
-            self.report({'INFO'},f'Rebuilt {count} Wavelength assets')
+            if area: _configure_asset_area(area, section=s.asset_browser_section)
+            self.report({'INFO'},f'Synced {pub}/{total} textures and {count} entities')
             return {'FINISHED'}
         except Exception as exc:
             context.scene.wavelength.status=str(exc)
@@ -258,20 +320,35 @@ class WL_OT_entity_browser(bpy.types.Operator):
     bl_idname='wavelength.entity_browser'
     bl_label='Wavelength Asset Browser'
     bl_description='Open the dedicated Wavelength Asset Browser below the 3D Viewport'
+    section:bpy.props.EnumProperty(
+        name='Section',
+        items=[
+            ('','Current','Keep current section'),
+            ('TEXTURES','Textures','Browse profile textures'),
+            ('ENTITIES','Entities','Browse profile entities'),
+        ],
+        default='',
+        options={'SKIP_SAVE'},
+    )
     def execute(self,context):
         try:
+            from .. import asset_browser
             s=context.scene.wavelength
-            # Do this before touching the layout.  Neutral Blender mode has no entity
-            # catalog to publish and should leave the user's workspace unchanged.
             if s.engine=='blender':
                 raise ValueError('Choose Quake or Half-Life / GoldSrc before opening the Wavelength Asset Browser')
-            window,screen,browser=ensure_browser_layout(context)
-            # Rebuild only after the active game is known, then re-apply this area's
-            # Wavelength-only filter.  Other Asset Browser instances are untouched.
+            if self.section in {'TEXTURES','ENTITIES'}:
+                s.asset_browser_section=self.section
+            target_section=s.asset_browser_section
+            window,screen,browser=ensure_browser_layout(context, section=target_section)
             with bpy.context.temp_override(window=window,screen=screen,area=browser,scene=context.scene):
                 count=rebuild(bpy.context)
-                _configure_asset_area(browser)
-            s.status=f'Wavelength Asset Browser: {count} {s.engine} entities'
+                asset_browser.schedule_profile_sync(bpy.context,settings=s)
+                _configure_asset_area(browser, section=target_section)
+            pub,total,loading=asset_browser.sync_status(s)
+            if target_section=='TEXTURES':
+                s.status=f'Wavelength Asset Browser (Textures): {pub}/{total} {s.engine} textures' + (' loading…' if loading else '')
+            else:
+                s.status=f'Wavelength Asset Browser (Entities): {count} {s.engine} entities'
             return {'FINISHED'}
         except Exception as exc:
             context.scene.wavelength.status=str(exc)
@@ -294,3 +371,4 @@ def unregister():
     for cls in reversed(_CLASSES):
         try:bpy.utils.unregister_class(cls)
         except RuntimeError:pass
+

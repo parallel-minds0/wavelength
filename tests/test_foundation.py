@@ -7,12 +7,23 @@ class FoundationTests(unittest.TestCase):
  def test_primitives_convex_and_closed(self):
   for kind in ('ARCH','STAIRS','SPHERE'):
    for angle in (45,90,180,270,360):
-    for v,f in primitives.generate(kind,{**P,'angle':angle}):geometry.validate(v,[list(x) for x in f])
+    for direction in (0,15,33,45):
+     for v,f in primitives.generate(kind,{**P,'angle':angle,'direction':direction}):geometry.validate(v,[list(x) for x in f])
+  for segments in (4,8,12,16):
+   for rings in (2,4,6,8):
+    parts=primitives.generate('SPHERE',{**P,'sphere_type':'UV','segments':segments,'rings':rings,'direction':25})
+    self.assertEqual(len(parts),1)
+    for v,f in parts:geometry.validate(v,[list(x) for x in f])
+  for curve_angle in (-180,-90,45,90,180,270,360):
+   for landing in (0,64):
+    parts=primitives.generate('STAIRS',{**P,'curved':True,'curve_angle':curve_angle,'inner_radius':64,'landing':landing,'direction':20})
+    self.assertEqual(len(parts),8+(1 if landing else 0))
+    for v,f in parts:geometry.validate(v,[list(x) for x in f])
  def test_stairs_dimensions(self):
   parts=primitives.generate('STAIRS',P);self.assertEqual(len(parts),9)
   v=parts[-1][0];self.assertEqual(max(x[2] for x in v),128);self.assertEqual(max(x[1] for x in v),320)
  def test_invalid_primitives(self):
-  for kind,change in [('ARCH',{'thickness':129}),('SPHERE',{'subdivisions':2}),('STAIRS',{'rise':0})]:
+  for kind,change in [('ARCH',{'thickness':129}),('SPHERE',{'subdivisions':2}),('SPHERE',{'sphere_type':'UV','segments':2}),('STAIRS',{'rise':0}),('STAIRS',{'curved':True,'inner_radius':0}),('STAIRS',{'curved':True,'steps':1,'curve_angle':180})]:
    with self.assertRaises(ValueError):primitives.generate(kind,{**P,**change})
  def test_profiles_persist_rename_stable_id(self):
   with tempfile.TemporaryDirectory() as d:

@@ -112,28 +112,43 @@ def _hl1_linux_defaults():
         'launch_args':json.dumps(['-game','{game_dir}','+map','{map}']),
     }
 
+_IN_ENGINE_CHANGE=False
+
+def _settings_texture_refresh(self,context):
+    if not _IN_ENGINE_CHANGE:
+        textures.refresh(self,context)
+
+def _asset_browser_section_changed(self,context):
+    entity_browser.apply_section_to_open_browsers(context,self.asset_browser_section)
+
 def engine_changed(self,context):
+    global _IN_ENGINE_CHANGE
     previous=self.get('_wl_active_engine','blender')
-    if previous!=self.engine:
-        configurations=json.loads(self.get('_wl_engine_configs','{}'))
-        configurations[previous]={key:getattr(self,key) for key in _ENGINE_FIELDS}
-        values=configurations.get(self.engine)
-        if values is None:
-            root=local_root(self)
-            preset=(root/'wavelength/dist'/('goldsrc-project.json' if profiles.is_goldsrc(self.engine) else 'quake-project.json')) if root and self.engine in {'quake','goldsrc','goldsrc_linux','goldsrc_linux_steam'} else None
-            values=json.loads(preset.read_text()) if preset and preset.is_file() else {}
-            if self.engine in {'goldsrc_linux','goldsrc_linux_steam'}:
-                values.update(_hl1_linux_defaults())
-                if self.engine=='goldsrc_linux_steam':
-                    values['launch_args']=json.dumps(['-console','-dev','+map','{map}'])
-        if values is not None and profiles.is_source(self.engine) and not values:
-            from .source_tools import defaults
-            values=defaults(profiles.get(self.engine)['platform'])
-        self.unit_scale=profiles.get(self.engine).get('unit_meters',1.0)
-        self['_wl_active_engine']=self.engine
-        self['_wl_engine_configs']=json.dumps(configurations)
-        for key in _ENGINE_FIELDS:setattr(self,key,values.get(key,'[]' if key in {'texture_wads','wrapper','launch_args','qbsp_args','vis_args','light_args','source_vbsp_args','source_vvis_args','source_vrad_args'} else '{}' if key=='environment' else 'wavelength_'+self.engine if key=='map_name' else ''))
-        if _JOB and _JOB_SCENE==context.scene:_JOB.cancel()
+    _IN_ENGINE_CHANGE=True
+    try:
+        if previous!=self.engine:
+            configurations=json.loads(self.get('_wl_engine_configs','{}'))
+            configurations[previous]={key:getattr(self,key) for key in _ENGINE_FIELDS}
+            values=configurations.get(self.engine)
+            if values is None:
+                root=local_root(self)
+                preset=(root/'wavelength/dist'/('goldsrc-project.json' if profiles.is_goldsrc(self.engine) else 'quake-project.json')) if root and self.engine in {'quake','goldsrc','goldsrc_linux','goldsrc_linux_steam'} else None
+                values=json.loads(preset.read_text()) if preset and preset.is_file() else {}
+                if self.engine in {'goldsrc_linux','goldsrc_linux_steam'}:
+                    values.update(_hl1_linux_defaults())
+                    if self.engine=='goldsrc_linux_steam':
+                        values['launch_args']=json.dumps(['-console','-dev','+map','{map}'])
+            if values is not None and profiles.is_source(self.engine) and not values:
+                from .source_tools import defaults
+                values=defaults(profiles.get(self.engine)['platform'])
+            self.unit_scale=profiles.get(self.engine).get('unit_meters',1.0)
+            self.grid_mode='BLENDER' if self.engine=='blender' else 'ENGINE'
+            self['_wl_active_engine']=self.engine
+            self['_wl_engine_configs']=json.dumps(configurations)
+            for key in _ENGINE_FIELDS:setattr(self,key,values.get(key,'[]' if key in {'texture_wads','wrapper','launch_args','qbsp_args','vis_args','light_args','source_vbsp_args','source_vvis_args','source_vrad_args'} else '{}' if key=='environment' else 'wavelength_'+self.engine if key=='map_name' else ''))
+            if _JOB and _JOB_SCENE==context.scene:_JOB.cancel()
+    finally:
+        _IN_ENGINE_CHANGE=False
     self.last_build=''
     grid.update(self,context)
     # Toolbar registration is static; the profile controls creation behavior.
@@ -218,6 +233,8 @@ class WLSettings(bpy.types.PropertyGroup):
     metric_grid_step:FloatProperty(name='Metric Step',default=1.0,min=.001,max=1024,update=grid.update,subtype='DISTANCE')
     grid_subdivisions:IntProperty(name='Subdivisions',default=0,min=0,max=64,description='0 uses profile default: 8 for engines, 10 for Blender',update=grid.update)
     grid_step:EnumProperty(name='Step',items=[(str(x),str(x),'Engine units') for x in (1,2,4,8,16,32,64,128,256)],default='16',update=grid.update)
+    snap_to_grid:BoolProperty(name='Snap to Grid',default=False,description='Snap primitives and brushes to the metric grid when using the Blender profile')
+    log_filter:EnumProperty(name='Log Filter',items=[('ALL','All','Show all CLI/log messages'),('WARN','Warn+','Show warnings and errors'),('ERROR','Errors','Show errors only')],default='ALL')
     project_dir:StringProperty(name='Project directory',subtype='DIR_PATH')
     map_name:StringProperty(name='Map name',default='wavelength_test')
     map_path:StringProperty(name='MAP file',subtype='FILE_PATH')
@@ -235,16 +252,17 @@ class WLSettings(bpy.types.PropertyGroup):
     source_vvis_args:StringProperty(name='VVIS arguments JSON',default='[]')
     source_vrad_args:StringProperty(name='VRAD arguments JSON',default='[]')
     game_executable:StringProperty(name='Game executable',subtype='FILE_PATH')
-    game_dir:StringProperty(name='Game directory',subtype='DIR_PATH')
-    wad_path:StringProperty(name='Active WAD',subtype='FILE_PATH',update=textures.refresh)
-    texture_wads:StringProperty(default='[]')
-    palette_path:StringProperty(name='Quake palette',subtype='FILE_PATH')
+    game_dir:StringProperty(name='Game directory',subtype='DIR_PATH',update=_settings_texture_refresh)
+    wad_path:StringProperty(name='Active WAD',subtype='FILE_PATH',update=_settings_texture_refresh)
+    texture_wads:StringProperty(default='[]',update=_settings_texture_refresh)
+    palette_path:StringProperty(name='Quake palette',subtype='FILE_PATH',update=_settings_texture_refresh)
     quake_pak_dir:StringProperty(name='Quake id1 directory',subtype='DIR_PATH')
     texture_search:StringProperty(name='Search',update=textures.refresh)
     texture_page:IntProperty(default=0,min=0)
     texture_count:IntProperty(default=0)
     texture_choice:EnumProperty(name='Texture',items=textures.enum_items,update=textures.select)
-    fgd_path:StringProperty(name='Entity definitions',subtype='FILE_PATH')
+    fgd_path:StringProperty(name='Entity definitions',subtype='FILE_PATH',update=_settings_texture_refresh)
+    asset_browser_section:EnumProperty(name='Asset Section',items=[('TEXTURES','Textures','Browse and drag-and-drop profile textures','TEXTURE',0),('ENTITIES','Entities','Browse and drag-and-drop profile entities','EMPTY_ARROWS',1)],default='TEXTURES',update=_asset_browser_section_changed)
     wrapper:StringProperty(name='Compiler wrapper JSON',default='[]',description='Argument array prepended to each compiler, e.g. ["wine"]')
     environment:StringProperty(name='Environment JSON',default='{}',description='Explicit environment overrides for Wine or Proton')
     launch_args:StringProperty(name='Launch arguments JSON',default='[]',description='Use {map}, {game_dir}, {build_dir} placeholders')
@@ -255,12 +273,19 @@ class WLSettings(bpy.types.PropertyGroup):
     brush_size:FloatProperty(name='Brush size',default=64,min=0.125,max=8192)
     hollow_thickness:FloatProperty(name='Hollow thickness',default=16,min=0.125,max=4096,description='Wall thickness in engine units; positive values hollow inward and preserve the outer bounds')
     brush_type:EnumProperty(name='Brush type',items=[('CUBE','Cube','Rectangular prototype'),('CYLINDER','Cylinder','Convex cylinder prototype'),('CONE','Cone','Convex cone prototype'),('SPHERE','Sphere','Low-poly sphere prototype'),('ARCH','Arch','Editable convex arch'),('STAIRS','Stairs','Editable staircase')],default='CUBE')
+    sphere_type:EnumProperty(name='Sphere Type',items=[('UV','UV Sphere (Quads)','Latitude/longitude sphere with planar quad bands and triangular poles'),('ICO','Icosphere (Triangles)','Geodesic icosphere with 20 or 80 triangular faces')],default='UV')
+    sphere_subdivisions:IntProperty(name='Subdivisions',default=1,min=0,max=1,description='Icosphere detail (0: 20 faces, 1: 80 faces)')
     brush_sides:IntProperty(name='Segments',default=8,min=3,max=64,description='Radial segment count for Cylinder, Cone and Sphere')
     brush_rings:IntProperty(name='Rings',default=6,min=2,max=32,description='Latitude rings for Sphere')
     brush_height_steps:IntProperty(name='Height Steps',default=1,min=1,max=256,description='Primitive height in active grid increments')
     arch_segments:IntProperty(name='Arch Segments',default=8,min=3,max=32,description='Number of convex wedge brushes forming an Arch')
     arch_angle:FloatProperty(name='Arch Angle',default=180.0,min=15.0,max=360.0,description='Arc sweep in degrees')
     arch_thickness_steps:IntProperty(name='Arch Thickness Steps',default=1,min=1,max=64,description='Arch radial thickness in active grid increments')
+    stair_steps:IntProperty(name='Steps',default=8,min=1,max=64,description='Number of steps in a Staircase')
+    stair_curved:BoolProperty(name='Curved Staircase',default=False,description='Curve the staircase along an arc')
+    stair_angle:FloatProperty(name='Curve Angle',default=90.0,min=-360.0,max=360.0,description='Arc sweep in degrees (positive curves left, negative curves right)')
+    stair_inner_radius:FloatProperty(name='Inner Radius',default=64.0,min=1.0,max=4096.0,description='Inner turn radius in engine units for curved stairs')
+    stair_landing:FloatProperty(name='Landing',default=0.0,min=0.0,max=4096.0,description='Top landing length in engine units')
     entity_class:StringProperty(name='Class',default='info_player_start')
     entity_choice:EnumProperty(name='Browse',items=entity_items,update=entity_choice_changed)
     live_texture_reproject:BoolProperty(name='Live reprojection',default=True,description='Recalculate preview UV projection when brush geometry or transforms change instead of stretching existing UVs')
@@ -282,13 +307,15 @@ class WLSettings(bpy.types.PropertyGroup):
 
 class SafeOperator:
     def execute(self,context):
+        from . import diagnostics
+        diagnostics.logger.info('Operation %s', self.bl_idname)
         try:
             self.run(context)
             return {'FINISHED'}
-        except (ValueError,OSError,RuntimeError,KeyError,TypeError) as exc:
+        except Exception as exc:
             context.scene.wavelength.status=str(exc)
             if self.bl_idname=='wavelength.build':context.scene.wavelength.build_error=str(exc)
-            self.report({'ERROR'},str(exc));return {'CANCELLED'}
+            self.report({'ERROR'},diagnostics.error(self.bl_idname, exc));return {'CANCELLED'}
 
 class WL_OT_setup(SafeOperator,bpy.types.Operator):
     bl_idname='wavelength.setup';bl_label='Use Local Toolchain';bl_description='Configure this checkout’s installed tools and test game'
@@ -299,6 +326,7 @@ class WL_OT_setup(SafeOperator,bpy.types.Operator):
             from .source_tools import defaults
             data=defaults(profiles.get(s.engine)['platform'])
             for key,value in data.items():setattr(s,key,value)
+            textures.refresh(s,context)
             s.status='HL2 paths refreshed; configure SDK compilers separately'
             return
         root=local_root(s)
@@ -309,21 +337,27 @@ class WL_OT_setup(SafeOperator,bpy.types.Operator):
             if key in data and key!='engine':setattr(s,key,data[key])
         textures.refresh(s,context);s.last_build='';s.status=f'{profiles.PROFILES[s.engine]["label"]} local toolchain configured'
 
+
 class WL_OT_brush(SafeOperator,bpy.types.Operator):
     bl_idname='wavelength.add_brush';bl_label='Add Brush';bl_options={'REGISTER','UNDO'}
     def run(self,context):
         if context.mode!='OBJECT':raise ValueError('Leave Edit Mode first')
         s=context.scene.wavelength
-        if s.engine=='blender':raise ValueError('Select an engine before creating BSP brushes')
         if s.brush_type in {'ARCH','SPHERE','STAIRS'}:
             bpy.ops.wavelength.primitive('INVOKE_DEFAULT',kind=s.brush_type);return
-        size=profiles.engine_to_world(s, s.brush_size);location=context.scene.cursor.location
+        size=1.0 if (s.engine=='blender' and abs(float(s.brush_size)-64.0)<1e-6) else profiles.engine_to_world(s, s.brush_size)
+        location=context.scene.cursor.location.copy()
+        if profiles.snap_enabled(s,context):
+            location.x=profiles.snap_world_value(s,location.x,context)
+            location.y=profiles.snap_world_value(s,location.y,context)
+            location.z=profiles.snap_world_value(s,location.z,context)
         if s.brush_type=='CYLINDER': bpy.ops.mesh.primitive_cylinder_add(vertices=s.brush_sides,radius=size/2,depth=size,location=location)
         elif s.brush_type=='CONE': bpy.ops.mesh.primitive_cone_add(vertices=s.brush_sides,radius1=size/2,radius2=0,depth=size,location=location)
         elif s.brush_type=='SPHERE': bpy.ops.mesh.primitive_uv_sphere_add(segments=s.brush_sides,ring_count=s.brush_rings,radius=size/2,location=location)
         elif s.brush_type=='ARCH': raise ValueError('Use the viewport Arch Brush tool so the arch is built from convex segments')
         else: bpy.ops.mesh.primitive_cube_add(size=size,location=location)
-        scene.mark_brush(context.object);context.object.name='Brush'
+        if s.engine!='blender':
+            scene.mark_brush(context.object);context.object.name='Brush'
 
 class WL_OT_hollow(SafeOperator,bpy.types.Operator):
     bl_idname='wavelength.make_hollow';bl_label='Make Hollow';bl_options={'REGISTER','UNDO'}
@@ -331,7 +365,9 @@ class WL_OT_hollow(SafeOperator,bpy.types.Operator):
     def run(self,context):
         if context.mode!='OBJECT':raise ValueError('Leave Edit Mode first')
         obj=context.active_object
-        if obj is None or obj.type!='MESH' or obj.get('wl_role')!='BRUSH':raise ValueError('Select one rectangular brush')
+        s=context.scene.wavelength
+        is_engine=s.engine!='blender'
+        if obj is None or obj.type!='MESH' or (is_engine and obj.get('wl_role')!='BRUSH'):raise ValueError('Select one rectangular brush')
         if len(obj.data.vertices)!=8 or len(obj.data.polygons)!=6 or any(len(p.vertices)!=4 for p in obj.data.polygons):
             raise ValueError('Make Hollow currently requires a rectangular six-sided brush')
         coords=[v.co.copy() for v in obj.data.vertices]
@@ -347,32 +383,38 @@ class WL_OT_hollow(SafeOperator,bpy.types.Operator):
                ('Front',(ix0,y0,z0),(ix1,iy0,z1)),('Back',(ix0,iy1,z0),(ix1,y1,z1)),
                ('Bottom',(ix0,iy0,z0),(ix1,iy1,iz0)),('Top',(ix0,iy0,iz1),(ix1,iy1,z1))]
         collection=obj.users_collection[0] if obj.users_collection else context.collection
-        matrix=obj.matrix_world.copy();materials=list(obj.data.materials)
-        copied={k:obj[k] for k in obj.keys() if k not in {'wl_id','wl_faces','wl_role'}}
+        matrix=obj.matrix_world.copy();materials=list(obj.data.materials);base_name=obj.name
+        copied={k:obj[k] for k in obj.keys() if k not in {'wl_id','wl_faces','wl_role','wl_primitive_part','wl_assembly_part'}}
+        root=bpy.data.objects.new(base_name+' Hollow',None);collection.objects.link(root)
+        root.matrix_world=matrix;root.empty_display_size=0.2
+        root['wl_exclude']=True;root['wl_assembly']='HOLLOW';root['wl_assembly_locked']=True
         created=[]
         try:
-            for label,lo,hi in boxes:
+            for idx,(label,lo,hi) in enumerate(boxes):
                 xa,ya,za=lo;xb,yb,zb=hi
                 verts=[(xa,ya,za),(xb,ya,za),(xb,yb,za),(xa,yb,za),(xa,ya,zb),(xb,ya,zb),(xb,yb,zb),(xa,yb,zb)]
                 faces=[(0,3,2,1),(4,5,6,7),(0,1,5,4),(1,2,6,5),(2,3,7,6),(3,0,4,7)]
-                mesh=bpy.data.meshes.new(obj.name+' '+label);mesh.from_pydata(verts,[],faces);mesh.update()
-                wall=bpy.data.objects.new(obj.name+' '+label,mesh);collection.objects.link(wall);wall.matrix_world=matrix
+                mesh=bpy.data.meshes.new(base_name+' '+label);mesh.from_pydata(verts,[],faces);mesh.update()
+                wall=bpy.data.objects.new(base_name+' '+label,mesh);collection.objects.link(wall)
+                wall.parent=root;wall['wl_assembly_part']=idx
                 for k,v in copied.items():wall[k]=v
                 for material in materials:mesh.materials.append(material)
-                # Preserve the source's dominant material on every generated face.
                 if materials:
                     dominant=max((p.material_index for p in obj.data.polygons),key=lambda i:sum(1 for p in obj.data.polygons if p.material_index==i))
                     for poly in mesh.polygons:poly.material_index=min(dominant,len(materials)-1)
-                scene.mark_brush(wall)
-                try:editor.apply_uv(wall,context.scene.wavelength.engine)
-                except (ValueError,BrushError,KeyError):pass
+                if is_engine:
+                    scene.mark_brush(wall)
+                    try:editor.apply_uv(wall,context.scene.wavelength.engine)
+                    except (ValueError,BrushError,KeyError):pass
                 created.append(wall)
         except Exception:
             for wall in created:bpy.data.objects.remove(wall,do_unlink=True)
+            bpy.data.objects.remove(root,do_unlink=True)
             raise
         bpy.data.objects.remove(obj,do_unlink=True)
-        for wall in created:wall.select_set(True)
-        context.view_layer.objects.active=created[0]
+        primitive_ui.apply_assembly_lock(root)
+        primitive_ui.select_assembly(root,context,True)
+        primitive_ui._SELECTED_ROOTS.add(root.as_pointer())
         context.scene.wavelength.status=f'Made hollow brush: {len(created)} walls, {context.scene.wavelength.hollow_thickness:g} unit thickness'
 
 class WL_OT_mark(SafeOperator,bpy.types.Operator):
@@ -394,12 +436,14 @@ class WL_OT_ids(SafeOperator,bpy.types.Operator):
 
 class WL_OT_snap(SafeOperator,bpy.types.Operator):
     bl_idname='wavelength.snap_grid';bl_label='Snap Selection to Grid';bl_options={'REGISTER','UNDO'}
-    bl_description='Snap selected vertices or object origins to exact world-space engine increments'
+    bl_description='Snap selected vertices or object origins to exact world-space grid increments'
     def run(self,context):
         s=context.scene.wavelength
-        if s.engine=='blender':raise ValueError('Blender / No Engine uses Blender snapping')
-        step=profiles.active_grid_step_meters(s)
-        def snap(v):return profiles.snap_world_value(s, v)
+        step=max(1e-4,float(getattr(s,'metric_grid_step',1.0) or 1.0)) if s.engine=='blender' else profiles.active_grid_step_meters(s)
+        def snap(v):
+            if s.engine=='blender':
+                return round(float(v)/step)*step
+            return profiles.snap_world_value(s, v, context)
         if context.mode=='EDIT_MESH':
             for obj in context.objects_in_mode_unique_data:
                 bm=bmesh.from_edit_mesh(obj.data);inverse=obj.matrix_world.inverted()
@@ -408,22 +452,35 @@ class WL_OT_snap(SafeOperator,bpy.types.Operator):
                         p=obj.matrix_world@v.co;v.co=inverse@type(p)([snap(x) for x in p])
                 bmesh.update_edit_mesh(obj.data)
         elif context.mode=='OBJECT':
+            targets=[]
+            seen=set()
             for obj in context.selected_objects:
+                if obj.parent and primitive_ui.is_assembly_root(obj.parent) and obj.parent.get('wl_assembly_locked',True):
+                    obj=obj.parent
+                if obj.as_pointer() not in seen:
+                    seen.add(obj.as_pointer());targets.append(obj)
+            for obj in targets:
                 matrix=obj.matrix_world.copy();matrix.translation=[snap(x) for x in matrix.translation];obj.matrix_world=matrix
         else:raise ValueError('Snap works in Object or Mesh Edit Mode')
+
 
 class WL_OT_grid_step(bpy.types.Operator):
     bl_idname='wavelength.grid_step';bl_label='Change Grid Step';bl_options={'UNDO'}
     direction:IntProperty(default=1)
     @classmethod
     def poll(cls,context):
-        return bool(workspace.active(context) and context.area and context.area.type=='VIEW_3D' and getattr(context.scene,'wavelength',None) is not None)
+        return bool(workspace.active(context,'grid') and context.area and context.area.type=='VIEW_3D' and getattr(context.scene,'wavelength',None) is not None)
     def execute(self,context):
         s=context.scene.wavelength
         if not grid.engine_enabled(s):
-            s.metric_grid_step=max(.001,min(1024,s.metric_grid_step*(2 if self.direction>0 else .5)));return {'FINISHED'}
+            s.metric_grid_step=max(.001,min(1024,s.metric_grid_step*(2 if self.direction>0 else .5)))
+            grid.update(s,context)
+            return {'FINISHED'}
         steps=[1,2,4,8,16,32,64,128,256]
-        index=steps.index(int(s.grid_step));s.grid_step=str(steps[max(0,min(len(steps)-1,index+self.direction))]);return {'FINISHED'}
+        index=steps.index(int(s.grid_step))
+        s.grid_step=str(steps[max(0,min(len(steps)-1,index+self.direction))])
+        grid.update(s,context)
+        return {'FINISHED'}
 
 def _spawn_point_entity(context, classname):
     s=context.scene.wavelength
@@ -553,11 +610,28 @@ def _brush_entity_defaults(settings, classname):
 def _brush_entity_members(scene_data, identity):
     return [o for o in scene_data.objects if o.get('wl_role')=='BRUSH' and o.get('wl_entity_id')==identity]
 
+def _resolve_brush_object(obj):
+    if obj and primitive_ui.is_assembly_root(obj):
+        parts=primitive_ui.parts_for(obj)
+        return parts[0] if parts else None
+    return obj
+
+def _selected_brushes(context):
+    seen=set();result=[]
+    for obj in context.selected_objects:
+        root=primitive_ui.root_for(obj)
+        if root and root.get('wl_assembly_locked',True):
+            for part in primitive_ui.parts_for(root):
+                if part.as_pointer() not in seen:seen.add(part.as_pointer());result.append(part)
+        elif obj.get('wl_role')=='BRUSH' and obj.as_pointer() not in seen:
+            seen.add(obj.as_pointer());result.append(obj)
+    return result
+
 class WL_OT_brush_entity(SafeOperator,bpy.types.Operator):
     bl_idname='wavelength.brush_entity';bl_label='Make Brush Entity';bl_options={'REGISTER','UNDO'}
     def run(self,context):
         s=context.scene.wavelength
-        selected=[o for o in context.selected_objects if o.get('wl_role')=='BRUSH']
+        selected=_selected_brushes(context)
         if not selected:raise ValueError('Select one or more brushes')
         # Creating a new brush entity is intentionally explicit. Existing entity
         # members are rejected so two logical entities cannot be merged by accident.
@@ -571,11 +645,11 @@ class WL_OT_brush_entity(SafeOperator,bpy.types.Operator):
 class WL_OT_brush_entity_add(SafeOperator,bpy.types.Operator):
     bl_idname='wavelength.brush_entity_add';bl_label='Add Solids to Brush Entity';bl_options={'REGISTER','UNDO'}
     def run(self,context):
-        active=context.object
+        active=_resolve_brush_object(context.object)
         if not active or active.get('wl_role')!='BRUSH' or not active.get('wl_entity_id'):
             raise ValueError('Make a brush-entity member active, then select world brushes to add')
         identity=active['wl_entity_id'];pairs=active.get('wl_entity_pairs','[]')
-        candidates=[o for o in context.selected_objects if o is not active and o.get('wl_role')=='BRUSH']
+        candidates=[o for o in _selected_brushes(context) if o is not active]
         if not candidates:raise ValueError('Select world brushes in addition to the active brush entity')
         if any(o.get('wl_entity_id') and o.get('wl_entity_id')!=identity for o in candidates):
             raise ValueError('Selection contains solids from another brush entity')
@@ -588,7 +662,7 @@ class WL_OT_brush_entity_add(SafeOperator,bpy.types.Operator):
 class WL_OT_brush_entity_remove(SafeOperator,bpy.types.Operator):
     bl_idname='wavelength.brush_entity_remove';bl_label='Remove Solids from Brush Entity';bl_options={'REGISTER','UNDO'}
     def run(self,context):
-        selected=[o for o in context.selected_objects if o.get('wl_role')=='BRUSH' and o.get('wl_entity_id')]
+        selected=[o for o in _selected_brushes(context) if o.get('wl_entity_id')]
         if not selected:raise ValueError('Select brush-entity solids to return to world')
         groups={o.get('wl_entity_id') for o in selected}
         for obj in selected:
@@ -600,7 +674,7 @@ class WL_OT_brush_entity_remove(SafeOperator,bpy.types.Operator):
 class WL_OT_brush_entity_to_world(SafeOperator,bpy.types.Operator):
     bl_idname='wavelength.brush_entity_to_world';bl_label='Convert Brush Entity to World';bl_options={'REGISTER','UNDO'}
     def run(self,context):
-        active=context.object
+        active=_resolve_brush_object(context.object)
         if not active or active.get('wl_role')!='BRUSH' or not active.get('wl_entity_id'):
             raise ValueError('Select a brush-entity member')
         identity=active['wl_entity_id'];members=_brush_entity_members(context.scene,identity)
@@ -609,6 +683,7 @@ class WL_OT_brush_entity_to_world(SafeOperator,bpy.types.Operator):
         context.scene.wavelength.status=f'Converted {len(members)} solid(s) to world geometry'
 
 def _entity_property_target(obj):
+    obj=_resolve_brush_object(obj)
     if obj is None:return None,None,''
     if obj.get('wl_role')=='ENTITY':
         key='wl_pairs';identity='point:'+str(obj.get('wl_id') or obj.name_full)
@@ -624,7 +699,7 @@ class WL_OT_properties(SafeOperator,bpy.types.Operator):
     bl_idname='wavelength.entity_properties';bl_label='Entity Properties';bl_options={'REGISTER','UNDO'}
     apply:BoolProperty(default=False)
     def run(self,context):
-        obj=context.object;s=context.scene.wavelength
+        obj=_resolve_brush_object(context.object);s=context.scene.wavelength
         key,current_pairs,binding=_entity_property_target(obj)
         if key is None:raise ValueError('Select a point entity or brush entity')
         if not self.apply:
@@ -676,12 +751,22 @@ class WL_OT_properties(SafeOperator,bpy.types.Operator):
 class WL_OT_read_face_texture(SafeOperator,bpy.types.Operator):
     bl_idname='wavelength.read_face_texture';bl_label='Read Selected Face Texture'
     def run(self,context):
-        s=context.scene.wavelength;obj=context.object
-        if not obj or obj.get('wl_role')!='BRUSH':raise ValueError('Select a brush')
-        edit=obj.mode=='EDIT'
+        s=context.scene.wavelength;obj=_resolve_brush_object(context.object)
+        edit=bool(obj and obj.mode=='EDIT')
+        edit_objs=[o for o in getattr(context,'objects_in_mode_unique_data',()) if o.get('wl_role')=='BRUSH'] if edit else []
+        if not obj or obj.get('wl_role')!='BRUSH':
+            if edit_objs:obj=edit_objs[0]
+            else:raise ValueError('Select a brush')
         if edit:bpy.ops.object.mode_set(mode='OBJECT')
         try:
             selected=[p for p in obj.data.polygons if p.select]
+            if not selected and edit_objs:
+                for cand in edit_objs:
+                    sel=[p for p in cand.data.polygons if p.select]
+                    if sel:
+                        obj=cand;selected=sel;break
+            if not selected and not edit and obj.data.polygons:
+                selected=[obj.data.polygons[0]]
             if not selected:raise ValueError('Select a face in Edit Mode')
             polygon=selected[0];attr=obj.data.attributes.get('wl_face_id')
             if attr is None:raise ValueError('Brush has no face IDs')
@@ -702,35 +787,56 @@ class WL_OT_read_face_texture(SafeOperator,bpy.types.Operator):
 class WL_OT_texture(SafeOperator,bpy.types.Operator):
     bl_idname='wavelength.apply_texture';bl_label='Apply Face Texture';bl_options={'REGISTER','UNDO'}
     def run(self,context):
-        s=context.scene.wavelength;obj=context.object
-        if not obj or obj.get('wl_role')!='BRUSH':raise ValueError('Select a brush')
+        s=context.scene.wavelength;active=context.object
+        targets=[]
+        edit=bool(active and active.mode=='EDIT')
+        if edit:
+            for item in (getattr(context,'objects_in_mode_unique_data',()) or ([active] if active else [])):
+                if item.get('wl_role')=='BRUSH' and item not in targets:
+                    targets.append(item)
+        else:
+            seen=set()
+            candidates=list(context.selected_objects)
+            if active and active not in candidates:candidates.insert(0,active)
+            for item in candidates:
+                root=primitive_ui.root_for(item)
+                if root and root.get('wl_assembly_locked',True):
+                    for part in primitive_ui.parts_for(root):
+                        if part.as_pointer() not in seen:
+                            seen.add(part.as_pointer());targets.append(part)
+                elif item.get('wl_role')=='BRUSH' and item.as_pointer() not in seen:
+                    seen.add(item.as_pointer());targets.append(item)
+        if not targets:raise ValueError('Select a brush')
         # Edit mode synchronizes selected faces before writing metadata.
         if not str(s.texture or '').strip():raise ValueError('Choose an engine texture before applying')
         if profiles.is_source(s.engine):
             from . import source_assets
-            mat=source_assets.material(s,s.texture)
-        else:mat=textures.material(s,s.texture)
-        edit=obj.mode=='EDIT'
+            mat=source_assets.material(s,s.texture) if str(s.game_dir or '').strip() else next((m for m in bpy.data.materials if m.get('wl_texture')==s.texture),None)
+        else:
+            has_wad=bool(str(s.wad_path or '').strip() or str(s.quake_pak_dir or '').strip() or str(s.texture_wads or '').strip() not in ('','[]'))
+            mat=textures.material(s,s.texture) if has_wad else next((m for m in bpy.data.materials if m.get('wl_texture')==s.texture),None)
+        from dataclasses import asdict
+        from .geometry import validate
+        from .editor import apply_uv
         if edit:bpy.ops.object.mode_set(mode='OBJECT')
         try:
-            faces=scene.brush_from_object(obj,s.engine);attr=obj.data.attributes['wl_face_id']
-            by_id={datum.value:face for datum,face in zip(sorted(attr.data,key=lambda d:d.value),faces)}
-            records=json.loads(obj.data.get('wl_faces','{}'))
-            from dataclasses import asdict
-            from .geometry import validate
-            planes=validate([tuple(x/obj.get('wl_unit_meters',1.0) for x in (obj.matrix_world@v.co)) for v in obj.data.vertices],[list(p.vertices) for p in obj.data.polygons])
-            selected=[]
-            for index,polygon in enumerate(obj.data.polygons):
-                if edit and not polygon.select:continue
-                selected.append(index)
-                fid=attr.data[index].value;face=by_id[fid];face.texture=s.texture
-                face.projection=[s.shift_u,s.shift_v,s.texture_rotation,s.texture_scale_u,s.texture_scale_v]
-                if profiles.uses_valve_axes(s.engine):face.axes=formats.quake_axes(planes[index][1],face.projection)
-                records[str(fid)]=asdict(face)
-            obj.data['wl_faces']=json.dumps(records)
-            if mat:textures.assign(obj,selected,mat)
-            from .editor import apply_uv
-            apply_uv(obj,s.engine)
+            for obj in targets:
+                if edit and not any(p.select for p in obj.data.polygons):continue
+                faces=scene.brush_from_object(obj,s.engine);attr=obj.data.attributes['wl_face_id']
+                by_id={datum.value:face for datum,face in zip(sorted(attr.data,key=lambda d:d.value),faces)}
+                records=json.loads(obj.data.get('wl_faces','{}'))
+                planes=validate([tuple(x/obj.get('wl_unit_meters',1.0) for x in (obj.matrix_world@v.co)) for v in obj.data.vertices],[list(p.vertices) for p in obj.data.polygons])
+                selected=[]
+                for index,polygon in enumerate(obj.data.polygons):
+                    if edit and not polygon.select:continue
+                    selected.append(index)
+                    fid=attr.data[index].value;face=by_id[fid];face.texture=s.texture
+                    face.projection=[s.shift_u,s.shift_v,s.texture_rotation,s.texture_scale_u,s.texture_scale_v]
+                    if profiles.uses_valve_axes(s.engine):face.axes=formats.quake_axes(planes[index][1],face.projection)
+                    records[str(fid)]=asdict(face)
+                obj.data['wl_faces']=json.dumps(records)
+                if mat:textures.assign(obj,selected,mat)
+                apply_uv(obj,s.engine)
         finally:
             if edit:bpy.ops.object.mode_set(mode='EDIT')
 
@@ -780,6 +886,7 @@ def redraw_build():
 
 def build_tick():
     global _JOB
+    from . import diagnostics as event_log
     if _JOB is None:return None
     try:
         s=_JOB_SCENE.wavelength;state=_JOB.poll();s.status=f'{state}: stage {_JOB.index}/{len(_JOB.commands)}'
@@ -790,6 +897,7 @@ def build_tick():
                 for file in sorted(_JOB_PATH.glob('*.log')):
                     errors.extend(line.strip() for line in file.read_text(errors='replace').splitlines() if 'error' in line.lower())
                 s.build_error='\n'.join(dict.fromkeys(errors)) or _JOB.message
+                event_log.error('Map compilation', RuntimeError(s.build_error))
                 s.status='Build failed — see error below'
             _JOB=None;return None
         if state=='DONE':
@@ -803,10 +911,12 @@ def build_tick():
             from .build.pipeline import publish_bsp
             published=publish_bsp(output,_JOB_OUTPUT) if _JOB_OUTPUT else output
             s.last_build=str(published)
+            event_log.logger.info('Build complete: %s', published)
             if profiles.is_source(_JOB_ENGINE):s.map_name=_JOB_MAP_NAME
             s.status=f'Build complete: {published.name}';_JOB=None;return None
         return 0.1
     except Exception as exc:
+        event_log.error('Build monitor', exc)
         if _JOB:_JOB.cancel()
         if _JOB_SCENE:
             _JOB_SCENE.wavelength.status='Build failed'
@@ -975,21 +1085,40 @@ class WL_PT_main(bpy.types.Panel):
         box=l.box();box.label(text='Grid & Units',icon='GRID');box.prop(s,'grid_mode',expand=True)
         row=box.row(align=True);row.operator('wavelength.grid_step',text='−').direction=-1;row.prop(s,'grid_step' if grid.engine_enabled(s) else 'metric_grid_step',text='');row.operator('wavelength.grid_step',text='+').direction=1
         box.prop(s,'grid_subdivisions')
+        if s.engine=='blender':
+            box.prop(s,'snap_to_grid',text='Snap to Grid')
         box.label(text=('Metric grid / meters' if s.engine=='blender' else '1 engine unit ≈ 2.54 cm'));box.operator('wavelength.snap_grid')
         if not grid.native_available(context.space_data):
             box.label(text='Native grid patch missing: run installer repair',icon='ERROR')
         row=l.row(align=True)
         for kind in ('STAIRS','ARCH','SPHERE'):row.operator('wavelength.primitive',text=kind.title()).kind=kind
-        l.operator('wavelength.index_assets',text='Publish to Native Asset Browser',icon='ASSET_MANAGER')
-        box=l.box();box.label(text='Create & Edit',icon='MESH_CUBE');box.enabled=s.engine!='blender';box.prop(s,'brush_type');box.prop(s,'brush_size');box.prop(s,'brush_height_steps');
-        if s.brush_type in {'CYLINDER','CONE','SPHERE'}: box.prop(s,'brush_sides')
-        if s.brush_type=='SPHERE': box.prop(s,'brush_rings')
+        ab_box=l.box();ab_box.enabled=s.engine!='blender'
+        ab_head=ab_box.row(align=True);ab_head.label(text='Asset Browser',icon='ASSET_MANAGER')
+        ab_head.operator('wavelength.entity_browser_refresh',text='',icon='FILE_REFRESH')
+        ab_row=ab_box.row(align=True)
+        op=ab_row.operator('wavelength.entity_browser',text='Textures',icon='TEXTURE',depress=(s.asset_browser_section=='TEXTURES'));op.section='TEXTURES'
+        op=ab_row.operator('wavelength.entity_browser',text='Entities',icon='EMPTY_ARROWS',depress=(s.asset_browser_section=='ENTITIES'));op.section='ENTITIES'
+        box=l.box();box.label(text='Create & Edit',icon='MESH_CUBE');box.prop(s,'brush_type');box.prop(s,'brush_size');box.prop(s,'brush_height_steps')
+        if s.brush_type in {'CYLINDER','CONE'}: box.prop(s,'brush_sides')
+        if s.brush_type=='SPHERE':
+            box.prop(s,'sphere_type')
+            if s.sphere_type=='ICO':
+                box.prop(s,'sphere_subdivisions')
+            else:
+                box.prop(s,'brush_sides')
+                box.prop(s,'brush_rings')
         if s.brush_type=='ARCH': box.prop(s,'arch_segments');box.prop(s,'arch_angle');box.prop(s,'arch_thickness_steps')
-        row=box.row(align=True);row.operator('wavelength.add_brush');row.operator('wavelength.mark_brush',text='Use Mesh')
+        if s.brush_type=='STAIRS':
+            box.prop(s,'stair_steps');box.prop(s,'stair_curved')
+            if s.stair_curved:
+                box.prop(s,'stair_angle');box.prop(s,'stair_inner_radius')
+            box.prop(s,'stair_landing')
+        row=box.row(align=True);row.operator('wavelength.add_brush',text='Add Primitive' if s.engine=='blender' else 'Add Brush');row.operator('wavelength.mark_brush',text='Use Mesh')
         row=box.row(align=True);row.prop(s,'hollow_thickness');row.operator('wavelength.make_hollow',text='Make Hollow')
-        box.label(text='Entities',icon='EMPTY_ARROWS');box.prop(s,'entity_choice',text='Class');row=box.row(align=True);row.operator('wavelength.add_entity',text='Create Point Entity',icon='ADD');row.operator('wavelength.brush_entity',text='Make Brush Entity')
-        row=box.row(align=True);row.operator('wavelength.entity_browser',text='Wavelength Asset Browser',icon='ASSET_MANAGER');row.operator('wavelength.entity_browser_refresh',text='',icon='FILE_REFRESH')
-        active=context.object
+        ent_col=box.column();ent_col.enabled=s.engine!='blender'
+        ent_col.label(text='Entities',icon='EMPTY_ARROWS');ent_col.prop(s,'entity_choice',text='Class');row=ent_col.row(align=True);row.operator('wavelength.add_entity',text='Create Point Entity',icon='ADD');row.operator('wavelength.brush_entity',text='Make Brush Entity')
+        row=ent_col.row(align=True);op=row.operator('wavelength.entity_browser',text='Entity Asset Browser',icon='EMPTY_ARROWS');op.section='ENTITIES';row.operator('wavelength.entity_browser_refresh',text='',icon='FILE_REFRESH')
+        active=_resolve_brush_object(context.object)
         if active and active.get('wl_role')=='BRUSH' and active.get('wl_entity_id'):
             entity_box=box.box();pairs=dict(json.loads(active.get('wl_entity_pairs','[]')));members=_brush_entity_members(context.scene,active.get('wl_entity_id'))
             entity_box.label(text=f"Brush Entity: {pairs.get('classname','<missing>')} ({len(members)} solids)",icon='OUTLINER_OB_MESH')
@@ -998,6 +1127,7 @@ class WL_PT_main(bpy.types.Panel):
         box=l.box();box.enabled=s.engine!='blender';box.label(text='Brush Tools',icon='MOD_BOOLEAN');box.prop(s,'clip_axis',expand=True);box.prop(s,'clip_distance');box.prop(s,'clip_flip');box.operator('wavelength.clip')
         box.operator('wavelength.duplicate_assembly');box.operator('wavelength.bake_static')
         box=l.box();box.enabled=s.engine!='blender';box.label(text='Map Workflow',icon='FILE_FOLDER');row=box.row(align=True);row.operator('wavelength.import_map');row.operator('wavelength.export_map')
+
         row=box.row(align=True);row.operator('wavelength.validate');row.operator('wavelength.build')
         box.prop(s,'build_output')
         if s.build_error:
@@ -1157,9 +1287,14 @@ class WL_PT_texture(bpy.types.Panel):
     bl_label='Face Textures';bl_idname='WL_PT_texture';bl_space_type='VIEW_3D';bl_region_type='UI';bl_category='wavelength';bl_parent_id='WL_PT_main';bl_options={'DEFAULT_CLOSED'}
     def draw(self,context):
         l=self.layout;s=context.scene.wavelength
+        pub,total,loading=asset_browser.sync_status(s)
+        ab_row=l.row(align=True)
+        op=ab_row.operator('wavelength.entity_browser',text='Open Texture Asset Browser',icon='TEXTURE');op.section='TEXTURES'
+        ab_row.operator('wavelength.refresh_textures',text='',icon='FILE_REFRESH')
+        if s.engine!='blender':
+            l.label(text=f'Asset Browser: {pub}/{total} textures' + (' (loading…)' if loading else ' ready'),icon='ASSET_MANAGER')
         if profiles.is_source(s.engine):
             l.label(text='Source material path (without materials/ or .vmt)')
-            l.operator('wavelength.index_assets',text='Publish Materials to Asset Browser',icon='ASSET_MANAGER').category='MATERIAL'
             l.operator('wavelength.resolve_textures');l.operator('wavelength.preview_textures')
             for name in ('texture','shift_u','shift_v','texture_rotation','texture_scale_u','texture_scale_v'):l.prop(s,name)
             l.operator('wavelength.apply_texture');l.prop(s,'live_texture_reproject')
@@ -1170,7 +1305,6 @@ class WL_PT_texture(bpy.types.Panel):
             op=row.operator('wavelength.remove_wad',text='',icon='X');op.filepath=path
         if s.engine=='quake':
             l.prop(s,'palette_path');l.prop(s,'quake_pak_dir');l.operator('wavelength.quake_textures')
-        l.operator('wavelength.index_assets',text='Publish Materials to Asset Browser',icon='ASSET_MANAGER').category='MATERIAL'
         l.operator('wavelength.resolve_textures');l.operator('wavelength.preview_textures')
         l.prop(s,'live_texture_reproject')
         l.use_property_split=True
@@ -1180,6 +1314,7 @@ class WL_PT_texture(bpy.types.Panel):
         for action,label in [('RESET','Reset'),('ROT90','+90°'),('FLIP_U','Flip U'),('FLIP_V','Flip V')]:
             op=row.operator('wavelength.texture_nudge',text=label);op.action=action
         l.operator('wavelength.select_by_texture',text='Select Brushes Using Texture')
+
 
 
 class WL_OT_validate_alpha(SafeOperator,bpy.types.Operator):
@@ -1247,13 +1382,41 @@ class WL_OT_select_target(SafeOperator,bpy.types.Operator):
             if vals.get('targetname' if self.direction=='TARGET' else 'target')==key:obj.select_set(True)
 
 class WL_PT_diagnostics(bpy.types.Panel):
-    bl_label='Diagnostics';bl_idname='WL_PT_diagnostics';bl_space_type='VIEW_3D';bl_region_type='UI';bl_category='wavelength';bl_parent_id='WL_PT_main';bl_options={'DEFAULT_CLOSED'}
+    bl_label='Diagnostics & CLI Log';bl_idname='WL_PT_diagnostics';bl_space_type='VIEW_3D';bl_region_type='UI';bl_category='wavelength';bl_parent_id='WL_PT_main';bl_options={'DEFAULT_CLOSED'}
     def draw(self,context):
-        l=self.layout;row=l.row(align=True);row.operator('wavelength.validate_alpha',text='Map Problems',icon='CHECKMARK');row.operator('wavelength.repair_ids',text='Repair IDs');l.operator('wavelength.build_logs');l.operator('wavelength.show_leak')
-        for diagnostic in json.loads(context.scene.wavelength.diagnostics):
-            box=l.box();box.label(text=diagnostic['code'],icon='ERROR');box.label(text=diagnostic['message'][:65]);
+        from . import diagnostics
+        s=context.scene.wavelength
+        l=self.layout
+        err_cnt,warn_cnt,total_cnt=diagnostics.counts()
+        head=l.row(align=True)
+        head.label(text=f'CLI Log ({err_cnt} errors, {warn_cnt} warnings, {total_cnt} total)',icon='CONSOLE')
+        row = l.row(align=True)
+        row.operator('wavelength.view_log', icon='TEXT')
+        row.operator('wavelength.copy_log', icon='COPYDOWN')
+        row.operator('wavelength.clear_log', icon='TRASH')
+        row.operator('wavelength.export_log', icon='EXPORT')
+        l.prop(s,'log_filter',expand=True)
+        if diagnostics.last_error:
+            err_box=l.box();err_box.alert=True
+            err_box.label(text=diagnostics.last_error[:100], icon='ERROR')
+        if diagnostics.log_path:
+            l.label(text=str(diagnostics.log_path))
+        tail=diagnostics.recent(12, getattr(s,'log_filter','ALL'))
+        if tail:
+            log_box=l.box()
+            for entry in tail:
+                lvl=entry['level']
+                ic='ERROR' if lvl in {'ERROR','CRITICAL'} else ('WARNING_LARGE' if lvl=='WARNING' else 'INFO')
+                r=log_box.row(align=True)
+                if lvl in {'ERROR','CRITICAL'}:r.alert=True
+                r.label(text=f"{entry['time']} {entry['message'][:72]}",icon=ic)
+        row=l.row(align=True);row.operator('wavelength.validate_alpha',text='Map Problems',icon='CHECKMARK');row.operator('wavelength.repair_ids',text='Repair IDs')
+        row2=l.row(align=True);row2.operator('wavelength.build_logs');row2.operator('wavelength.show_leak')
+        for diagnostic in json.loads(s.diagnostics):
+            box=l.box();box.label(text=diagnostic['code'],icon='ERROR');box.label(text=diagnostic['message'][:65])
             if diagnostic.get('object'):
                 op=box.operator('wavelength.select_problem',text=diagnostic['object'],icon='RESTRICT_SELECT_OFF');op.object_name=diagnostic['object']
+
 
 def _entity_definitions(context, pairs):
     """Resolved entity properties: project FGD first, stock GoldSrc fallback second."""
@@ -1343,19 +1506,43 @@ class WL_OT_clip(SafeOperator,bpy.types.Operator):
 class WL_OT_duplicate(SafeOperator,bpy.types.Operator):
     bl_idname='wavelength.duplicate_assembly';bl_label='Duplicate Assembly';bl_options={'REGISTER','UNDO'}
     def run(self,context):
-        selected=[o for o in context.selected_objects if o.get('wl_role')]
+        step=profiles.active_grid_step_meters(context.scene.wavelength)
+        roots=[]
+        seen_roots=set()
+        for o in context.selected_objects:
+            r=primitive_ui.root_for(o)
+            if r and r.as_pointer() not in seen_roots and (r.select_get() or r.get('wl_assembly_locked',True)):
+                seen_roots.add(r.as_pointer());roots.append(r)
+        selected=[]
+        seen_objs=set()
+        for r in roots:
+            for part in primitive_ui.parts_for(r):
+                if part.get('wl_role') and part.as_pointer() not in seen_objs:
+                    seen_objs.add(part.as_pointer());selected.append(part)
+        for o in context.selected_objects:
+            if o.get('wl_role') and o.as_pointer() not in seen_objs:
+                seen_objs.add(o.as_pointer());selected.append(o)
         suffix='_'+uuid.uuid4().hex[:8];mapping={};groups={}
         for obj in selected:
             for key,value in json.loads(obj.get('wl_pairs',obj.get('wl_entity_pairs','[]'))):
                 if key=='targetname':mapping[value]=value+suffix
+        root_copies={}
+        for r in roots:
+            rc=r.copy();rc.location.x+=step;context.collection.objects.link(rc)
+            root_copies[r]=rc
         for obj in selected:
             copy=obj.copy();copy['wl_id']=scene.uid()
             if obj.type=='MESH':copy.data=obj.data.copy()
-            copy.location.x+=profiles.active_grid_step_meters(context.scene.wavelength)
+            if obj.parent in root_copies:
+                copy.parent=root_copies[obj.parent]
+            else:
+                copy.location.x+=step
             if obj.get('wl_entity_id'):copy['wl_entity_id']=groups.setdefault(obj['wl_entity_id'],scene.uid())
             for field in ('wl_pairs','wl_entity_pairs'):
                 if obj.get(field):copy[field]=json.dumps([(k,mapping.get(v,v) if k in {'target','targetname','killtarget'} else v) for k,v in json.loads(obj[field])])
             context.collection.objects.link(copy)
+        for rc in root_copies.values():
+            primitive_ui.apply_assembly_lock(rc)
 
 class WL_OT_bake(SafeOperator,bpy.types.Operator):
     bl_idname='wavelength.bake_static';bl_label='Bake Current Poses to Copies';bl_options={'REGISTER','UNDO'}
@@ -1598,7 +1785,7 @@ class WL_OT_source_output(SafeOperator,bpy.types.Operator):
     def invoke(self,context,event):
         if self.remove:return self.execute(context)
         from .vmf import OUTPUT
-        obj=context.object;key='wl_entity_pairs' if obj and obj.get('wl_entity_id') else 'wl_pairs'
+        obj=_resolve_brush_object(context.object);key='wl_entity_pairs' if obj and obj.get('wl_entity_id') else 'wl_pairs'
         pairs=json.loads(obj.get(key,'[]')) if obj else []
         if self.index>=0:
             name,value=pairs[self.index];parts=value.split('\x1b' if '\x1b' in value else ',')
@@ -1609,7 +1796,7 @@ class WL_OT_source_output(SafeOperator,bpy.types.Operator):
         for field in ('event','target','input_name','parameter','delay','once'):self.layout.prop(self,field)
     def run(self,context):
         from .vmf import OUTPUT
-        obj=context.object
+        obj=_resolve_brush_object(context.object)
         if not obj or not (obj.get('wl_role')=='ENTITY' or obj.get('wl_entity_id')):raise ValueError('Select a point or brush entity')
         key='wl_entity_pairs' if obj.get('wl_entity_id') else 'wl_pairs';pairs=json.loads(obj.get(key,'[]'))
         if self.index>=len(pairs):raise ValueError('Output changed; reopen the editor')
@@ -1632,7 +1819,7 @@ class WL_PT_source_outputs(bpy.types.Panel):
     def poll(cls,context):return profiles.is_source(context.scene.wavelength.engine)
     def draw(self,context):
         from .vmf import OUTPUT
-        l=self.layout;obj=context.object
+        l=self.layout;obj=_resolve_brush_object(context.object)
         if not obj or not (obj.get('wl_role')=='ENTITY' or obj.get('wl_entity_id')):l.label(text='Select an entity');return
         pairs=json.loads(obj.get('wl_entity_pairs' if obj.get('wl_entity_id') else 'wl_pairs','[]'))
         for i,(key,value) in enumerate(pairs):
@@ -1642,7 +1829,7 @@ class WL_PT_source_outputs(bpy.types.Panel):
         l.operator('wavelength.source_output',text='Add Output',icon='ADD')
 
 
-_CLASSES=[WL_OT_source_material,WL_OT_source_output,brush_create.WL_OT_brush_hover,brush_create.WL_OT_cube_brush,brush_create.WL_OT_cylinder_brush,brush_create.WL_OT_cone_brush,brush_create.WL_OT_sphere_brush,brush_create.WL_OT_arch_brush,WLTextureBrowserItem,WLTextureGalleryRow,WL_UL_texture_browser,WL_UL_texture_gallery,WL_OT_texture_browser_pick,WL_OT_texture_browser,WL_OT_add_wad,WL_OT_select_wad,WL_OT_remove_wad,WL_OT_refresh_textures,WL_OT_texture_page,WL_OT_quake_textures,WL_OT_resolve_textures,WL_OT_preview_textures,WLKey,WLSettings,WL_OT_property_add,WL_OT_property_custom_add,WL_OT_property_remove,WL_OT_clip,WL_OT_duplicate,WL_OT_bake,WL_OT_save_project,WL_OT_load_project,WL_OT_setup,WL_OT_brush,WL_OT_hollow,WL_OT_mark,WL_OT_ids,WL_OT_snap,WL_OT_grid_step,WL_OT_entity,WL_OT_entity_search,WL_OT_entity_browse,WL_MT_add_entity,WL_MT_add,WL_OT_brush_entity,WL_OT_brush_entity_add,WL_OT_brush_entity_remove,WL_OT_brush_entity_to_world,WL_OT_properties,WL_OT_read_face_texture,WL_OT_texture,WL_OT_validate_alpha,WL_OT_select_problem,WL_OT_worldspawn,WL_OT_texture_nudge,WL_OT_select_by_texture,WL_OT_select_target,WL_OT_import,WL_OT_export,WL_OT_validate,WL_OT_build,WL_OT_cancel,WL_OT_logs,WL_OT_launch,WL_OT_leak,WL_OT_system_select,WL_OT_system_select_category,WL_OT_system_visibility,WL_OT_system_category_visibility,WL_PT_main,WL_PT_source_outputs,WL_PT_system_tree,WL_PT_project,WL_PT_worldspawn,WL_PT_relationships,WL_PT_entity,WL_PT_texture,WL_PT_diagnostics]
+_CLASSES=[WL_OT_source_material,WL_OT_source_output,brush_create.WL_OT_brush_hover,brush_create.WL_OT_cube_brush,brush_create.WL_OT_cylinder_brush,brush_create.WL_OT_cone_brush,brush_create.WL_OT_sphere_brush,brush_create.WL_OT_arch_brush,brush_create.WL_OT_stairs_brush,WLTextureBrowserItem,WLTextureGalleryRow,WL_UL_texture_browser,WL_UL_texture_gallery,WL_OT_texture_browser_pick,WL_OT_texture_browser,WL_OT_add_wad,WL_OT_select_wad,WL_OT_remove_wad,WL_OT_refresh_textures,WL_OT_texture_page,WL_OT_quake_textures,WL_OT_resolve_textures,WL_OT_preview_textures,WLKey,WLSettings,WL_OT_property_add,WL_OT_property_custom_add,WL_OT_property_remove,WL_OT_clip,WL_OT_duplicate,WL_OT_bake,WL_OT_save_project,WL_OT_load_project,WL_OT_setup,WL_OT_brush,WL_OT_hollow,WL_OT_mark,WL_OT_ids,WL_OT_snap,WL_OT_grid_step,WL_OT_entity,WL_OT_entity_search,WL_OT_entity_browse,WL_MT_add_entity,WL_MT_add,WL_OT_brush_entity,WL_OT_brush_entity_add,WL_OT_brush_entity_remove,WL_OT_brush_entity_to_world,WL_OT_properties,WL_OT_read_face_texture,WL_OT_texture,WL_OT_validate_alpha,WL_OT_select_problem,WL_OT_worldspawn,WL_OT_texture_nudge,WL_OT_select_by_texture,WL_OT_select_target,WL_OT_import,WL_OT_export,WL_OT_validate,WL_OT_build,WL_OT_cancel,WL_OT_logs,WL_OT_launch,WL_OT_leak,WL_OT_system_select,WL_OT_system_select_category,WL_OT_system_visibility,WL_OT_system_category_visibility,WL_PT_main,WL_PT_source_outputs,WL_PT_system_tree,WL_PT_project,WL_PT_worldspawn,WL_PT_relationships,WL_PT_entity,WL_PT_texture,WL_PT_diagnostics]
 
 def _safe_unregister_class(cls):
     # A failed/reloaded add-on can leave the *old module instance* of an RNA class

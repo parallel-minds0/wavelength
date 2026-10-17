@@ -6,7 +6,7 @@ This is not an engine profile or a complete MAP importer.
 from itertools import combinations
 import math
 
-TOLERANCE = 1e-5
+TOLERANCE = 1e-3
 
 
 class BrushError(ValueError):
@@ -32,14 +32,20 @@ def length(v):
 
 
 def face_plane(vertices, face):
-    """Return a non-collinear triplet and normalized plane."""
+    """Return the best-conditioned non-collinear triplet and normalized plane."""
+    best = None
+    best_size = 0.0
     for ids in combinations(face, 3):
         a, b, c = [vertices[i] for i in ids]
         normal = cross(sub(b, a), sub(c, a))
         size = length(normal)
-        if size > TOLERANCE * TOLERANCE:
-            normal = tuple(x / size for x in normal)
-            return ids, normal, dot(normal, a)
+        if size > best_size:
+            best_size = size
+            best = (ids, normal, a)
+    if best is not None and best_size > 1e-10:
+        ids, normal, a = best
+        normal = tuple(x / best_size for x in normal)
+        return ids, normal, dot(normal, a)
     raise BrushError("DEGENERATE_FACE", "Face has no non-collinear triplet")
 
 

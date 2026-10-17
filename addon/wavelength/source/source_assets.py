@@ -196,7 +196,7 @@ def library(game):
     if key not in _cache:_cache[key]=Assets(key)
     return _cache[key]
 
-def material(settings,name):
+def material(settings,name,target_mat=None):
     import bpy
     assets=library(bpy.path.abspath(settings.game_dir));name=asset_path(name)
     if name.startswith('materials/'):name=name[10:]
@@ -207,16 +207,23 @@ def material(settings,name):
     if not base.startswith('materials/'):base='materials/'+base
     if not base.endswith('.vtf'):base+='.vtf'
     data=assets.read(base);key='wl_source_'+hashlib.sha256((str(assets.game)+name).encode()+data).hexdigest()[:20]
-    existing=bpy.data.materials.get(key)
-    if existing:return existing
+    existing=target_mat or bpy.data.materials.get(key) or next((m for m in bpy.data.materials if m.get('wl_asset_profile')==settings.engine and str(m.get('wl_texture','')).casefold()==name.casefold()),None)
+    if existing and existing.get('wl_realized') and existing.use_nodes and any(n.type=='TEX_IMAGE' and n.image for n in existing.node_tree.nodes):
+        return existing
     width,height,w,h,rgba=decode_vtf(data)
-    image=bpy.data.images.new(key,width=w,height=h,alpha=True)
-    image.pixels.foreach_set(array('f',(x/255 for x in rgba)));image.update();image.pack()
-    mat=bpy.data.materials.new(key);mat.use_nodes=True
+    image=bpy.data.images.get(key)
+    if image is None:
+        image=bpy.data.images.new(key,width=w,height=h,alpha=True)
+        image.pixels.foreach_set(array('f',(x/255 for x in rgba)));image.update();image.pack()
+    mat=existing or bpy.data.materials.new(key);mat.use_nodes=True
     mat['wl_texture']=name;mat['wl_width']=width;mat['wl_height']=height
+    mat['wl_asset_profile']=settings.engine;mat['wl_realized']=True
     mat['wl_asset_origin']='User-installed Source game; private preview'
-    nodes=mat.node_tree.nodes;shader=nodes.get('Principled BSDF');tex=nodes.new('ShaderNodeTexImage');tex.image=image
-    uv=nodes.new('ShaderNodeUVMap');uv.uv_map='wavelength';mat.node_tree.links.new(uv.outputs['UV'],tex.inputs['Vector'])
+    nodes=mat.node_tree.nodes;shader=nodes.get('Principled BSDF') or next((n for n in nodes if n.type=='BSDF_PRINCIPLED'),None) or nodes.new('ShaderNodeBsdfPrincipled')
+    tex=next((n for n in nodes if n.type=='TEX_IMAGE'),None) or nodes.new('ShaderNodeTexImage');tex.image=image
+    uv=next((n for n in nodes if n.type=='UVMAP'),None) or nodes.new('ShaderNodeUVMap');uv.uv_map='wavelength'
+    mat.node_tree.links.new(uv.outputs['UV'],tex.inputs['Vector'])
     mat.node_tree.links.new(tex.outputs['Color'],shader.inputs['Base Color']);shader.inputs['Roughness'].default_value=1
     if props.get('$translucent')=='1' or props.get('$alphatest')=='1':mat.node_tree.links.new(tex.outputs['Alpha'],shader.inputs['Alpha'])
     return mat
+

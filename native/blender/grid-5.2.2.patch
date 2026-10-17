@@ -141,14 +141,14 @@ index 57dec2e2..7ea3c6a3 100644
 +  float minor = parent / grid_buf.wavelength.z;
 +  float selected = wavelength_coverage(p, footprint, parent) * smoothstep(2.0f, 6.0f, parent / pixel_world);
 +  float grey = wavelength_coverage(p, footprint, minor) * smoothstep(2.0f, 6.0f, minor / pixel_world);
-+  float alpha = max(selected * 0.65f, grey * 0.28f);
++  float alpha = max(selected * 0.40f, grey * 0.28f);
 +  float2 axes = axis == 2 ? float2(flag_test(grid_flag, AXIS_Y),flag_test(grid_flag, AXIS_X)) :
 +                (axis == 1 ? float2(flag_test(grid_flag, AXIS_Z),flag_test(grid_flag, AXIS_X)) :
 +                             float2(flag_test(grid_flag, AXIS_Z),flag_test(grid_flag, AXIS_Y)));
 +  float2 axis_coverage = 1.0f - smoothstep(float2(0.25f),float2(1.25f),abs(p)/footprint);
 +  alpha *= 1.0f - max(axis_coverage.x*axes.x,axis_coverage.y*axes.y);
 +  if (alpha < 0.005f) { gpu_discard_fragment(); return; }
-+  out_color = float4(mix(float3(0.43f),float3(1.0f,0.85f,0.10f),selected),alpha);
++  out_color = float4(mix(float3(0.43f),float3(0.7f,0.58f,0.12f),selected),alpha);
 +  line_output = float4(0.0f);
 +  float4 clip = drw_view().winmat * (drw_view().viewmat * float4(world,1.0f));
 +  /* Match Blender's native aligned-view grid ordering. Perspective uses actual
