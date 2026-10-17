@@ -1,16 +1,16 @@
-# Wavelength — 0.15.0-pre.alpha
+# Wavelength — 0.16.1-pre.alpha
 
 Blender brush-map authoring for Quake, Half-Life/GoldSrc, and Half-Life 2/Source 1.
 
 ## Install the native patch
 
-Download and extract the installer for your platform from the [release](https://github.com/parallel-minds0/wavelength/releases/tag/v0.15.0-pre.alpha), close Blender, then run:
+Download and extract the Linux installer from the [release](https://github.com/parallel-minds0/wavelength/releases/tag/v0.16.1-pre.alpha), close Blender, then run:
 
 ```sh
 ./wavelength-installer install --force --blender /path/to/blender --yes
 ```
 
-Windows PowerShell (experimental, installation and rendering not tested):
+Windows preview (known startup failure; retained for development):
 
 ```powershell
 .\wavelength-installer.cmd install --force --blender "C:\path\to\blender.exe" --yes
@@ -38,8 +38,9 @@ fetches checksum-pinned runtime/patch files when needed.
 
 **Compatibility:** exact Linux and Windows x86_64 Blender 5.2.2 binaries are listed
 in `patches/native/manifest.json`. Linux installation and rendering were tested.
-The Windows patch is compiled and packaged for manual verification; Windows
-installation, injection, and rendering are untested.
+The Windows patch has a reported startup failure: missing
+`cycles_kernel_oneapi_jit.dll`. This release does not fix it or provide a new
+Windows installer. Windows rendering remains unverified.
 `--force` does not bypass binary compatibility checks and cannot turn an arbitrary
 Blender executable into a supported target. Keep the installer state and original-executable backup for removal or rollback.
 

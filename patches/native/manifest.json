@@ -9,7 +9,7 @@
       "patch_sha256": "76779a3d06f3b090cb55dc4df5e05455a01449f65e4d106b32f22f10c5fe924f",
       "file": "linux-x86_64-51dd3d8f494b1a47.bsdiff",
       "native_grid_abi": 1,
-      "url": "https://github.com/parallel-minds0/wavelength/releases/download/v0.14.0-pre.alpha/linux-x86_64-51dd3d8f494b1a47.bsdiff",
+      "url": "https://github.com/parallel-minds0/wavelength/releases/download/v0.16.1-pre.alpha/linux-x86_64-51dd3d8f494b1a47.bsdiff",
       "blender_version": "5.2.2",
       "experimental": true
     },

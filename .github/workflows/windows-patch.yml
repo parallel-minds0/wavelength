@@ -1,10 +1,6 @@
 name: Build Windows native patch
 on:
   workflow_dispatch:
-  push:
-    paths:
-      - '.github/workflows/windows-patch.yml'
-      - 'tools/prepare_windows_delta.py'
 permissions:
   contents: read
 jobs:

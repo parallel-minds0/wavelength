@@ -1,8 +1,9 @@
 # Current Linux and Windows preview
 
-For v0.15.0, follow [the release instructions](RELEASE-NOTES.md) and
+For v0.16.1, follow [the release instructions](RELEASE-NOTES.md) and
 [Windows manual verification guide](WINDOWS-INSTALL.md). Both packages include
-Python and a native patch. Windows installation and rendering are untested.
+Python and a native patch. The older Windows preview has a reported missing
+`cycles_kernel_oneapi_jit.dll` startup failure; this release ships a Linux installer only.
 Native support remains required with `--force`; checksum or startup failure leaves
 the existing installation unchanged. Earlier Python-only behavior below is historical.
 

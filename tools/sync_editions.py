@@ -7,7 +7,7 @@ import argparse,hashlib,json,shutil,subprocess
 from pathlib import Path
 ROOT=Path(__file__).resolve().parents[1]
 SHARED=('addon','installer','native','patches','tools','tests','docs','documentation','third-party','.github')
-FILES=('LICENSE','README.md','.gitignore','wavelength-installer')
+FILES=('LICENSE','README.md','.gitignore','wavelength-installer','wavelength-installer.cmd')
 def digest(path):return hashlib.sha256(path.read_bytes()).hexdigest()
 def source_files(root):
     for item in (*SHARED,*FILES):

@@ -1,4 +1,22 @@
-# v0.15.0-pre.alpha — Windows native-grid patch preview
+# v0.16.1-pre.alpha — current authoring tools and Blender diagnostics
+
+- Incorporates v0.16.0 authoring updates: brush creation, editable primitives,
+  asset and entity browsing, texture handling, and transform synchronization.
+- Blender Diagnostics includes persistent rotating logs and View, Copy, Clear,
+  and Export controls with error references and tracebacks.
+- Updates the Linux native grid's parent-line color and opacity from v0.16.0.
+- Corrects the Linux patch download URL to match its updated checksum.
+- Synchronizes shared source and the Windows launcher into the private Pro tree.
+
+Linux x86_64 installer and add-on/source downloads are supplied. This release
+does not rebuild Blender. The Windows v0.15 preview has a reported missing
+`cycles_kernel_oneapi_jit.dll` failure during startup verification and remains
+blocked; no new Windows installer is supplied. The Windows installer executable
+fingerprint also differs from the supported ZIP fingerprint. Do not bypass checks.
+
+Earlier validation claims below describe their respective historical releases.
+
+# v0.15.0-pre.alpha — Windows native-grid patch preview (historical)
 
 The Windows package now includes a native Blender grid binary patch, not just the
 standalone grid-math helper. It bundles Windows Python and installs through

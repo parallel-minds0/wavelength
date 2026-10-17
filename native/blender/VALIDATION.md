@@ -1,3 +1,10 @@
+# v0.16.1 release status
+
+The Linux shader payload changed in v0.16.0 (parent-line color/opacity); its current
+fingerprints are in the patch manifest. Earlier v0.14 viewport validation is historical.
+Windows manual testing reported a missing `cycles_kernel_oneapi_jit.dll` during
+startup verification. The v0.15 Windows build is not a working verified installation.
+
 # v0.15.0 Windows patch validation
 
 - Windows x64 MSVC compilation and exact binary-patch reconstruction passed in
