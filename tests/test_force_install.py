@@ -1,5 +1,6 @@
 from contextlib import contextmanager
 import io
+import os
 import json
 from pathlib import Path
 import sys
@@ -124,9 +125,10 @@ class ForceTests(unittest.TestCase):
         self.install();self.assertEqual(discover(state=self.state),(self.blender,self.addons))
     def test_discovery_version_folder(self):
         (self.root/'5.2').mkdir()
-        with patch('pathlib.Path.home',return_value=self.root),patch.dict('os.environ',{'XDG_CONFIG_HOME':str(self.root/'config')}):
+        with patch('pathlib.Path.home',return_value=self.root),patch.dict('os.environ',{'XDG_CONFIG_HOME':str(self.root/'config'), 'APPDATA':str(self.root/'roaming')}):
             binary,addons=discover(self.blender)
-        self.assertEqual(addons,self.root/'config/blender/5.2/scripts/addons')
+        expected = self.root/('roaming/Blender Foundation/Blender/5.2/scripts/addons' if os.name == 'nt' else 'config/blender/5.2/scripts/addons')
+        self.assertEqual(addons,expected)
     def cli(self,*args):
         output=io.StringIO()
         with patch.object(sys,'argv',['installer','--bundle',str(self.bundle),'--state',str(self.state),*args]),patch('sys.stdout',output):app.main()

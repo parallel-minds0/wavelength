@@ -97,7 +97,7 @@ class Assets:
         names=set()
         for mount in self.mounts:
             if isinstance(mount,VPK):items=mount.entries
-            else:items=(str(p.relative_to(mount)) for p in (mount/'materials').rglob('*.vmt'))
+            else:items=(p.relative_to(mount).as_posix() for p in (mount/'materials').rglob('*.vmt'))
             names.update(name[10:-4] for name in items if name.startswith('materials/') and name.endswith('.vmt') and search.lower() in name)
         return sorted(names)
     def material(self,name,seen=()):

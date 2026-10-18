@@ -1,0 +1,30 @@
+{
+  "schema": 1,
+  "native_grid_abi": 1,
+  "blender_version": "5.2.3 candidate",
+  "source_commit": "32ede9dba158a4816a41cd0f7c018dda1ce8f67f",
+  "windows_dependencies_commit": "60d6e96b917568278d400a4024c98da0fb777338",
+  "original_sha256": "19e60200c51e981aa48a515ffc22c46d9192ea0538e249b2891394a425bd855b",
+  "source_patch": "grid-5.2.3-candidate-msvc.patch",
+  "source_patch_sha256": "87c4ce7c9f543f44de9b074dfd8480609c30b97092fc2a92447d3c188b85df40",
+  "compiler": "MSVC 14.51.36231",
+  "build_configuration": "Release, Ninja, native Windows x64",
+  "unit_tests": 145,
+  "status": "installed; native RNA and OpenGL viewport verified",
+  "viewport_checks": {
+    "passed": true,
+    "backend": "OPENGL",
+    "renderer": "AMD Radeon(TM) Graphics",
+    "checks": [
+      "yellow parent",
+      "grey profile subdivisions",
+      "orthographic solid depth",
+      "perspective solid depth",
+      "workspace restoration"
+    ]
+  },
+  "installation_verified": true,
+  "uninstall_exact_original_verified": true,
+  "oneapi_aot_sha256": "49e1bfa5cb7a63fe72442f718bbacb77ce4cfe0ce802e9d82f19d76d194c89e6",
+  "release_unit_tests": 147
+}

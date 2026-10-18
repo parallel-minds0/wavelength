@@ -1,45 +1,19 @@
-# Windows native-grid patch: manual verification preview
+# v0.16.2-pre.alpha — tested Windows native-grid installer
 
-This preview targets the **official Blender 5.2.2 Windows x64 ZIP executable**.
-The installer accepts only the exact original SHA-256 listed in
-`patches/native/manifest.json`; other builds need a matching patch.
+Builds and installs Wavelength's native grid for the exact Blender 5.2.3 LTS Release Candidate Windows x64 build `32ede9dba158` (original executable SHA-256 `19e60200c51e981aa48a515ffc22c46d9192ea0538e249b2891394a425bd855b`). Other Blender executables require their own matching patch.
 
-Windows installation, rendering, and injection have **not** been tested by the
-maintainer. Compilation and patch reconstruction are checked. This preview is
-published for manual verification; please report the installer output and any
-Blender startup or grid problems.
+- Compiles the native Blender renderer with MSVC and reuses the candidate's existing oneAPI AOT kernel DLL, fixing the earlier missing JIT DLL startup failure.
+- Fixes Windows installer file flushing and loose Source material path enumeration.
+- Includes the Python add-on, editable source, native binary patch, and pinned private Python runtime. No separate Blender runtime is distributed.
+- Verified native RNA startup, real OpenGL grid rendering on AMD Radeon(TM) Graphics, yellow parent lines, grey subdivisions, orthographic/perspective occlusion, workspace restoration, installed add-on loading, and brush creation.
+- Verified a real install/uninstall/reinstall cycle; uninstall restored the original executable byte-for-byte. Original backups and receipts are retained by the installer.
 
-## Install
-
-1. Close Blender.
-2. Extract the Windows x86_64 installer ZIP into a writable folder.
-3. Open PowerShell in the extracted folder and run:
+Close Blender, extract the Windows installer ZIP, and run:
 
 ```powershell
-.\wavelength-installer.cmd install --force --blender "C:\path\to\blender.exe" --yes
+.\wavelength-installer.cmd install --force --require-native --blender "C:\path\to\blender.exe" --yes
 ```
 
-For Blender in `C:\Program Files`, use an Administrator terminal, or use the
-portable Blender ZIP in a writable folder. The installer uses its bundled Windows
-Python runtime; system Python, a compiler, Wine, and Proton are not required.
+To keep the add-on inside that Blender folder, additionally pass `--addons "C:\path\to\5.2\scripts\addons_core"`. Otherwise the installer uses Blender's normal user add-on directory. Enable Wavelength in Preferences and enter its workspace.
 
-The installer stages the patched executable beside the selected Blender and checks
-its native API before installation. A failed check leaves the original installation
-intact. `--force` does not bypass checksum matching or the startup check.
-
-Reopen **the same Blender executable**, enable Wavelength in Preferences â†’ Add-ons,
-and enter its workspace. Check yellow parent grid lines, grey subdivisions, `[` and
-`]`, geometry occlusion, and restoration of Blender's regular grid on workspace exit.
-
-## Status, repair, and removal
-
-```powershell
-.\wavelength-installer.cmd status
-.\wavelength-installer.cmd repair --force --yes
-.\wavelength-installer.cmd uninstall --yes
-```
-
-The installer retains the original executable and previous add-on for removal and
-rollback. Keep its state directory in `%LOCALAPPDATA%\wavelength\install`. Close
-Blender before repair or uninstall. External updates are protected rather than
-silently overwritten.
+The previous Windows 5.2.2 preview remains available in historical releases; this release does not certify or repair that build. Linux retains its existing source and compatibility entry; no newly tested Linux installer or Vulkan certification is claimed here.

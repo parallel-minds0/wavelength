@@ -1,5 +1,6 @@
 """Tests the compiled ABI without requiring Blender."""
 import math
+import os
 import sys
 import tempfile
 import unittest
@@ -19,6 +20,12 @@ class NativeBridgeTests(unittest.TestCase):
 
     @classmethod
     def tearDownClass(cls):
+        if os.name == "nt":
+            # Windows keeps loaded DLLs locked until explicitly unloaded.
+            import _ctypes
+            handle = cls.grid._library._handle
+            del cls.grid
+            _ctypes.FreeLibrary(handle)
         cls.temp.cleanup()
 
     def test_engine_units(self):

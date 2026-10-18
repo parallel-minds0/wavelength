@@ -20,6 +20,7 @@ wavelength.register()
 original = bpy.context.workspace
 stage = 0
 view = region = None
+target_workspace = None
 samples = {}
 
 
@@ -46,11 +47,17 @@ def screen_point(world):
 
 
 def tick():
-    global stage, view, region
+    global stage, view, region, target_workspace
     try:
+        print("VIEWPORT STATE", stage, bpy.context.window.workspace.name, flush=True)
         if stage == 0:
-            bpy.context.window.workspace = workspace.ensure(bpy.context)
+            target_workspace = workspace.ensure(bpy.context)
+            bpy.context.window.workspace = target_workspace
         elif stage == 1:
+            if bpy.context.window.workspace != target_workspace:
+                bpy.context.window.workspace = target_workspace
+                return 2
+            assert workspace.active(), 'Wavelength workspace is not active'
             view = next(a for a in bpy.context.screen.areas if a.type == 'VIEW_3D')
             region = next(r for r in view.regions if r.type == 'WINDOW')
             assert grid.native_available(view.spaces.active), 'Native RNA API missing'
@@ -69,6 +76,8 @@ def tick():
             view.spaces.active.region_3d.view_distance = 5
             view.spaces.active.shading.type = 'SOLID'
         elif stage == 2:
+            assert workspace.active(), 'Workspace changed before screenshot'
+            print('GRID STATE', view.spaces.active.overlay.wavelength_grid_enabled, view.spaces.active.overlay.wavelength_grid_spacing, flush=True)
             path = screenshot('native-top')
             image = bpy.data.images.load(str(path), check_existing=False)
             parent = pixel_near(image, screen_point((-1, -.47, 0)))

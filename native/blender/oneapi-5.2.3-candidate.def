@@ -1,0 +1,8 @@
+LIBRARY cycles_kernel_oneapi_aot.dll
+EXPORTS
+oneapi_enqueue_kernel
+oneapi_load_kernels
+oneapi_run_test_kernel
+oneapi_set_error_cb
+oneapi_suggested_gpu_kernel_size
+oneapi_zero_memory_on_device

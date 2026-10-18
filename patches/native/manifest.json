@@ -15,17 +15,18 @@
     },
     {
       "platform": "windows-x86_64",
-      "input_sha256": "c9f9c33e538dd3e195ccb8dcc5986721f49df795e91288d4f6e82295a028e1c1",
-      "output_sha256": "483586a61bef8184f7786396efa77dac4383c847644b7e93063658b9b9ae5dcd",
-      "output_size": 97557504,
-      "patch_sha256": "fd0bfea636969983438c7cc158be30de6121276d8469fe0a3c94256a80bdedca",
-      "file": "windows-x86_64-c9f9c33e538dd3e1.bsdiff",
+      "input_sha256": "19e60200c51e981aa48a515ffc22c46d9192ea0538e249b2891394a425bd855b",
+      "output_sha256": "87e0321a94f707e13c6c7b76954be4427664bb0aeabd2bf1682a0c904c1c1a04",
+      "output_size": 97543680,
+      "patch_sha256": "57541c0c18734ec39f8397133f0da6d1540beb8fd5f36514626d8418224ec3a0",
+      "file": "windows-x86_64-19e60200c51e981a.bsdiff",
       "native_grid_abi": 1,
-      "url": "https://github.com/parallel-minds0/wavelength/releases/download/v0.15.0-pre.alpha/windows-x86_64-c9f9c33e538dd3e1.bsdiff",
-      "blender_version": "5.2.2",
-      "experimental": true,
-      "windows_installation_tested": false,
-      "build_run": "https://github.com/parallel-minds0/wavelength/actions/runs/38279076226"
+      "blender_version": "5.2.3-candidate+32ede9dba158",
+      "source_commit": "32ede9dba158a4816a41cd0f7c018dda1ce8f67f",
+      "windows_installation_tested": true,
+      "opengl_viewport_tested": true,
+      "url": "https://github.com/parallel-minds0/wavelength/releases/download/v0.16.2-pre.alpha/windows-x86_64-19e60200c51e981a.bsdiff",
+      "experimental": true
     }
   ]
 }

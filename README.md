@@ -1,54 +1,23 @@
-# Wavelength — 0.16.1-pre.alpha
+# Wavelength � 0.16.2-pre.alpha
 
 Blender brush-map authoring for Quake, Half-Life/GoldSrc, and Half-Life 2/Source 1.
 
-## Install the native patch
+The [Windows release](https://github.com/parallel-minds0/wavelength/releases/tag/v0.16.2-pre.alpha) includes a tested native-grid installer for the exact Blender 5.2.3 LTS Release Candidate Windows x64 build `32ede9dba158`. See [installation and validation](docs/WINDOWS-INSTALL.md).
 
-Download and extract the Linux installer from the [release](https://github.com/parallel-minds0/wavelength/releases/tag/v0.16.1-pre.alpha), close Blender, then run:
-
-```sh
-./wavelength-installer install --force --blender /path/to/blender --yes
-```
-
-Windows preview (known startup failure; retained for development):
+Close Blender, extract the installer, then run:
 
 ```powershell
-.\wavelength-installer.cmd install --force --blender "C:\path\to\blender.exe" --yes
+.\wavelength-installer.cmd install --force --require-native --blender "C:\path\to\blender.exe" --yes
 ```
 
-Windows targets the official Blender 5.2.2 x64 ZIP executable. See the
-[manual verification guide](docs/WINDOWS-INSTALL.md). Both installers bundle the
-appropriate Python runtime and apply a patch to the selected existing executable.
+Enable Wavelength in Preferences and enter its workspace. The installer backs up the original executable and previous add-on; uninstall restores them. It bundles Python, source, and a checksum-bound native patch, not a separate Blender runtime.
 
-Run your existing Blender normally, enable Wavelength in Preferences → Add-ons,
-and enter its workspace. The native grid uses yellow parent lines and grey profile
-subdivisions. `[` / `]` change spacing; leaving the workspace restores Blender's grid.
-
-The installer includes the source tree, private Python runtime, and native binary
-patch. It backs up the selected executable and add-on, validates the patched
-executable before installing, and restores originals on uninstall. It does not ship
-a separate Blender runtime. A source-only checkout uses the same launcher and
-fetches checksum-pinned runtime/patch files when needed.
-
-```sh
-./wavelength-installer status
-./wavelength-installer repair --force --yes
-./wavelength-installer uninstall --yes
+```powershell
+.\wavelength-installer.cmd status
+.\wavelength-installer.cmd repair --force --yes
+.\wavelength-installer.cmd uninstall --yes
 ```
 
-**Compatibility:** exact Linux and Windows x86_64 Blender 5.2.2 binaries are listed
-in `patches/native/manifest.json`. Linux installation and rendering were tested.
-The Windows patch has a reported startup failure: missing
-`cycles_kernel_oneapi_jit.dll`. This release does not fix it or provide a new
-Windows installer. Windows rendering remains unverified.
-`--force` does not bypass binary compatibility checks and cannot turn an arbitrary
-Blender executable into a supported target. Keep the installer state and original-executable backup for removal or rollback.
+Only exact executable fingerprints listed in `patches/native/manifest.json` qualify. `--force` does not bypass compatibility checks. The previous Windows 5.2.2 preview has a known startup failure and remains historical. Linux users can use the [v0.16.1 installer](https://github.com/parallel-minds0/wavelength/releases/tag/v0.16.1-pre.alpha).
 
-See [release notes](docs/RELEASE-NOTES.md), [installer details](docs/INSTALLER.md),
-[native patch source](native/blender/README.md), and [Source 1 support](docs/SOURCE1.md).
-
-## Development
-
-`python3 tools/release.py` validates source, runs tests, builds the standalone C ABI
-helper, and packages the add-on. `python3 tools/build_installer.py` creates the Linux
-installer. Custom Blender reference builds remain internal development artifacts.
+See [release notes](docs/RELEASE-NOTES.md), [installer details](docs/INSTALLER.md), and [Source 1 support](docs/SOURCE1.md).

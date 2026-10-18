@@ -61,7 +61,7 @@ def replace_file(source,target):
     os.close(fd);temporary=Path(name)
     try:
         shutil.copy2(source,temporary)
-        with temporary.open('rb') as stream:os.fsync(stream.fileno())
+        with temporary.open('r+b') as stream:os.fsync(stream.fileno())
         os.replace(temporary,target)
     finally:temporary.unlink(missing_ok=True)
 
