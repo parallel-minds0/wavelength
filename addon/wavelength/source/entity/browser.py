@@ -119,6 +119,9 @@ def _finalize_drop(scene, obj):
     if profiles.is_goldsrc(s.engine):
         try: entity_models.attach_reference(obj, json.loads(obj['wl_pairs']))
         except Exception: pass
+    if classname=='light_environment':
+        from .. import sun
+        sun.ensure(obj,new=True)
     s.status=f'Placed {classname} from Entity Browser'
     return True
 
@@ -130,7 +133,8 @@ def _depsgraph(scene, depsgraph):
         return
     _BUSY=True
     try:
-        for obj in list(scene.objects):
+        objects=(u.id.original for u in depsgraph.updates if isinstance(u.id,bpy.types.Object))
+        for obj in objects:
             if obj.get(_TEMPLATE_KEY) and not _is_template_source(obj):
                 _finalize_drop(scene,obj)
     finally:
@@ -139,6 +143,8 @@ def _depsgraph(scene, depsgraph):
 
 _LAYOUT_MARKER = 'wl_asset_browser_layout_v2'
 _CATALOG_ID = '7d3c0fd7-53ef-4b20-9c3b-b6e2f8a7a119'
+_BROWSER_SECTIONS={}
+_PENDING_BROWSER_CONFIG=set()
 _OTHER_ID_FILTERS = (
     'filter_action',
     'filter_annotations',
@@ -178,35 +184,44 @@ def _configure_asset_area(area, section=None):
         if scn and hasattr(scn,'wavelength'):
             section=getattr(scn.wavelength,'asset_browser_section','TEXTURES')
         else:
-            section=area.get('wl_asset_section','TEXTURES')
+            section='TEXTURES'
     area.type='FILE_BROWSER'
     area.ui_type='ASSETS'
-    try:
-        area['wl_asset_browser']=True
-        area['wl_asset_section']=section
-    except Exception:
-        pass
-    try:
-        space=area.spaces.active
-        params=getattr(space,'params',None)
-        if params:
-            for attr in ('asset_library_reference','asset_library_ref'):
-                if hasattr(params,attr):
-                    try:setattr(params,attr,'LOCAL')
-                    except Exception:pass
-            if hasattr(params,'catalog_id'):
-                try: params.catalog_id='00000000-0000-0000-0000-000000000000'
-                except Exception: pass
-            _apply_section_id_filter(params, section)
-            if hasattr(params,'filter_search') and area.get('_wl_init_search') is None:
+    key=area.as_pointer()
+    space=area.spaces.active
+    params=getattr(space,'params',None)
+    if params is None:
+        if key not in _PENDING_BROWSER_CONFIG:
+            _PENDING_BROWSER_CONFIG.add(key)
+            attempts=0
+            def retry():
+                nonlocal attempts
+                attempts+=1
                 try:
-                    params.filter_search=''
-                    area['_wl_init_search']=True
-                except Exception:
-                    pass
-    except Exception:
-        pass
+                    if attempts<=20 and not _configure_asset_area(area,section):return .1
+                except ReferenceError:pass
+                _PENDING_BROWSER_CONFIG.discard(key)
+                return None
+            bpy.app.timers.register(retry,first_interval=.1)
+        return False
+    from .. import external_library
+    library=external_library.reference() if section=='TEXTURES' else 'LOCAL'
+    if section=='TEXTURES' and library!='LOCAL':
+        # Generated previews need editable shader graphs on drop. Blender 5.2's
+        # default packed/link import may leave the placeholder read-only.
+        if hasattr(params,'import_method'):params.import_method='APPEND'
+    selection=(section,library)
+    if _BROWSER_SECTIONS.get(key)!=selection:
+        for attr in ('asset_library_reference','asset_library_ref'):
+            if hasattr(params,attr):setattr(params,attr,library)
+        # Empty string selects All; a parsed nil UUID selects an empty catalog.
+        if hasattr(params,'catalog_id'):params.catalog_id=''
+        if hasattr(params,'asset_catalog_visibility'):params.asset_catalog_visibility='ALL'
+        if hasattr(params,'filter_search'):params.filter_search=''
+        _BROWSER_SECTIONS[key]=selection
+    _apply_section_id_filter(params,section)
     area.tag_redraw()
+    return True
 
 
 def apply_section_to_open_browsers(context, section):
@@ -303,7 +318,7 @@ class WL_OT_entity_browser_refresh(bpy.types.Operator):
             s=context.scene.wavelength
             if s.engine=='blender':
                 raise ValueError('Choose Quake or Half-Life / GoldSrc first')
-            count=rebuild(context)
+            count=rebuild(context) if s.asset_browser_section=='ENTITIES' else 0
             asset_browser.schedule_profile_sync(context,settings=s,force=True)
             pub,total,_=asset_browser.sync_status(s)
             area=_find_browser(context.screen) if getattr(context,'screen',None) else None
@@ -341,7 +356,7 @@ class WL_OT_entity_browser(bpy.types.Operator):
             target_section=s.asset_browser_section
             window,screen,browser=ensure_browser_layout(context, section=target_section)
             with bpy.context.temp_override(window=window,screen=screen,area=browser,scene=context.scene):
-                count=rebuild(bpy.context)
+                count=rebuild(bpy.context) if target_section=='ENTITIES' else 0
                 asset_browser.schedule_profile_sync(bpy.context,settings=s)
                 _configure_asset_area(browser, section=target_section)
             pub,total,loading=asset_browser.sync_status(s)

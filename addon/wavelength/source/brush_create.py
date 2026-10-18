@@ -741,19 +741,19 @@ class _WLBrushToolBase:
         st=context.scene.wavelength
         layout.label(text=cls.tool_label)
         layout.prop(st,'brush_height_steps',text='Height Steps')
-        if st.brush_type in {'CYLINDER','CONE'}:
+        if cls.primitive in {'CYLINDER','CONE'}:
             layout.prop(st,'brush_sides',text='Segments')
-        if st.brush_type=='SPHERE':
+        if cls.primitive=='SPHERE':
             layout.prop(st,'sphere_type',text='Type')
             if getattr(st,'sphere_type','UV')=='ICO':
                 layout.prop(st,'sphere_subdivisions',text='Subdivisions')
             else:
                 layout.prop(st,'brush_sides',text='Segments')
                 layout.prop(st,'brush_rings',text='Rings')
-        if st.brush_type=='ARCH':
+        if cls.primitive=='ARCH':
             layout.prop(st,'arch_segments',text='Segments'); layout.prop(st,'arch_angle',text='Arc')
             layout.prop(st,'arch_thickness_steps',text='Thickness Steps')
-        if st.brush_type=='STAIRS':
+        if cls.primitive=='STAIRS':
             layout.prop(st,'stair_steps',text='Steps')
             layout.prop(st,'stair_curved',text='Curved')
             if getattr(st,'stair_curved',False):

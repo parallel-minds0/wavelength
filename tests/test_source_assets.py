@@ -32,6 +32,15 @@ class AssetTests(unittest.TestCase):
         self.assertEqual(assets.decode_vtf(self.vtf(0,pixels,1,2))[-1],pixels[4:]+pixels[:4])
         with self.assertRaises(ValueError):assets.decode_vtf(self.vtf(13,b''))
         with self.assertRaises(ValueError):assets.asset_path('../secrets')
+    def test_single_mip_preview_is_bounded(self):
+        pixels=bytes([255,0,0,255])*(128*64)
+        original_w,original_h,w,h,rgba=assets.decode_vtf(self.vtf(0,pixels,128,64),max_dimension=16)
+        self.assertEqual((original_w,original_h,w,h),(128,64,16,8))
+        self.assertEqual(rgba,bytes([255,0,0,255])*(16*8))
+        blocks=struct.pack('<HHI',0xf800,0,0)*(32*16)
+        self.assertEqual(assets.decode_vtf(self.vtf(13,blocks,128,64),max_dimension=16)[2:4],(16,8))
+        self.assertEqual(assets.decode_vtf(self.vtf(13,blocks,128,64),max_dimension=16)[-1],bytes([255,0,0,255])*(16*8))
+
     def test_gameinfo_order_and_vmt_patch(self):
         with tempfile.TemporaryDirectory() as folder:
             game=Path(folder)/'hl2';game.mkdir();(game/'materials').mkdir()

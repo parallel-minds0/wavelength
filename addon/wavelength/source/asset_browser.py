@@ -1,5 +1,7 @@
 """Native Asset Browser publishers using existing WAD/VPK/FGD backends."""
 import json
+import time
+from collections import deque
 from pathlib import Path
 import bpy
 from bpy.app.handlers import persistent
@@ -9,9 +11,13 @@ COLLECTION='_WL_ASSET_TEMPLATES'
 TEXTURES_CATALOG_ID='a1e2f3c4-1111-4000-8000-000000000001'
 ENTITIES_CATALOG_ID='7d3c0fd7-53ef-4b20-9c3b-b6e2f8a7a119'
 _BUSY=False
-_AUTO_QUEUE=[]
+_AUTO_QUEUE=deque()
+_AUTO_TRIM=deque()
+_AUTO_EXISTING={}
+_AUTO_OWNER=None
 _AUTO_TOTAL=0
 _AUTO_PUBLISHED=0
+_AUTO_SKIPPED={}
 _LAST_TEX_SIG=None
 _LAST_ENT_SIG=None
 _BRUSH_MAT_SIGS={}
@@ -102,6 +108,22 @@ def preview(block):
     block['wl_preview_ready']=True
 
 
+def _bounded_preview(mat):
+    return bool(mat.get('wl_preview_ready') and mat.preview and
+                0<mat.preview.image_size[0]<=64 and 0<mat.preview.image_size[1]<=64)
+
+
+def _trim_preview_nodes(mat):
+    """Free only unused, generated thumbnail graphs; keep assigned/user shaders."""
+    if mat.get('wl_realized') or not mat.get('wl_texture') or not mat.get('wl_asset_profile'):
+        return
+    if mat.users>int(mat.use_fake_user) or not mat.node_tree:
+        return
+    nodes=mat.node_tree.nodes
+    if nodes and all(n.type in {'BSDF_PRINCIPLED','OUTPUT_MATERIAL'} for n in nodes):
+        nodes.clear()
+
+
 def publish_material_fast(settings,name,existing_by_id=None):
     """Create or reuse a Current File Material asset with a fast 64x64 preview.
 
@@ -109,17 +131,24 @@ def publish_material_fast(settings,name,existing_by_id=None):
     applied or dragged onto a brush, keeping profile texture loading instant.
     """
     row=asset_index.record(settings.engine,name,'MATERIAL',source=settings.wad_path or settings.game_dir)
-    existing=(existing_by_id or {}).get(row['id'])
-    if existing is None:
+    existing=existing_by_id.get(row['id']) if existing_by_id is not None else None
+    if existing is None and existing_by_id is None:
         existing=next((m for m in bpy.data.materials if m.get('wl_asset_id')==row['id'] or (m.get('wl_asset_profile')==settings.engine and str(m.get('wl_texture','')).casefold()==name.casefold())),None)
     if existing is not None:
+        try:
+            existing.name
+        except ReferenceError:
+            if existing_by_id is not None:existing_by_id.pop(row['id'],None)
+            existing=None
+    if existing is not None:
+        _trim_preview_nodes(existing)
         if existing.asset_data is None:
             saved_row=json.loads(existing['wl_asset']) if existing.get('wl_asset') else row
             metadata(existing,saved_row)
         else:
             try:existing.asset_data.catalog_id=TEXTURES_CATALOG_ID
             except Exception:pass
-        if existing.get('wl_preview_ready') and existing.preview and existing.preview.image_size[0]>0:
+        if _bounded_preview(existing):
             return existing
     if profiles.is_source(settings.engine):
         from . import source_assets
@@ -138,7 +167,7 @@ def publish_material_fast(settings,name,existing_by_id=None):
         row['source']=settings.game_dir
         row['validation']='decoded'
         row['dependencies']=[v for k,v in props.items() if k in {'$basetexture','$bumpmap','$detail','$envmapmask','%tooltexture'} and isinstance(v,str)]
-        mat=existing or bpy.data.materials.new(norm);mat.use_nodes=True;mat.name=norm
+        mat=existing or bpy.data.materials.new(norm);mat.name=norm
         mat['wl_texture']=norm;mat['wl_width']=width;mat['wl_height']=height
         mat['wl_asset_profile']=settings.engine
         if 'wl_realized' not in mat:mat['wl_realized']=False
@@ -150,11 +179,12 @@ def publish_material_fast(settings,name,existing_by_id=None):
         row['source']=str(wad.path)
         row['validation']='decoded'
         row['dependencies']=[str(wad.path)]
-        mat=existing or bpy.data.materials.new(item.name);mat.use_nodes=True;mat.name=item.name
+        mat=existing or bpy.data.materials.new(item.name);mat.name=item.name
         mat['wl_texture']=item.name;mat['wl_wad']=str(wad.path);mat['wl_width']=item.width;mat['wl_height']=item.height
         mat['wl_asset_profile']=settings.engine
         if 'wl_realized' not in mat:mat['wl_realized']=False
         mat['wl_asset_origin']='User-installed game/WAD; local use, not bundled'
+    _trim_preview_nodes(mat)
     metadata(mat,row)
     p=mat.preview_ensure();p.image_size=(pw,ph);p.image_pixels_float=pixels
     mat['wl_preview_ready']=True
@@ -217,18 +247,26 @@ def _tag_asset_browsers_redraw(section=None):
         pass
 
 
-def _publish_batch(settings,limit,existing_by_id=None):
+def _publish_batch(settings,limit,existing_by_id=None,time_budget=None):
     global _AUTO_PUBLISHED
     if existing_by_id is None:
-        existing_by_id={m.get('wl_asset_id'):m for m in bpy.data.materials if m.get('wl_asset_profile')==settings.engine and m.get('wl_asset_id')}
+        existing_by_id=_AUTO_EXISTING
+    started=time.monotonic()
     processed=0
-    while _AUTO_QUEUE and processed<limit:
-        name=_AUTO_QUEUE.pop(0)
+    while (_AUTO_QUEUE or _AUTO_TRIM) and processed<limit:
+        if processed and time_budget is not None and time.monotonic()-started>=time_budget:
+            break
+        if _AUTO_TRIM:
+            try:_trim_preview_nodes(_AUTO_TRIM.popleft())
+            except ReferenceError:pass
+            processed+=1
+            continue
+        name=_AUTO_QUEUE.popleft()
         try:
             publish_material_fast(settings,name,existing_by_id=existing_by_id)
             _AUTO_PUBLISHED+=1
-        except (ValueError,OSError,RuntimeError,UnicodeError):
-            pass
+        except (ValueError,OSError,RuntimeError,UnicodeError) as exc:
+            _AUTO_SKIPPED[name]=str(exc)
         processed+=1
     return processed
 
@@ -239,13 +277,13 @@ def _auto_publish_tick():
         if scn is None or not hasattr(scn,'wavelength'):
             return None
         s=scn.wavelength
-        if s.engine=='blender' or not _AUTO_QUEUE:
+        if s.engine=='blender' or scn.as_pointer()!=_AUTO_OWNER or not (_AUTO_QUEUE or _AUTO_TRIM):
             _tag_asset_browsers_redraw()
             return None
-        batch=24 if profiles.is_source(s.engine) else 64
-        _publish_batch(s,batch)
+        # Main-thread work must yield to input/redraw; one decode is indivisible.
+        _publish_batch(s,4,time_budget=0.025)
         _tag_asset_browsers_redraw()
-        return 0.02 if _AUTO_QUEUE else None
+        return 0.1 if (_AUTO_QUEUE or _AUTO_TRIM) else None
     except Exception:
         return None
 
@@ -254,9 +292,9 @@ def flush_auto_publish(settings=None,max_items=None):
     """Synchronously publish remaining queued profile textures (or up to max_items)."""
     scn=getattr(bpy.context,'scene',None)
     s=settings or (scn.wavelength if scn and hasattr(scn,'wavelength') else None)
-    if s is None or s.engine=='blender' or not _AUTO_QUEUE:
+    if s is None or s.engine=='blender' or not (_AUTO_QUEUE or _AUTO_TRIM):
         return 0
-    limit=len(_AUTO_QUEUE) if max_items is None else max_items
+    limit=len(_AUTO_QUEUE)+len(_AUTO_TRIM) if max_items is None else max_items
     count=_publish_batch(s,limit)
     _tag_asset_browsers_redraw()
     return count
@@ -268,102 +306,26 @@ def sync_status(settings=None):
     s=settings or (scn.wavelength if scn and hasattr(scn,'wavelength') else None)
     if s is None or s.engine=='blender':
         return 0,0,False
+    from . import external_library
+    if external_library._key is not None:return external_library.status()
     total=_AUTO_TOTAL or s.texture_count
     published=min(total,_AUTO_PUBLISHED) if total else _AUTO_PUBLISHED
-    return published,total,bool(_AUTO_QUEUE)
+    return published,total,bool(_AUTO_QUEUE or _AUTO_TRIM)
+
+
+def texture_status_label(settings=None):
+    from . import external_library
+    if external_library._key is not None:return external_library.label()
+    published,total,loading=sync_status(settings)
+    skipped=len(_AUTO_SKIPPED)
+    if loading:return f'{published}/{total} ready, {skipped} skipped (loading...)'
+    return f'{published} ready, {skipped} skipped'
 
 
 def schedule_profile_sync(context=None,settings=None,force=False):
-    """Automatically sync Asset Browser textures and entities for the active profile."""
-    global _AUTO_QUEUE,_AUTO_TOTAL,_AUTO_PUBLISHED,_LAST_TEX_SIG,_LAST_ENT_SIG
-    scn=getattr(context,'scene',None) if context else None
-    if scn is None:
-        scn=getattr(bpy.context,'scene',None)
-    s=settings or (scn.wavelength if scn and hasattr(scn,'wavelength') else None)
-    if s is None:
-        return
-    if s.engine=='blender':
-        _AUTO_QUEUE=[];_AUTO_TOTAL=0;_AUTO_PUBLISHED=0;_LAST_TEX_SIG=None;_LAST_ENT_SIG=None
-        for m in bpy.data.materials:
-            if (m.get('wl_asset_id') or m.get('wl_asset_profile')) and m.asset_data is not None:
-                try:m.asset_clear()
-                except Exception:pass
-        for o in bpy.data.objects:
-            if (o.get('wl_asset_id') or o.get('wl_entity_browser_template')) and o.asset_data is not None:
-                try:o.asset_clear()
-                except Exception:pass
-        _tag_asset_browsers_redraw()
-        return
+    from . import external_library
+    external_library.schedule(context,settings,force)
 
-    ensure_catalog_file(s)
-    from .entity import browser as entity_browser
-    ent_sig=(s.engine,str(s.fgd_path or ''))
-    has_entities=any(o.get('wl_entity_browser_profile')==s.engine and o.asset_data is not None for o in bpy.data.objects)
-    if force or _LAST_ENT_SIG!=ent_sig or not has_entities:
-        try:
-            entity_browser.rebuild_for_scene(scn,context,quiet=True)
-            _LAST_ENT_SIG=ent_sig
-        except Exception:
-            pass
-
-    try:
-        valid_wads={str(Path(bpy.path.abspath(p)).resolve()) for p in textures.sources(s) if p} if not profiles.is_source(s.engine) else set()
-    except Exception:
-        valid_wads=set()
-
-    tex_sig=(s.engine,str(s.wad_path or ''),str(s.texture_wads or ''),str(s.palette_path or ''),str(s.game_dir or ''))
-    if not force and _LAST_TEX_SIG==tex_sig and not _AUTO_QUEUE and _AUTO_TOTAL>0:
-        _tag_asset_browsers_redraw(section=getattr(s,'asset_browser_section','TEXTURES'))
-        return
-
-    existing_by_id={}
-    ready_names=set()
-    for m in bpy.data.materials:
-        prof=m.get('wl_asset_profile')
-        if not prof and not m.get('wl_asset_id'):
-            continue
-        match=(prof==s.engine)
-        if match and not profiles.is_source(s.engine) and m.get('wl_wad'):
-            try:
-                match=str(Path(m['wl_wad']).resolve()) in valid_wads
-            except Exception:
-                match=False
-        if not match:
-            if m.asset_data is not None:
-                try:m.asset_clear()
-                except Exception:pass
-        else:
-            if m.asset_data is None:
-                try:
-                    row=json.loads(m['wl_asset']) if m.get('wl_asset') else asset_index.record(s.engine,str(m.get('wl_texture',m.name)),'MATERIAL',source=m.get('wl_wad',s.game_dir))
-                    metadata(m,row)
-                except Exception:
-                    pass
-            else:
-                try:m.asset_data.catalog_id=TEXTURES_CATALOG_ID
-                except Exception:pass
-            if m.get('wl_asset_id'):
-                existing_by_id[m['wl_asset_id']]=m
-            if m.asset_data is not None and m.get('wl_preview_ready') and m.get('wl_texture'):
-                ready_names.add(str(m['wl_texture']).casefold())
-
-    try:
-        all_names=textures.all_names(s,'')
-    except Exception:
-        all_names=[]
-    all_set={n.casefold() for n in all_names}
-    _AUTO_TOTAL=len(all_names)
-    _AUTO_PUBLISHED=len(ready_names & all_set)
-    _AUTO_QUEUE=[n for n in all_names if n.casefold() not in ready_names]
-    _LAST_TEX_SIG=tex_sig
-
-    initial_batch=24 if profiles.is_source(s.engine) else (32 if bpy.app.background else 64)
-    if _AUTO_QUEUE:
-        _publish_batch(s,initial_batch,existing_by_id=existing_by_id)
-    if _AUTO_QUEUE and not bpy.app.background:
-        if not bpy.app.timers.is_registered(_auto_publish_tick):
-            bpy.app.timers.register(_auto_publish_tick,first_interval=0.02)
-    _tag_asset_browsers_redraw(section=getattr(s,'asset_browser_section','TEXTURES'))
 
 
 def place(context,row,location=None):
@@ -401,6 +363,24 @@ def _brush_mat_signature(obj):
     )
 
 
+def _ensure_mesh_uv(obj):
+    """Provide the shader's named UV layer while preserving ordinary mesh UVs."""
+    mesh=obj.data
+    if mesh.uv_layers.get('wavelength'):return
+    had_uv=bool(mesh.uv_layers)
+    layer=mesh.uv_layers.new(name='wavelength',do_init=True)
+    if had_uv:return  # Blender copies the active UV layer on initialization.
+    if not mesh.vertices:return
+    low=[min(v.co[i] for v in mesh.vertices) for i in range(3)]
+    span=[max(v.co[i] for v in mesh.vertices)-low[i] for i in range(3)]
+    for polygon in mesh.polygons:
+        axis=max(range(3),key=lambda i:abs(polygon.normal[i]))
+        u,v=[i for i in range(3) if i!=axis]
+        for index in polygon.loop_indices:
+            co=mesh.vertices[mesh.loops[index].vertex_index].co
+            layer.data[index].uv=((co[u]-low[u])/(span[u] or 1),(co[v]-low[v])/(span[v] or 1))
+
+
 @persistent
 def dropped(owner, depsgraph=None):
     global _BUSY
@@ -408,7 +388,14 @@ def dropped(owner, depsgraph=None):
     _BUSY=True
     try:
         s=owner.wavelength
-        for obj in list(owner.objects):
+        if depsgraph is None:
+            candidates=list(owner.objects)
+        else:
+            candidates={u.id.original for u in depsgraph.updates if isinstance(u.id,bpy.types.Object)}
+            meshes={u.id.original for u in depsgraph.updates if isinstance(u.id,bpy.types.Mesh)}
+            if meshes:
+                candidates.update(o for o in owner.objects if o.type=='MESH' and o.data in meshes)
+        for obj in candidates:
             if obj.get('wl_asset_template') and not any(c.name==COLLECTION for c in obj.users_collection):
                 try:
                     placed=place(bpy.context,json.loads(obj['wl_asset']),obj.matrix_world.translation)
@@ -416,21 +403,33 @@ def dropped(owner, depsgraph=None):
                     bpy.data.objects.remove(obj,do_unlink=True)
                 except ValueError as exc:s.status=str(exc)
                 continue
-            if obj.type!='MESH' or obj.get('wl_role')!='BRUSH' or obj.get('wl_exclude') or not obj.data:
+            if obj.type!='MESH' or obj.get('wl_exclude') or not obj.data:
                 continue
-            for mat in obj.data.materials:
-                if mat and mat.get('wl_texture') and not mat.get('wl_realized'):
+            wavelength_materials=[]
+            for slot in obj.material_slots:
+                mat=slot.material
+                if not mat or not mat.get('wl_texture') or mat.get('wl_asset_profile')!=s.engine:continue
+                if mat.library:
+                    # Repair placeholders already imported with Link/Pack.
+                    local=next((m for m in bpy.data.materials if not m.library and m.get('wl_asset_profile')==s.engine and m.get('wl_texture')==mat['wl_texture']),None)
+                    mat=local or mat.copy()
+                    slot.material=mat
+                wavelength_materials.append(mat)
+                if not mat.get('wl_realized'):
                     try:textures.realize_material(s,mat)
-                    except Exception:pass
+                    except (ValueError,OSError,RuntimeError) as exc:
+                        s.status='Texture could not be loaded: '+str(exc)
+                        diagnostics.error('Material drop',exc)
+            if obj.get('wl_role')!='BRUSH':
+                if wavelength_materials:_ensure_mesh_uv(obj)
+                continue
             ptr=obj.as_pointer()
             sig=_brush_mat_signature(obj)
             prev=_BRUSH_MAT_SIGS.get(ptr)
-            if prev is None:
-                _BRUSH_MAT_SIGS[ptr]=sig
-                continue
             if sig!=prev:
                 _BRUSH_MAT_SIGS[ptr]=sig
-                if textures.sync_faces_from_materials(obj):
+                changed=textures.sync_faces_from_materials(obj)
+                if changed or (wavelength_materials and not obj.data.uv_layers.get('wavelength')):
                     from . import editor,primitive_ui
                     try:editor.apply_uv(obj,s.engine)
                     except Exception:pass
@@ -464,13 +463,9 @@ class WL_OT_assets(bpy.types.Operator):
                 from .entity import browser
                 count=browser.rebuild(context)
             elif self.category in {'MATERIAL','DECAL','SKY'}:
-                names=textures.all_names(s,self.search)
-                for name in names:
-                    row=asset_index.record(s.engine,name,'MATERIAL')
-                    if self.category!='MATERIAL' and row['category']!=self.category:continue
-                    if count>=self.limit:break
-                    try:publish_material_fast(s,name);count+=1
-                    except (ValueError,OSError,RuntimeError) as exc:errors.append(str(exc))
+                schedule_profile_sync(context,settings=s,force=True)
+                s.status='Texture library refresh started in background'
+                return {'FINISHED'}
             else:
                 rows=asset_index.discover(s)
                 cache=Path(bpy.utils.user_resource('CONFIG'))/'wavelength'/'assets'/f'{s.engine}.json';asset_index.write_index(cache,rows)
@@ -493,9 +488,22 @@ class WL_OT_use_asset(bpy.types.Operator):
         return self.execute(context)
     def execute(self,context):
         asset=getattr(context,'asset',None);block=asset.local_id if asset else None
-        if block is None:self.report({'ERROR'},'Select a Current File Wavelength asset');return {'CANCELLED'}
+        if block is None and asset and asset.id_type=='MATERIAL':
+            try:
+                # Import exactly the selected external material, never the catalog.
+                block=next((m for m in bpy.data.materials if m.get('wl_asset_profile')==context.scene.wavelength.engine and m.get('wl_texture')==asset.name),None)
+                if block is None:
+                    with bpy.data.libraries.load(asset.full_library_path,link=False) as (available,requested):
+                        if asset.name not in available.materials:raise ValueError('Material is missing from its library')
+                        requested.materials=[asset.name]
+                    block=requested.materials[0]
+            except (OSError,ValueError,RuntimeError) as exc:
+                self.report({'ERROR'},str(exc));return {'CANCELLED'}
+        if block is None:self.report({'ERROR'},'Select a Wavelength asset');return {'CANCELLED'}
         try:
             if isinstance(block,bpy.types.Material):
+                if block.get('wl_asset_profile')!=context.scene.wavelength.engine:
+                    raise ValueError('Material belongs to a different engine profile')
                 s=context.scene.wavelength;s.texture=block.get('wl_texture','')
                 textures.realize_material(s,block)
                 from . import editor,primitive_ui
@@ -542,7 +550,7 @@ class WL_PT_assets(bpy.types.Panel):
         row.prop(s,'asset_browser_section',expand=True)
         if s.asset_browser_section=='TEXTURES':
             pub,total,loading=sync_status(s)
-            l.label(text=f'Textures: {pub}/{total}' + (' (loading…)' if loading else ' ready'),icon='TEXTURE')
+            l.label(text='Textures: '+texture_status_label(s),icon='TEXTURE')
             l.operator('wavelength.refresh_textures',text='Reload Profile Textures',icon='FILE_REFRESH')
         else:
             ent_count=sum(1 for o in bpy.data.objects if o.get('wl_entity_browser_profile')==s.engine and o.asset_data is not None)
@@ -561,18 +569,28 @@ def header(self,context):
         row.prop(s,'asset_browser_section',expand=True)
         if s.asset_browser_section=='TEXTURES':
             pub,total,loading=sync_status(s)
-            self.layout.label(text=f'{pub}/{total} textures' + ('…' if loading else ''))
+            self.layout.label(text=texture_status_label(s))
         self.layout.operator('wavelength.entity_browser_refresh',text='',icon='FILE_REFRESH')
         self.layout.operator('wavelength.use_asset',text='Use Asset',icon='CHECKMARK')
 
 
 def register():
     for cls in (WL_OT_assets,WL_OT_use_asset,WL_PT_assets):bpy.utils.register_class(cls)
+    from . import asset_search
+    asset_search.register()
     bpy.types.FILEBROWSER_HT_header.append(header)
     if dropped not in bpy.app.handlers.depsgraph_update_post:bpy.app.handlers.depsgraph_update_post.append(dropped)
 
 
 def unregister():
+    from . import asset_search
+    asset_search.unregister()
+    from . import external_library
+    external_library.unregister()
+    _BRUSH_MAT_SIGS.clear()
+    _AUTO_QUEUE.clear()
+    _AUTO_TRIM.clear()
+    _AUTO_EXISTING.clear()
     if bpy.app.timers.is_registered(_auto_publish_tick):
         bpy.app.timers.unregister(_auto_publish_tick)
     bpy.types.FILEBROWSER_HT_header.remove(header)

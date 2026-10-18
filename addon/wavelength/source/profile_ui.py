@@ -22,13 +22,18 @@ def snapshot(context,name,identity=None):
 
 
 def apply(context,value):
-    from . import textures
+    from . import textures,ui
     value=validate(value);s=context.scene.wavelength
-    s.engine=value['settings']['engine']
-    for key,val in value['settings'].items():
-        if hasattr(s,key):setattr(s,key,val)
-    s.profile_id=value['id'];s.profile_name=value['name']
-    textures.refresh(s,context)
+    previous=ui._IN_ENGINE_CHANGE
+    ui._IN_ENGINE_CHANGE=True
+    try:
+        s.engine=value['settings']['engine']
+        for key,val in value['settings'].items():
+            if key!='engine' and hasattr(s,key):setattr(s,key,val)
+        s.profile_id=value['id'];s.profile_name=value['name']
+    finally:
+        ui._IN_ENGINE_CHANGE=previous
+    if not previous:textures.refresh(s,context)
 
 
 
@@ -68,7 +73,7 @@ class WL_OT_profile_export(bpy.types.Operator,ExportHelper):
 
 
 class WL_PT_profiles(bpy.types.Panel):
-    bl_label='User Profiles';bl_idname='WL_PT_profiles';bl_space_type='VIEW_3D';bl_region_type='UI';bl_category='wavelength'
+    bl_label='User Profiles';bl_idname='WL_PT_profiles';bl_space_type='VIEW_3D';bl_region_type='HEADER'
     @classmethod
     def poll(cls,context):return workspace.active(context)
     def draw(self,context):

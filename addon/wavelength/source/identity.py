@@ -12,6 +12,8 @@ def update_ids(*_args):
     global _updating
     if _updating:
         return
+    if len(_args)>1 and hasattr(_args[1],'updates'):
+        if not any(isinstance(u.id,bpy.types.Object) for u in _args[1].updates):return
     _updating = True
     try:
         objects = [obj for obj in bpy.data.objects

@@ -1,4 +1,67 @@
-# v0.16.2-pre.alpha � tested Windows native-grid installer
+# v0.19.0-pre.alpha — Windows authoring and interactive sun
+
+Includes the following development milestones since v0.16.2: Blender-native UI,
+external texture libraries, debounced search and material drops, Windows Steam
+discovery, and interactive sun lighting. The native Windows patch is unchanged
+and remains restricted to the exact Blender 5.2.3 candidate executable below.
+
+- Add a real Blender Sun preview to light_environment entities, including existing entities and imported maps. Preserve the entity identity and hierarchy.
+- Add viewport heading/elevation rings and a direction arrow, plus Object Properties controls for direction, color, preview strength and sun size.
+- Synchronize native light edits and engine pitch/angles/_light fields in both directions; keep the loaded inspector fields current.
+- Add Shift+A → Light → Wavelength Sun and Preview Scene Lighting for Material Preview with scene lights/world.
+- Export exactly one engine entity; exclude generated light previews. Restore on load/undo and remove orphan previews when the entity is deleted.
+- Brightness uses an editor preview conversion (engine brightness / 100), not a reproduction of VRAD's baked lighting. Ambient/HDR compilation fields remain intact.
+- Verified real-time viewport shadows, two-way direction/color/strength, export, deletion and reload; 152 unit tests pass.
+
+# v0.18.2-pre.alpha — Windows Steam discovery (local, unreleased)
+
+- Honor a configured Steam executable and locate Windows Steam through its registry/install folders, without requiring PATH edits.
+- Preserve Steam App ID and map/game launch arguments. Verified both configured and registry discovery without starting Steam or the game.
+
+# v0.18.1-pre.alpha — native search and material drops (local, unreleased)
+
+- Debounce texture search by 250 ms in the Wavelength native Asset Browser; other browsers keep their existing header behavior.
+- Append editable preview materials rather than importing read-only packed placeholders. Repair linked placeholders when assigned.
+- Realize dropped shaders on ordinary meshes, including unselected drop targets. Preserve existing UV coordinates and provide mapping for UV-less meshes.
+- Synchronize face records and engine UVs on a brush's first material drop.
+- Verify real dependency-graph updates, linked-material repair, displayed brick pixels in Material Preview, and 13 typed characters producing one native filter update.
+
+# v0.18.0-pre.alpha — external texture libraries (local, unreleased)
+
+- Build preview-only texture assets in a separate, low-priority Blender worker, saved in bounded external .blend shards.
+- Browse cached assets in Blender's native external Asset Browser; importing/applying a texture creates only the selected material in the map.
+- Cache the index and previews across sessions. Worker-side source fingerprints detect archive/WAD/loose-material changes; explicit Reload rechecks them.
+- Remove legacy gallery decoding from profile refresh and defer entity templates until the entity section is requested.
+- Stop the worker monitor after completion. Dependency handlers inspect changed objects instead of scanning all brushes on material events.
+- Migrate unused generated in-map thumbnail materials in bounded batches; preserve assigned, realized and customized materials.
+- Full HL2 check: 6,885 indexed, 6,519 previews, 366 unsupported; ~74 seconds first cache generation in worker, ~2.2 seconds warm validation, ~0.13 seconds profile activation. No map material growth while browsing.
+
+# v0.17.0-pre.alpha — local Blender-native UI (unreleased)
+
+- Replace the giant sidebar with Scene/Object Properties, contextual geometry and face actions, and a compact workspace tool header.
+- Keep profile management and maintenance in a small Wavelength menu; expose map grid controls through viewport popovers.
+- Use the native Outliner for hierarchy, native File import/export menus, and active tool settings for drawing parameters.
+- Follow entity selection in Object Properties, preserve brush-entity membership tools, and retain searchable operators.
+- Keep face mapping in the Edit Mode Item sidebar, and show build progress, errors and validation targets in Scene Properties.
+- Verify real Blender UI drawing, workspace isolation, inspector binding and repeated add-on registration; fix operator cleanup on reload.
+
+# v0.16.4-pre.alpha — local Asset Browser display fix (unreleased)
+
+- Select all catalogs with Blender's empty catalog ID and ALL visibility. The nil UUID selected an empty catalog and hid loaded materials.
+- Retry editor configuration until its Asset Browser parameters exist; preserve user catalog/search choices after initial configuration.
+- Report ready and skipped material counts separately instead of presenting unsupported materials as unfinished loading.
+- Apply saved profile fields as one transaction, then refresh textures once.
+- Verified real visible/selectable material entries and texture pixels in the native Asset Browser, plus profile refresh and progress regressions.
+
+# v0.16.3-pre.alpha — local texture-loading fix (unreleased)
+
+- Time-budgeted thumbnail loading with cached lookups and constant-time queues.
+- Thumbnail assets do not retain default shader nodes; applying a material builds its complete shader on demand.
+- VTF previews remain bounded for single-mip textures, with decoding restricted to sampled pixels/blocks.
+- Old oversized previews regenerate, and unused generated shader graphs are cleaned in bounded batches. Assigned, realized and customized shaders are preserved.
+- Checks cover single-mip RGBA/DXT previews, cleanup safety, full installed HL2 material loading and UI timer progress.
+
+# v0.16.2-pre.alpha — tested Windows native-grid installer
 
 Builds and installs Wavelength's native grid for the exact Blender 5.2.3 LTS Release Candidate Windows x64 build `32ede9dba158` (original executable SHA-256 `19e60200c51e981aa48a515ffc22c46d9192ea0538e249b2891394a425bd855b`). Other Blender executables require their own matching patch.
 
@@ -19,7 +82,7 @@ To keep the add-on inside that Blender folder, additionally pass `--addons "C:\p
 The previous Windows 5.2.2 preview remains available in historical releases; this release does not certify or repair that build. Linux retains its existing source and compatibility entry; no newly tested Linux installer or Vulkan certification is claimed here.
 
 
-# v0.16.1-pre.alpha — current authoring tools and Blender diagnostics
+# v0.16.1-pre.alpha â€” current authoring tools and Blender diagnostics
 
 - Incorporates v0.16.0 authoring updates: brush creation, editable primitives,
   asset and entity browsing, texture handling, and transform synchronization.
@@ -37,7 +100,7 @@ fingerprint also differs from the supported ZIP fingerprint. Do not bypass check
 
 Earlier validation claims below describe their respective historical releases.
 
-# v0.15.0-pre.alpha — Windows native-grid patch preview (historical)
+# v0.15.0-pre.alpha â€” Windows native-grid patch preview (historical)
 
 The Windows package now includes a native Blender grid binary patch, not just the
 standalone grid-math helper. It bundles Windows Python and installs through

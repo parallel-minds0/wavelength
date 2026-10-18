@@ -124,6 +124,7 @@ def _asset_browser_section_changed(self,context):
 def engine_changed(self,context):
     global _IN_ENGINE_CHANGE
     previous=self.get('_wl_active_engine','blender')
+    changing=_IN_ENGINE_CHANGE
     _IN_ENGINE_CHANGE=True
     try:
         if previous!=self.engine:
@@ -148,14 +149,14 @@ def engine_changed(self,context):
             for key in _ENGINE_FIELDS:setattr(self,key,values.get(key,'[]' if key in {'texture_wads','wrapper','launch_args','qbsp_args','vis_args','light_args','source_vbsp_args','source_vvis_args','source_vrad_args'} else '{}' if key=='environment' else 'wavelength_'+self.engine if key=='map_name' else ''))
             if _JOB and _JOB_SCENE==context.scene:_JOB.cancel()
     finally:
-        _IN_ENGINE_CHANGE=False
+        _IN_ENGINE_CHANGE=changing
     self.last_build=''
     grid.update(self,context)
     # Toolbar registration is static; the profile controls creation behavior.
     # Refresh only after every profile field has been installed, so automatic
     # WAD discovery is immediately reflected in the texture enum/browser.
     self.texture_page=0
-    textures.refresh(self,context)
+    if not changing:textures.refresh(self,context)
     if self.engine in {'goldsrc_linux','goldsrc_linux_steam'} and self.wad_path:
         self.status=f'HL1 Linux profile loaded · {len(json.loads(self.texture_wads or "[]"))} WADs · {self.texture_count} textures in {Path(self.wad_path).name}'
     elif not self.status:
@@ -340,6 +341,14 @@ class WL_OT_setup(SafeOperator,bpy.types.Operator):
 
 class WL_OT_brush(SafeOperator,bpy.types.Operator):
     bl_idname='wavelength.add_brush';bl_label='Add Brush';bl_options={'REGISTER','UNDO'}
+    kind:EnumProperty(name='Primitive',items=[(x,x.title(),'') for x in ('CUBE','CYLINDER','CONE','SPHERE','ARCH','STAIRS')],default='CUBE')
+    def invoke(self,context,event):
+        context.scene.wavelength.brush_type=self.kind
+        return context.window_manager.invoke_props_dialog(self)
+    def draw(self,context):
+        s=context.scene.wavelength;l=self.layout
+        l.prop(s,'brush_size')
+        if s.brush_type in {'CYLINDER','CONE'}:l.prop(s,'brush_sides')
     def run(self,context):
         if context.mode!='OBJECT':raise ValueError('Leave Edit Mode first')
         s=context.scene.wavelength
@@ -362,6 +371,8 @@ class WL_OT_brush(SafeOperator,bpy.types.Operator):
 class WL_OT_hollow(SafeOperator,bpy.types.Operator):
     bl_idname='wavelength.make_hollow';bl_label='Make Hollow';bl_options={'REGISTER','UNDO'}
     bl_description='Replace the selected rectangular brush with six solid wall brushes'
+    def invoke(self,context,event):return context.window_manager.invoke_props_dialog(self)
+    def draw(self,context):self.layout.prop(context.scene.wavelength,'hollow_thickness')
     def run(self,context):
         if context.mode!='OBJECT':raise ValueError('Leave Edit Mode first')
         obj=context.active_object
@@ -496,6 +507,9 @@ def _spawn_point_entity(context, classname):
     pairs=_entity_creation_defaults(s,classname)
     obj['wl_role']='ENTITY';obj['wl_id']=scene.uid();obj['wl_pairs']=json.dumps(pairs)
     if profiles.is_goldsrc(s.engine):entity_models.attach_reference(obj,pairs)
+    if classname=='light_environment':
+        from . import sun
+        sun.ensure(obj,new=True)
     for old in context.selected_objects:old.select_set(False)
     obj.select_set(True);context.view_layer.objects.active=obj
     s.status=f'Created point entity {classname} at 3D cursor'
@@ -570,7 +584,8 @@ class WL_MT_add(bpy.types.Menu):
 
 def _draw_view3d_add_menu(self,context):
     if not workspace.active(context):return
-    self.layout.menu('WL_MT_add',icon='MOD_BUILD')
+    if context.scene.wavelength.engine!='blender':
+        self.layout.menu('WL_MT_add_entity',text='Entity',icon='EMPTY_ARROWS')
 
 def _entity_creation_defaults(settings, classname):
     """Materialize meaningful engine defaults when an entity is created.
@@ -611,6 +626,7 @@ def _brush_entity_members(scene_data, identity):
     return [o for o in scene_data.objects if o.get('wl_role')=='BRUSH' and o.get('wl_entity_id')==identity]
 
 def _resolve_brush_object(obj):
+    if obj and obj.get('wl_sun_preview') and obj.parent:return obj.parent
     if obj and primitive_ui.is_assembly_root(obj):
         parts=primitive_ui.parts_for(obj)
         return parts[0] if parts else None
@@ -745,6 +761,9 @@ class WL_OT_properties(SafeOperator,bpy.types.Operator):
         else:
             obj[key]=json.dumps(pairs)
             if profiles.is_goldsrc(s.engine):entity_models.attach_reference(obj,pairs)
+            from . import sun
+            if sun.is_sun(obj):sun.ensure(obj)
+            elif sun.light_for(obj):sun.queue(obj)
         # Refresh the binding after apply in case classname was intentionally edited.
         _,_,s.entity_editor_binding=_entity_property_target(obj)
 
@@ -882,7 +901,7 @@ class WL_OT_validate(SafeOperator,bpy.types.Operator):
 def redraw_build():
     for window in bpy.context.window_manager.windows:
         for area in window.screen.areas:
-            if area.type=='VIEW_3D':area.tag_redraw()
+            if area.type in {'VIEW_3D','PROPERTIES','STATUSBAR','TOPBAR'}:area.tag_redraw()
 
 def build_tick():
     global _JOB
@@ -1027,9 +1046,8 @@ class WL_OT_launch(SafeOperator,bpy.types.Operator):
             directory=runtime_game(directory)
         if not directory.is_dir():raise ValueError('Configure an existing game directory')
         if steam_profile:
-            import shutil as _shutil
-            steam_exe=_shutil.which('steam')
-            if not steam_exe:raise ValueError('Steam launcher not found on PATH; install Steam or make the steam command available')
+            from .launcher import find_steam
+            steam_exe=find_steam(bpy.path.abspath(s.game_executable) if s.game_executable else '',directory)
         else:
             exe=Path(bpy.path.abspath(s.game_executable))
             if not exe.is_file():raise ValueError('Configure an existing game executable')
@@ -1076,69 +1094,46 @@ class WL_OT_leak(SafeOperator,bpy.types.Operator):
         for point,values in zip(spline.points,points):point.co=(*values,1)
         obj=bpy.data.objects.new('Leak Path',curve);context.collection.objects.link(obj);obj.show_in_front=True;obj['wl_exclude']=True
 
-class WL_PT_main(bpy.types.Panel):
-    bl_label='wavelength';bl_idname='WL_PT_main';bl_space_type='VIEW_3D';bl_region_type='UI';bl_category='wavelength'
+def _draw_face_actions(layout):
+    row=layout.row(align=True)
+    for action,label in [('RESET','Reset'),('ROT90','+90°'),('FLIP_U','Flip U'),('FLIP_V','Flip V')]:
+        row.operator('wavelength.texture_nudge',text=label).action=action
+    row=layout.row(align=True)
+    row.operator('wavelength.texture_copy',text='Copy Mapping')
+    row.operator('wavelength.texture_paste',text='Paste Mapping')
+
+
+class WL_PT_build(bpy.types.Panel):
+    bl_label='Build & Validation';bl_idname='WL_PT_build'
+    bl_space_type='PROPERTIES';bl_region_type='WINDOW';bl_context='scene'
+    @classmethod
+    def poll(cls,context):return workspace.active(context) and context.scene.wavelength.engine!='blender'
     def draw(self,context):
         s=context.scene.wavelength;l=self.layout;l.use_property_split=True
-        if not workspace.draw_controls(l,context):return
-        l.prop(s,'engine');l.label(text=s.status[:65],icon='INFO')
-        box=l.box();box.label(text='Grid & Units',icon='GRID');box.prop(s,'grid_mode',expand=True)
-        row=box.row(align=True);row.operator('wavelength.grid_step',text='−').direction=-1;row.prop(s,'grid_step' if grid.engine_enabled(s) else 'metric_grid_step',text='');row.operator('wavelength.grid_step',text='+').direction=1
-        box.prop(s,'grid_subdivisions')
-        if s.engine=='blender':
-            box.prop(s,'snap_to_grid',text='Snap to Grid')
-        box.label(text=('Metric grid / meters' if s.engine=='blender' else '1 engine unit ≈ 2.54 cm'));box.operator('wavelength.snap_grid')
-        if not grid.native_available(context.space_data):
-            box.label(text='Native grid patch missing: run installer repair',icon='ERROR')
-        row=l.row(align=True)
-        for kind in ('STAIRS','ARCH','SPHERE'):row.operator('wavelength.primitive',text=kind.title()).kind=kind
-        ab_box=l.box();ab_box.enabled=s.engine!='blender'
-        ab_head=ab_box.row(align=True);ab_head.label(text='Asset Browser',icon='ASSET_MANAGER')
-        ab_head.operator('wavelength.entity_browser_refresh',text='',icon='FILE_REFRESH')
-        ab_row=ab_box.row(align=True)
-        op=ab_row.operator('wavelength.entity_browser',text='Textures',icon='TEXTURE',depress=(s.asset_browser_section=='TEXTURES'));op.section='TEXTURES'
-        op=ab_row.operator('wavelength.entity_browser',text='Entities',icon='EMPTY_ARROWS',depress=(s.asset_browser_section=='ENTITIES'));op.section='ENTITIES'
-        box=l.box();box.label(text='Create & Edit',icon='MESH_CUBE');box.prop(s,'brush_type');box.prop(s,'brush_size');box.prop(s,'brush_height_steps')
-        if s.brush_type in {'CYLINDER','CONE'}: box.prop(s,'brush_sides')
-        if s.brush_type=='SPHERE':
-            box.prop(s,'sphere_type')
-            if s.sphere_type=='ICO':
-                box.prop(s,'sphere_subdivisions')
-            else:
-                box.prop(s,'brush_sides')
-                box.prop(s,'brush_rings')
-        if s.brush_type=='ARCH': box.prop(s,'arch_segments');box.prop(s,'arch_angle');box.prop(s,'arch_thickness_steps')
-        if s.brush_type=='STAIRS':
-            box.prop(s,'stair_steps');box.prop(s,'stair_curved')
-            if s.stair_curved:
-                box.prop(s,'stair_angle');box.prop(s,'stair_inner_radius')
-            box.prop(s,'stair_landing')
-        row=box.row(align=True);row.operator('wavelength.add_brush',text='Add Primitive' if s.engine=='blender' else 'Add Brush');row.operator('wavelength.mark_brush',text='Use Mesh')
-        row=box.row(align=True);row.prop(s,'hollow_thickness');row.operator('wavelength.make_hollow',text='Make Hollow')
-        ent_col=box.column();ent_col.enabled=s.engine!='blender'
-        ent_col.label(text='Entities',icon='EMPTY_ARROWS');ent_col.prop(s,'entity_choice',text='Class');row=ent_col.row(align=True);row.operator('wavelength.add_entity',text='Create Point Entity',icon='ADD');row.operator('wavelength.brush_entity',text='Make Brush Entity')
-        row=ent_col.row(align=True);op=row.operator('wavelength.entity_browser',text='Entity Asset Browser',icon='EMPTY_ARROWS');op.section='ENTITIES';row.operator('wavelength.entity_browser_refresh',text='',icon='FILE_REFRESH')
-        active=_resolve_brush_object(context.object)
-        if active and active.get('wl_role')=='BRUSH' and active.get('wl_entity_id'):
-            entity_box=box.box();pairs=dict(json.loads(active.get('wl_entity_pairs','[]')));members=_brush_entity_members(context.scene,active.get('wl_entity_id'))
-            entity_box.label(text=f"Brush Entity: {pairs.get('classname','<missing>')} ({len(members)} solids)",icon='OUTLINER_OB_MESH')
-            row=entity_box.row(align=True);row.operator('wavelength.brush_entity_add',text='Add Selected');row.operator('wavelength.brush_entity_remove',text='Remove Selected')
-            entity_box.operator('wavelength.brush_entity_to_world',text='Convert Entire Entity to World')
-        box=l.box();box.enabled=s.engine!='blender';box.label(text='Brush Tools',icon='MOD_BOOLEAN');box.prop(s,'clip_axis',expand=True);box.prop(s,'clip_distance');box.prop(s,'clip_flip');box.operator('wavelength.clip')
-        box.operator('wavelength.duplicate_assembly');box.operator('wavelength.bake_static')
-        box=l.box();box.enabled=s.engine!='blender';box.label(text='Map Workflow',icon='FILE_FOLDER');row=box.row(align=True);row.operator('wavelength.import_map');row.operator('wavelength.export_map')
-
-        row=box.row(align=True);row.operator('wavelength.validate');row.operator('wavelength.build')
-        box.prop(s,'build_output')
+        l.prop(s,'build_output')
+        row=l.row(align=True);row.operator('wavelength.validate_alpha',text='Validate');row.operator('wavelength.build',text='Build');row.operator('wavelength.launch',text='Play')
+        if _JOB:
+            l.progress(factor=_JOB.index/max(1,len(_JOB.commands)),type='BAR',text='Compiler stages')
+            l.operator('wavelength.cancel_build',text='Cancel Build')
+        l.label(text=s.status[:100],icon='INFO')
         if s.build_error:
             import textwrap
-            error=box.box();error.alert=True;error.label(text='Build failed',icon='ERROR')
+            box=l.box();box.alert=True
             for line in s.build_error.splitlines():
-                for part in textwrap.wrap(line,width=max(24,int(context.region.width/7)-8)):
-                    error.label(text=part)
-        if s.build_log_dir:
-            box.prop(s,'build_log_dir');box.operator('wavelength.build_logs')
-        row=box.row(align=True);row.operator('wavelength.launch');row.operator('wavelength.cancel_build',text='Cancel')
+                for part in textwrap.wrap(line, width=60):box.label(text=part)
+        if s.build_log_dir:l.operator('wavelength.build_logs')
+        l.operator('wavelength.show_leak')
+
+
+class WL_PT_main(bpy.types.Panel):
+    bl_label='Wavelength Map';bl_idname='WL_PT_main'
+    bl_space_type='PROPERTIES';bl_region_type='WINDOW';bl_context='scene';bl_order=-20
+    @classmethod
+    def poll(cls,context):return workspace.active(context)
+    def draw(self,context):
+        s=context.scene.wavelength;l=self.layout;l.use_property_split=True
+        l.prop(s,'engine');l.prop(s,'map_name');l.prop(s,'unit_scale')
+        l.label(text=s.status[:100],icon='INFO')
 
 
 class WL_OT_system_select(bpy.types.Operator):
@@ -1220,7 +1215,7 @@ class WL_PT_system_tree(bpy.types.Panel):
                 op=row.operator('wavelength.system_visibility',text='',icon='HIDE_ON' if hidden else 'HIDE_OFF');op.object_name=obj.name
 
 class WL_PT_project(bpy.types.Panel):
-    bl_label='Project & Tools';bl_idname='WL_PT_project';bl_space_type='VIEW_3D';bl_region_type='UI';bl_category='wavelength';bl_parent_id='WL_PT_main';bl_options={'DEFAULT_CLOSED'}
+    bl_label='Project & Toolchain';bl_idname='WL_PT_project';bl_space_type='PROPERTIES';bl_region_type='WINDOW';bl_context='scene';bl_parent_id='WL_PT_main';bl_options={'DEFAULT_CLOSED'}
     def draw(self,context):
         l=self.layout;s=context.scene.wavelength;l.use_property_split=True
         l.operator('wavelength.setup')
@@ -1244,18 +1239,24 @@ class WL_PT_project(bpy.types.Panel):
 
 
 class WL_PT_worldspawn(bpy.types.Panel):
-    bl_label='Worldspawn';bl_idname='WL_PT_worldspawn';bl_space_type='VIEW_3D';bl_region_type='UI';bl_category='wavelength';bl_parent_id='WL_PT_main';bl_options={'DEFAULT_CLOSED'}
+    bl_label='Worldspawn';bl_idname='WL_PT_worldspawn';bl_space_type='PROPERTIES';bl_region_type='WINDOW';bl_context='scene';bl_parent_id='WL_PT_main';bl_options={'DEFAULT_CLOSED'}
     def draw(self,context):
         l=self.layout;s=context.scene.wavelength;l.prop(s,'worldspawn_json');l.operator('wavelength.worldspawn')
         l.label(text='classname is always worldspawn')
 
 class WL_PT_relationships(bpy.types.Panel):
-    bl_label='Entity Relationships';bl_idname='WL_PT_relationships';bl_space_type='VIEW_3D';bl_region_type='UI';bl_category='wavelength';bl_parent_id='WL_PT_main';bl_options={'DEFAULT_CLOSED'}
+    bl_label='Entity Relationships';bl_idname='WL_PT_relationships';bl_space_type='PROPERTIES';bl_region_type='WINDOW';bl_context='object';bl_parent_id='WL_PT_entity';bl_options={'DEFAULT_CLOSED'}
+    @classmethod
+    def poll(cls,context):
+        return workspace.active(context) and _entity_property_target(context.object)[0] is not None
     def draw(self,context):
         l=self.layout;row=l.row(align=True);a=row.operator('wavelength.select_target',text='Select Targets');a.direction='TARGET';a=row.operator('wavelength.select_target',text='Select Sources');a.direction='SOURCE'
 
 class WL_PT_entity(bpy.types.Panel):
-    bl_label='Entity Properties';bl_idname='WL_PT_entity';bl_space_type='VIEW_3D';bl_region_type='UI';bl_category='wavelength';bl_parent_id='WL_PT_main';bl_options={'DEFAULT_CLOSED'}
+    bl_label='Entity Properties';bl_idname='WL_PT_entity';bl_space_type='PROPERTIES';bl_region_type='WINDOW';bl_context='object';bl_order=-20
+    @classmethod
+    def poll(cls,context):
+        return workspace.active(context) and _entity_property_target(context.object)[0] is not None
     def draw(self,context):
         l=self.layout;s=context.scene.wavelength
         key,pairs,binding=_entity_property_target(context.object)
@@ -1284,7 +1285,10 @@ class WL_PT_entity(bpy.types.Panel):
         apply=fields.operator('wavelength.entity_properties',text='Apply to This Entity',icon='CHECKMARK');apply.apply=True
 
 class WL_PT_texture(bpy.types.Panel):
-    bl_label='Face Textures';bl_idname='WL_PT_texture';bl_space_type='VIEW_3D';bl_region_type='UI';bl_category='wavelength';bl_parent_id='WL_PT_main';bl_options={'DEFAULT_CLOSED'}
+    bl_label='Face Textures';bl_idname='WL_PT_texture';bl_space_type='VIEW_3D';bl_region_type='UI';bl_category='Item'
+    @classmethod
+    def poll(cls,context):
+        return workspace.active(context) and context.mode=='EDIT_MESH' and context.scene.wavelength.engine!='blender'
     def draw(self,context):
         l=self.layout;s=context.scene.wavelength
         pub,total,loading=asset_browser.sync_status(s)
@@ -1292,12 +1296,14 @@ class WL_PT_texture(bpy.types.Panel):
         op=ab_row.operator('wavelength.entity_browser',text='Open Texture Asset Browser',icon='TEXTURE');op.section='TEXTURES'
         ab_row.operator('wavelength.refresh_textures',text='',icon='FILE_REFRESH')
         if s.engine!='blender':
-            l.label(text=f'Asset Browser: {pub}/{total} textures' + (' (loading…)' if loading else ' ready'),icon='ASSET_MANAGER')
+            l.label(text=asset_browser.texture_status_label(),icon='ASSET_MANAGER')
         if profiles.is_source(s.engine):
             l.label(text='Source material path (without materials/ or .vmt)')
             l.operator('wavelength.resolve_textures');l.operator('wavelength.preview_textures')
             for name in ('texture','shift_u','shift_v','texture_rotation','texture_scale_u','texture_scale_v'):l.prop(s,name)
-            l.operator('wavelength.apply_texture');l.prop(s,'live_texture_reproject')
+            row=l.row(align=True);row.operator('wavelength.read_face_texture');row.operator('wavelength.apply_texture')
+            l.prop(s,'live_texture_reproject')
+            _draw_face_actions(l)
             return
         l.prop(s,'wad_path');row=l.row(align=True);row.operator('wavelength.add_wad',text='Add WAD',icon='FILE_FOLDER');row.operator('wavelength.refresh_textures',text='Reload',icon='FILE_REFRESH')
         for path in json.loads(s.texture_wads):
@@ -1310,10 +1316,8 @@ class WL_PT_texture(bpy.types.Panel):
         l.use_property_split=True
         for name in ('texture','shift_u','shift_v','texture_rotation','texture_scale_u','texture_scale_v'):l.prop(s,name)
         row=l.row(align=True);row.operator('wavelength.read_face_texture',text='Read Selected Face',icon='EYEDROPPER');row.operator('wavelength.apply_texture',text='Apply to Selected')
-        row=l.row(align=True)
-        for action,label in [('RESET','Reset'),('ROT90','+90°'),('FLIP_U','Flip U'),('FLIP_V','Flip V')]:
-            op=row.operator('wavelength.texture_nudge',text=label);op.action=action
         l.operator('wavelength.select_by_texture',text='Select Brushes Using Texture')
+        _draw_face_actions(l)
 
 
 
@@ -1382,7 +1386,7 @@ class WL_OT_select_target(SafeOperator,bpy.types.Operator):
             if vals.get('targetname' if self.direction=='TARGET' else 'target')==key:obj.select_set(True)
 
 class WL_PT_diagnostics(bpy.types.Panel):
-    bl_label='Diagnostics & CLI Log';bl_idname='WL_PT_diagnostics';bl_space_type='VIEW_3D';bl_region_type='UI';bl_category='wavelength';bl_parent_id='WL_PT_main';bl_options={'DEFAULT_CLOSED'}
+    bl_label='Diagnostics & CLI Log';bl_idname='WL_PT_diagnostics';bl_space_type='PROPERTIES';bl_region_type='WINDOW';bl_context='scene';bl_parent_id='WL_PT_build';bl_options={'DEFAULT_CLOSED'}
     def draw(self,context):
         from . import diagnostics
         s=context.scene.wavelength
@@ -1494,6 +1498,9 @@ class WL_OT_property_remove(bpy.types.Operator):
 
 class WL_OT_clip(SafeOperator,bpy.types.Operator):
     bl_idname='wavelength.clip';bl_label='Clip Selected Brushes';bl_options={'REGISTER','UNDO'}
+    def invoke(self,context,event):return context.window_manager.invoke_props_dialog(self)
+    def draw(self,context):
+        for name in ('clip_axis','clip_distance','clip_flip'):self.layout.prop(context.scene.wavelength,name)
     def run(self,context):
         from .editor import clipped_mesh,clip
         s=context.scene.wavelength;normal=[0.,0.,0.];normal['XYZ'.index(s.clip_axis)]=-1 if s.clip_flip else 1
@@ -1704,7 +1711,7 @@ class WL_OT_texture_browser(bpy.types.Operator):
 
 class WL_OT_refresh_textures(bpy.types.Operator):
     bl_idname='wavelength.refresh_textures';bl_label='Refresh Texture Browser'
-    def execute(self,context):textures.refresh(context.scene.wavelength,context);return {'FINISHED'}
+    def execute(self,context):asset_browser.schedule_profile_sync(context,force=True);return {'FINISHED'}
 
 class WL_OT_texture_page(bpy.types.Operator):
     bl_idname='wavelength.texture_page';bl_label='Texture Page'
@@ -1814,9 +1821,10 @@ class WL_OT_source_output(SafeOperator,bpy.types.Operator):
         for member in members:member[key]=json.dumps(pairs)
 
 class WL_PT_source_outputs(bpy.types.Panel):
-    bl_label='Source Entity Outputs';bl_idname='WL_PT_source_outputs';bl_space_type='VIEW_3D';bl_region_type='UI';bl_category='wavelength';bl_parent_id='WL_PT_main';bl_options={'DEFAULT_CLOSED'}
+    bl_label='Source Entity Outputs';bl_idname='WL_PT_source_outputs';bl_space_type='PROPERTIES';bl_region_type='WINDOW';bl_context='object';bl_parent_id='WL_PT_entity';bl_options={'DEFAULT_CLOSED'}
     @classmethod
-    def poll(cls,context):return profiles.is_source(context.scene.wavelength.engine)
+    def poll(cls,context):
+        return workspace.active(context) and _entity_property_target(context.object)[0] is not None and profiles.is_source(context.scene.wavelength.engine)
     def draw(self,context):
         from .vmf import OUTPUT
         l=self.layout;obj=_resolve_brush_object(context.object)
@@ -1829,7 +1837,7 @@ class WL_PT_source_outputs(bpy.types.Panel):
         l.operator('wavelength.source_output',text='Add Output',icon='ADD')
 
 
-_CLASSES=[WL_OT_source_material,WL_OT_source_output,brush_create.WL_OT_brush_hover,brush_create.WL_OT_cube_brush,brush_create.WL_OT_cylinder_brush,brush_create.WL_OT_cone_brush,brush_create.WL_OT_sphere_brush,brush_create.WL_OT_arch_brush,brush_create.WL_OT_stairs_brush,WLTextureBrowserItem,WLTextureGalleryRow,WL_UL_texture_browser,WL_UL_texture_gallery,WL_OT_texture_browser_pick,WL_OT_texture_browser,WL_OT_add_wad,WL_OT_select_wad,WL_OT_remove_wad,WL_OT_refresh_textures,WL_OT_texture_page,WL_OT_quake_textures,WL_OT_resolve_textures,WL_OT_preview_textures,WLKey,WLSettings,WL_OT_property_add,WL_OT_property_custom_add,WL_OT_property_remove,WL_OT_clip,WL_OT_duplicate,WL_OT_bake,WL_OT_save_project,WL_OT_load_project,WL_OT_setup,WL_OT_brush,WL_OT_hollow,WL_OT_mark,WL_OT_ids,WL_OT_snap,WL_OT_grid_step,WL_OT_entity,WL_OT_entity_search,WL_OT_entity_browse,WL_MT_add_entity,WL_MT_add,WL_OT_brush_entity,WL_OT_brush_entity_add,WL_OT_brush_entity_remove,WL_OT_brush_entity_to_world,WL_OT_properties,WL_OT_read_face_texture,WL_OT_texture,WL_OT_validate_alpha,WL_OT_select_problem,WL_OT_worldspawn,WL_OT_texture_nudge,WL_OT_select_by_texture,WL_OT_select_target,WL_OT_import,WL_OT_export,WL_OT_validate,WL_OT_build,WL_OT_cancel,WL_OT_logs,WL_OT_launch,WL_OT_leak,WL_OT_system_select,WL_OT_system_select_category,WL_OT_system_visibility,WL_OT_system_category_visibility,WL_PT_main,WL_PT_source_outputs,WL_PT_system_tree,WL_PT_project,WL_PT_worldspawn,WL_PT_relationships,WL_PT_entity,WL_PT_texture,WL_PT_diagnostics]
+_CLASSES=[WL_OT_source_material,WL_OT_source_output,brush_create.WL_OT_brush_hover,brush_create.WL_OT_cube_brush,brush_create.WL_OT_cylinder_brush,brush_create.WL_OT_cone_brush,brush_create.WL_OT_sphere_brush,brush_create.WL_OT_arch_brush,brush_create.WL_OT_stairs_brush,WLTextureBrowserItem,WLTextureGalleryRow,WL_UL_texture_browser,WL_UL_texture_gallery,WL_OT_texture_browser_pick,WL_OT_texture_browser,WL_OT_add_wad,WL_OT_select_wad,WL_OT_remove_wad,WL_OT_refresh_textures,WL_OT_texture_page,WL_OT_quake_textures,WL_OT_resolve_textures,WL_OT_preview_textures,WLKey,WLSettings,WL_OT_property_add,WL_OT_property_custom_add,WL_OT_property_remove,WL_OT_clip,WL_OT_duplicate,WL_OT_bake,WL_OT_save_project,WL_OT_load_project,WL_OT_setup,WL_OT_brush,WL_OT_hollow,WL_OT_mark,WL_OT_ids,WL_OT_snap,WL_OT_grid_step,WL_OT_entity,WL_OT_entity_search,WL_OT_entity_browse,WL_MT_add_entity,WL_MT_add,WL_OT_brush_entity,WL_OT_brush_entity_add,WL_OT_brush_entity_remove,WL_OT_brush_entity_to_world,WL_OT_properties,WL_OT_read_face_texture,WL_OT_texture,WL_OT_validate_alpha,WL_OT_select_problem,WL_OT_worldspawn,WL_OT_texture_nudge,WL_OT_select_by_texture,WL_OT_select_target,WL_OT_import,WL_OT_export,WL_OT_validate,WL_OT_build,WL_OT_cancel,WL_OT_logs,WL_OT_launch,WL_OT_leak,WL_OT_system_select,WL_OT_system_select_category,WL_OT_system_visibility,WL_OT_system_category_visibility,WL_PT_main,WL_PT_build,WL_PT_project,WL_PT_worldspawn,WL_PT_entity,WL_PT_relationships,WL_PT_source_outputs,WL_PT_texture,WL_PT_diagnostics]
 
 def _safe_unregister_class(cls):
     # A failed/reloaded add-on can leave the *old module instance* of an RNA class
@@ -1837,6 +1845,9 @@ def _safe_unregister_class(cls):
     # the freshly imported cls, but Blender still rejects the new class by name.
     # Unregister whichever class object Blender currently owns for this RNA name.
     try:
+        if getattr(cls, 'is_registered', False):
+            bpy.utils.unregister_class(cls)
+            return
         registered = getattr(bpy.types, cls.__name__, None)
         if registered is not None:
             bpy.utils.unregister_class(registered)
@@ -1856,6 +1867,10 @@ def register():
         # WorkSpaceTool registration itself is context-free. Keep it registered
         # for the add-on lifetime so Blender's toolbar can discover it reliably.
         brush_create.register_tool()
+        from . import native_ui
+        native_ui.register()
+        from . import sun
+        sun.register()
         # Tool-system changes may not repaint an already-open toolbar immediately.
         # Defer redraw until normal runtime context is restored after add-on register().
         def _redraw_view3d_once():
@@ -1869,6 +1884,10 @@ def register():
             return None
         bpy.app.timers.register(_redraw_view3d_once, first_interval=0.05)
     except Exception:
+        from . import sun
+        sun.unregister()
+        from . import native_ui
+        native_ui.unregister()
         try:bpy.types.VIEW3D_MT_add.remove(_draw_view3d_add_menu)
         except Exception:pass
         # Make registration transactional: never strand classes after a later failure.
@@ -1900,6 +1919,10 @@ def register():
 
 def unregister():
     global _JOB
+    from . import sun
+    sun.unregister()
+    from . import native_ui
+    native_ui.unregister()
     try:bpy.types.VIEW3D_MT_add.remove(_draw_view3d_add_menu)
     except Exception:pass
     if _JOB:_JOB.cancel();_JOB=None

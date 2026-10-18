@@ -124,6 +124,8 @@ def material(settings,name,preferred=None,target_mat=None):
     mat['wl_asset_profile']=settings.engine;mat['wl_realized']=True
     mat['wl_asset_origin']='User-installed game/WAD; local use, not bundled'
     nodes=mat.node_tree.nodes;shader=nodes.get('Principled BSDF') or next((n for n in nodes if n.type=='BSDF_PRINCIPLED'),None) or nodes.new('ShaderNodeBsdfPrincipled')
+    output=next((n for n in nodes if n.type=='OUTPUT_MATERIAL'),None) or nodes.new('ShaderNodeOutputMaterial')
+    if not output.inputs['Surface'].is_linked:mat.node_tree.links.new(shader.outputs['BSDF'],output.inputs['Surface'])
     tex=next((n for n in nodes if n.type=='TEX_IMAGE'),None) or nodes.new('ShaderNodeTexImage');tex.image=image;tex.interpolation='Closest';tex.extension='REPEAT'
     uv=next((n for n in nodes if n.type=='UVMAP'),None) or nodes.new('ShaderNodeUVMap');uv.uv_map='wavelength'
     mat.node_tree.links.new(uv.outputs['UV'],tex.inputs['Vector'])
@@ -189,31 +191,12 @@ def assign(obj,indices,mat):
 
 
 def refresh(settings,context=None):
-    """Build the selector from all usable WADs, not the first existing file."""
-    global _items,_previews
+    """Start/cache external previews without decoding or indexing on the UI thread."""
+    global _items
     _items=[]
-    if _previews is not None:
-        _previews.clear()
-    try:
-        names=all_names(settings,settings.texture_search)
-        pages=max(1,(len(names)+PAGE_SIZE-1)//PAGE_SIZE)
-        page=min(max(0,settings.texture_page),pages-1)
-        settings.texture_count=len(names)
-        if not bpy.app.background and _previews is None:
-            from bpy.utils import previews
-            _previews=previews.new()
-        for index,name in enumerate(names[page*PAGE_SIZE:(page+1)*PAGE_SIZE]):
-            _items.append((name,name,'Texture from registered WADs',preview_icon(settings,name),index))
-        if _items and settings.texture_choice not in {item[0] for item in _items}:
-            settings.texture_choice=_items[0][0]
-        settings.status=f'{len(names)} textures · page {page+1}/{pages}'
-    except (ValueError,OSError,UnicodeError) as exc:
-        settings.status=str(exc)
-    try:
-        from . import asset_browser
-        asset_browser.schedule_profile_sync(context,settings=settings)
-    except Exception:
-        pass
+    if _previews is not None:_previews.clear()
+    from . import asset_browser
+    asset_browser.schedule_profile_sync(context,settings=settings)
 
 
 

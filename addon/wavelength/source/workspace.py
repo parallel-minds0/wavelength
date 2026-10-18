@@ -31,7 +31,8 @@ def ensure(context, reset=False):
     created[MARKER] = True
     for area in created.screens[0].areas:
         if area.type == 'VIEW_3D':
-            area.spaces.active.show_region_ui = True
+            area.spaces.active.show_region_ui = False
+            area.spaces.active.show_region_tool_header = True
     context.window.workspace = original
     return created
 
@@ -65,8 +66,14 @@ def watch():
                     from .entity.browser import ensure_browser_layout
                     ensure_browser_layout(bpy.context);ws['wl_layout_ready']=True
                 settings=window.scene.wavelength
+                if settings.engine!='blender':
+                    from . import external_library,asset_browser
+                    texture_token=repr(tuple(getattr(settings,k) for k in external_library.FIELDS))
+                    if external_library._key is None or ws.get('wl_texture_catalog')!=texture_token:
+                        asset_browser.schedule_profile_sync(bpy.context)
+                        ws['wl_texture_catalog']=texture_token
                 token=settings.engine+'|'+settings.fgd_path
-                if settings.engine!='blender' and ws.get('wl_entity_catalog')!=token:
+                if settings.engine!='blender' and settings.asset_browser_section=='ENTITIES' and ws.get('wl_entity_catalog')!=token:
                     from .entity.browser import rebuild
                     rebuild(bpy.context);ws['wl_entity_catalog']=token
     except (RuntimeError,AttributeError,ValueError) as exc:

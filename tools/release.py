@@ -17,7 +17,7 @@ def run(*args, capture=False):
                           stdout=subprocess.PIPE if capture else None).stdout
 
 def version():
-    tree=ast.parse((ROOT/'addon/wavelength/__init__.py').read_text())
+    tree=ast.parse((ROOT/'addon/wavelength/__init__.py').read_text(encoding='utf-8'))
     info=next(ast.literal_eval(n.value) for n in tree.body
               if isinstance(n,ast.Assign) and any(isinstance(t,ast.Name) and t.id=='bl_info' for t in n.targets))
     return '.'.join(map(str,info['version']))+'-pre.alpha'
@@ -42,7 +42,7 @@ def validate():
         if not (ROOT/'addon/wavelength/source/build'/relative).is_file():
             raise RuntimeError(f'Missing build package source: {relative}')
     for base in ('addon','installer','tools','tests'):
-        for file in (ROOT/base).rglob('*.py'):ast.parse(file.read_text(),filename=str(file))
+        for file in (ROOT/base).rglob('*.py'):ast.parse(file.read_text(encoding='utf-8'),filename=str(file))
     run(sys.executable,'-m','unittest','discover','-s','tests','-v')
     run(sys.executable,'installer/cli.py','build-native')
     package()
@@ -75,7 +75,7 @@ def main():
         raise RuntimeError('Nested repository would omit source from release')
     changes=run('git','diff','--cached','--name-only',capture=True).strip()
     if changes:run('git','commit','-m',f'Release {tag}')
-    run('git','tag','-a',tag,'-m',f'Wavelength {tag}; native renderer integration remains experimental and unimplemented')
+    run('git','tag','-a',tag,'-m',f'Wavelength {tag}; native patch compatibility is checksum-bound')
     run('git','push','--atomic','origin',f'HEAD:refs/heads/{branch}',f'refs/tags/{tag}')
     print(json.dumps({'published_tag':tag,'commit':run('git','rev-parse','HEAD',capture=True).strip()}))
 

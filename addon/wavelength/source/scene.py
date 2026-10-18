@@ -113,6 +113,9 @@ def export_map(scene):
             else:world.brushes.append(brush)
         elif role=='ENTITY':
             pairs=json.loads(obj.get('wl_pairs','[]'))
+            if dict(pairs).get('classname')=='light_environment':
+                from . import sun
+                pairs=sun.export_pairs(obj,pairs)
             if not any(k=='classname' for k,v in pairs):raise BrushError('ENTITY_CLASS_MISSING',obj.name)
             origin=' '.join(formats.number(x/obj.get('wl_unit_meters',1.0)) for x in obj.matrix_world.translation)
             pairs=[(k,origin if k=='origin' else v) for k,v in pairs]
@@ -174,6 +177,9 @@ def import_map(scene,document):
             obj['wl_role']='ENTITY';obj['wl_id']=uid();obj['wl_pairs']=json.dumps(entity.pairs)
             collection.objects.link(obj);created.append(obj)
             if profiles.is_goldsrc(scene.wavelength.engine):entity_models.attach_reference(obj,entity.pairs)
+            if values.get('classname')=='light_environment':
+                from . import sun
+                sun.ensure(obj)
         scene['wl_world_pairs']=json.dumps(world[0].pairs)
     except Exception:
         for obj in created:bpy.data.objects.remove(obj,do_unlink=True)

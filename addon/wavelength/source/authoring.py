@@ -184,7 +184,7 @@ class WL_PT_authoring(bpy.types.Panel):
             box=l.box();box.label(text='Paths & Relationships',icon='TRACKING');box.operator('wavelength.path_chain');box.operator('wavelength.select_class')
         box=l.box();box.label(text='Face Mapping',icon='UV');row=box.row(align=True);row.operator('wavelength.texture_copy');row.operator('wavelength.texture_paste')
 
-CLASSES=(WL_OT_asset_entity,WL_OT_special_brush,WL_OT_origin_brush,WL_OT_path_chain,WL_OT_select_class,WL_OT_asset_report,WL_OT_texture_copy,WL_OT_texture_paste,WL_OT_flag_toggle,WL_OT_choice_set,WL_PT_authoring)
+CLASSES=(WL_OT_asset_entity,WL_OT_special_brush,WL_OT_origin_brush,WL_OT_path_chain,WL_OT_select_class,WL_OT_asset_report,WL_OT_texture_copy,WL_OT_texture_paste,WL_OT_flag_toggle,WL_OT_choice_set)
 def register():
     for cls in CLASSES:bpy.utils.register_class(cls)
 def unregister():

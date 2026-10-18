@@ -401,7 +401,7 @@ class WL_OT_primitive(bpy.types.Operator):
 
 
 class WL_PT_primitive(bpy.types.Panel):
-    bl_label='Assembly & Primitive Parameters';bl_idname='WL_PT_primitive';bl_space_type='VIEW_3D';bl_region_type='UI';bl_category='wavelength'
+    bl_label='Assembly & Primitive Parameters';bl_idname='WL_PT_primitive';bl_space_type='PROPERTIES';bl_region_type='WINDOW';bl_context='object'
     @classmethod
     def poll(cls,context):
         active=getattr(context,'edit_object',None) or getattr(context,'object',None)

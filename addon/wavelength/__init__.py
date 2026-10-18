@@ -2,9 +2,9 @@
 bl_info = {
     "name": "Wavelength",
     "author": "Wavelength contributors",
-    "version": (0, 16, 2),
+    "version": (0, 19, 0),
     "blender": (4, 5, 0),
-    "location": "3D View > Sidebar > Wavelength",
+    "location": "Wavelength Workspace; Scene and Object Properties",
     "description": "Quake and GoldSrc level authoring",
     "category": "Import-Export",
 }

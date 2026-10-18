@@ -152,13 +152,24 @@ def decode_vtf(data,max_dimension=512):
     for mip in range(mips-1,wanted,-1):offset+=image_size(max(1,width>>mip),max(1,height>>mip),fmt)*frames
     w,h=max(1,width>>wanted),max(1,height>>wanted);size=image_size(w,h,fmt)
     if offset<header or offset+size>len(data):raise ValueError('Truncated VTF image')
-    pixels=data[offset:offset+size];rgba=bytearray(w*h*4)
+    pixels=data[offset:offset+size]
+    # A VTF may contain only its largest mip. Bound decoded preview allocation
+    # and work even then, rather than expanding the whole image before resizing.
+    if not isinstance(max_dimension,int) or not 1<=max_dimension<=4096:
+        raise ValueError('Invalid VTF preview dimension')
+    ratio=min(1.0,max_dimension/max(w,h))
+    pw,ph=max(1,int(w*ratio)),max(1,int(h*ratio))
+    sample_x={min(w-1,x*w//pw):x for x in range(pw)}
+    sample_y={min(h-1,y*h//ph):y for y in range(ph)}
+    rgba=bytearray(pw*ph*4)
     def put(x,y,color):
-        if x<w and y<h:rgba[((h-1-y)*w+x)*4:((h-1-y)*w+x)*4+4]=bytes(color)
+        if x in sample_x and y in sample_y:
+            at=((ph-1-sample_y[y])*pw+sample_x[x])*4
+            rgba[at:at+4]=bytes(color)
     if fmt in (13,14,15,20):
         stride=8 if fmt in (13,20) else 16
-        for by in range((h+3)//4):
-            for bx in range((w+3)//4):
+        for by in sorted({y//4 for y in sample_y}):
+            for bx in sorted({x//4 for x in sample_x}):
                 off=(by*((w+3)//4)+bx)*stride;block=pixels[off:off+stride];c=0 if stride==8 else 8
                 a,b,bits=struct.unpack_from('<HHI',block,c)
                 def rgb(v):return ((v>>11)*255//31,((v>>5)&63)*255//63,(v&31)*255//31,255)
@@ -176,19 +187,21 @@ def decode_vtf(data,max_dimension=512):
                     put(bx*4+i%4,by*4+i//4,color)
     else:
         channels=image_size(1,1,fmt)
-        for i in range(w*h):
-            p=pixels[i*channels:(i+1)*channels]
-            if fmt==0:color=p
-            elif fmt==1:color=(p[3],p[2],p[1],p[0])
-            elif fmt==2:color=(*p,255)
-            elif fmt==3:color=(p[2],p[1],p[0],255)
-            elif fmt==5:color=(p[0],p[0],p[0],255)
-            elif fmt==6:color=(p[0],p[0],p[0],p[1])
-            elif fmt==8:color=(255,255,255,p[0])
-            elif fmt==11:color=(p[1],p[2],p[3],p[0])
-            else:color=(p[2],p[1],p[0],p[3] if fmt==12 else 255)
-            put(i%w,i//w,color)
-    return width,height,w,h,rgba
+        for y in sample_y:
+            for x in sample_x:
+                i=y*w+x
+                p=pixels[i*channels:(i+1)*channels]
+                if fmt==0:color=p
+                elif fmt==1:color=(p[3],p[2],p[1],p[0])
+                elif fmt==2:color=(*p,255)
+                elif fmt==3:color=(p[2],p[1],p[0],255)
+                elif fmt==5:color=(p[0],p[0],p[0],255)
+                elif fmt==6:color=(p[0],p[0],p[0],p[1])
+                elif fmt==8:color=(255,255,255,p[0])
+                elif fmt==11:color=(p[1],p[2],p[3],p[0])
+                else:color=(p[2],p[1],p[0],p[3] if fmt==12 else 255)
+                put(i%w,i//w,color)
+    return width,height,pw,ph,rgba
 
 _cache={}
 def library(game):
@@ -220,6 +233,8 @@ def material(settings,name,target_mat=None):
     mat['wl_asset_profile']=settings.engine;mat['wl_realized']=True
     mat['wl_asset_origin']='User-installed Source game; private preview'
     nodes=mat.node_tree.nodes;shader=nodes.get('Principled BSDF') or next((n for n in nodes if n.type=='BSDF_PRINCIPLED'),None) or nodes.new('ShaderNodeBsdfPrincipled')
+    output=next((n for n in nodes if n.type=='OUTPUT_MATERIAL'),None) or nodes.new('ShaderNodeOutputMaterial')
+    if not output.inputs['Surface'].is_linked:mat.node_tree.links.new(shader.outputs['BSDF'],output.inputs['Surface'])
     tex=next((n for n in nodes if n.type=='TEX_IMAGE'),None) or nodes.new('ShaderNodeTexImage');tex.image=image
     uv=next((n for n in nodes if n.type=='UVMAP'),None) or nodes.new('ShaderNodeUVMap');uv.uv_map='wavelength'
     mat.node_tree.links.new(uv.outputs['UV'],tex.inputs['Vector'])
