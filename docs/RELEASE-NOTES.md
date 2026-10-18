@@ -1,3 +1,9 @@
+# v0.19.1-pre.alpha — Garry's Mod profile
+
+- Add a dedicated Windows Garry's Mod Source profile with Steam App ID 4000.
+- Discover GarrysMod/garrysmod, Garry's Mod's win64 VBSP/VVIS/VRAD tools and garrysmod.fgd without falling back to HL2 setup.
+- Verified the installed game, all three compiler startup banners, 564 FGD definitions and 6,016 indexed materials. The private cache contains 5,516 supported previews and reports 500 unsupported materials.
+
 # v0.19.0-pre.alpha — Windows authoring and interactive sun
 
 Includes the following development milestones since v0.16.2: Blender-native UI,

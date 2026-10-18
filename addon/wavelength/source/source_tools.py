@@ -2,17 +2,22 @@
 from pathlib import Path
 import os,struct
 
-def defaults(platform):
+def defaults(platform,engine=None):
+    from . import profiles
+    gmod=profiles.get(engine).get('game')=='gmod'
     bases=[Path.home()/'.local/share/Steam/steamapps/common',Path.home()/'.steam/steam/steamapps/common']
     if os.name=='nt':bases.insert(0,Path(os.environ.get('PROGRAMFILES(X86)','C:/Program Files (x86)'))/'Steam/steamapps/common')
     for base in bases:
-        root=base/'Half-Life 2'
-        if (root/'hl2/gameinfo.txt').is_file():
+        root=base/('GarrysMod' if gmod else 'Half-Life 2')
+        game=root/('garrysmod' if gmod else 'hl2')
+        if (game/'gameinfo.txt').is_file():
             candidates=[root/'bin',root/'bin/linux64',root/'bin/x64',Path(__file__).resolve().parents[4]/'bin/source-tools-plusplus/tools++_linux']
+            if gmod:candidates.insert(0,root/'bin/win64')
             if os.environ.get('WAVELENGTH_SOURCE_TOOLS'):candidates.insert(0,Path(os.environ['WAVELENGTH_SOURCE_TOOLS']))
             tool=next((d for d in candidates if any((d/n).is_file() for n in ('vbsp','vbsp_linux','vbsp++','vbsp.exe'))),root/'bin')
-            definition=next((p for p in (root/'bin/halflife2.fgd',root/'bin/x64/halflife2.fgd') if p.is_file()),None)
-            game=root/'hl2_complete' if (root/'hl2_complete/gameinfo.txt').is_file() else root/'hl2'
+            fgd='garrysmod.fgd' if gmod else 'halflife2.fgd'
+            definition=next((p for p in (root/'bin'/fgd,root/'bin/x64'/fgd) if p.is_file()),None)
+            if not gmod and (root/'hl2_complete/gameinfo.txt').is_file():game=root/'hl2_complete'
             return {'game_dir':str(game),'compiler_dir':str(tool),'fgd_path':str(definition) if definition else '',
                     'launch_args':'["-console", "-dev", "-game", "{game_dir}", "+map", "{map}"]'}
     return {'launch_args':'["-console", "-dev", "-game", "{game_dir}", "+map", "{map}"]'}

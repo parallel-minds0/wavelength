@@ -2,7 +2,7 @@
 
 Blender brush-map authoring for Quake, Half-Life/GoldSrc, and Half-Life 2/Source 1.
 
-The [Windows release](https://github.com/parallel-minds0/wavelength/releases/tag/v0.19.0-pre.alpha) includes a tested native-grid installer for the exact Blender 5.2.3 LTS Release Candidate Windows x64 build `32ede9dba158`. See [installation and validation](docs/WINDOWS-INSTALL.md).
+The [Windows release](https://github.com/parallel-minds0/wavelength/releases/tag/v0.19.1-pre.alpha) includes a tested native-grid installer for the exact Blender 5.2.3 LTS Release Candidate Windows x64 build `32ede9dba158`. See [installation and validation](docs/WINDOWS-INSTALL.md).
 
 Close Blender, extract the installer, then run:
 

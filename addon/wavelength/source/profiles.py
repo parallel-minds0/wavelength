@@ -18,6 +18,8 @@ for platform in ('linux','windows'):
         'format':'vmf','grid':16,'unit_meters':0.0254,
         'stages':['vbsp','vvis','vrad'],'bsp_version':20,
         'brush_semantics':True,'create_cube_label':'Create Cube Brush'}
+PROFILES['source_gmod_windows']={**PROFILES['source_hl2_windows'],
+    'label':"Garry's Mod — Source 1 — Windows",'steam_app_id':'4000','game':'gmod'}
 SCHEMA_VERSION=1
 
 def is_source(engine):

@@ -141,7 +141,7 @@ def engine_changed(self,context):
                         values['launch_args']=json.dumps(['-console','-dev','+map','{map}'])
             if values is not None and profiles.is_source(self.engine) and not values:
                 from .source_tools import defaults
-                values=defaults(profiles.get(self.engine)['platform'])
+                values=defaults(profiles.get(self.engine)['platform'],engine=self.engine)
             self.unit_scale=profiles.get(self.engine).get('unit_meters',1.0)
             self.grid_mode='BLENDER' if self.engine=='blender' else 'ENGINE'
             self['_wl_active_engine']=self.engine
@@ -229,7 +229,7 @@ class WLSettings(bpy.types.PropertyGroup):
     saved_profile:EnumProperty(name='Saved profiles',items=profile_ui.items)
     unit_scale:FloatProperty(name='Meters per engine unit',default=.0254,min=.000001,update=lambda s,c:grid.update(s,c))
     asset_paths:StringProperty(name='Additional asset roots (JSON)',default='[]')
-    engine:EnumProperty(name='Profile',items=[('blender','Blender — No Engine — Any Platform','Neutral Blender authoring; Wavelength does not impose engine rules'),('quake','Quake — Quake — Custom Platform','Classic Quake MAP; user-configured platform/toolchain'),('goldsrc','Half-Life — GoldSrc — Custom Platform','Valve 220 MAP; user-configured platform/toolchain'),('goldsrc_linux','Half-Life — GoldSrc — Linux','Native Half-Life 1 for Linux; discovers and indexes stock WAD3 libraries'),('goldsrc_linux_steam','Half Life 1, GoldSrc, Linux, Steam','Launch Half-Life 1 through Steam App ID 70; discovers stock WAD3 libraries'),('source_hl2_linux','Half-Life 2 — Source 1 — Linux','VMF and native Linux game runtime'),('source_hl2_windows','Half-Life 2 — Source 1 — Windows','VMF and Windows game runtime; configure Steam Proton on Linux')],default='blender',update=engine_changed)
+    engine:EnumProperty(name='Profile',items=[('blender','Blender — No Engine — Any Platform','Neutral Blender authoring; Wavelength does not impose engine rules'),('quake','Quake — Quake — Custom Platform','Classic Quake MAP; user-configured platform/toolchain'),('goldsrc','Half-Life — GoldSrc — Custom Platform','Valve 220 MAP; user-configured platform/toolchain'),('goldsrc_linux','Half-Life — GoldSrc — Linux','Native Half-Life 1 for Linux; discovers and indexes stock WAD3 libraries'),('goldsrc_linux_steam','Half Life 1, GoldSrc, Linux, Steam','Launch Half-Life 1 through Steam App ID 70; discovers stock WAD3 libraries'),('source_hl2_linux','Half-Life 2 — Source 1 — Linux','VMF and native Linux game runtime'),('source_hl2_windows','Half-Life 2 — Source 1 — Windows','VMF and Windows game runtime; configure Steam Proton on Linux'),('source_gmod_windows',"Garry's Mod — Source 1 — Windows",'Garrys Mod textures, entities and compilers; launch through Steam App ID 4000')],default='blender',update=engine_changed)
     grid_mode:EnumProperty(name='Grid',items=[('BLENDER','Metric','wavelength grid using meter-based spacing'),('ENGINE','Profile','wavelength grid using the active engine units')],default='BLENDER',update=grid.update)
     metric_grid_step:FloatProperty(name='Metric Step',default=1.0,min=.001,max=1024,update=grid.update,subtype='DISTANCE')
     grid_subdivisions:IntProperty(name='Subdivisions',default=0,min=0,max=64,description='0 uses profile default: 8 for engines, 10 for Blender',update=grid.update)
@@ -325,10 +325,10 @@ class WL_OT_setup(SafeOperator,bpy.types.Operator):
         if s.engine=='blender':raise ValueError('Select an engine before configuring an engine toolchain')
         if profiles.is_source(s.engine):
             from .source_tools import defaults
-            data=defaults(profiles.get(s.engine)['platform'])
+            data=defaults(profiles.get(s.engine)['platform'],engine=s.engine)
             for key,value in data.items():setattr(s,key,value)
             textures.refresh(s,context)
-            s.status='HL2 paths refreshed; configure SDK compilers separately'
+            s.status='Source game and toolchain paths refreshed'
             return
         root=local_root(s)
         if root is None:raise ValueError('Local checkout not found; use Load Project with the engine preset')
