@@ -46,6 +46,30 @@ class ForceTests(unittest.TestCase):
         life.remove(self.state)
         self.assertEqual(self.blender.read_bytes(),b'original!')
         self.assertFalse((self.addons/'wavelength').exists())
+    def test_owned_native_upgrade_uses_verified_original(self):
+        with self.native():self.install()
+        manifest_path=self.bundle/'bundle.json'
+        manifest=json.loads(manifest_path.read_text());manifest['native_grid_abi']=1
+        manifest_path.write_text(json.dumps(manifest))
+        directory=self.bundle/'patches/native';directory.mkdir(parents=True)
+        from installer.wavelength_installer.delta_patch import host_platform
+        original_hash=life.read_receipt(self.state)['original_sha256']
+        (directory/'manifest.json').write_text(json.dumps({'patches':[{
+            'platform':host_platform(),'input_sha256':original_hash,'output_sha256':'new-version'}]}))
+        @contextmanager
+        def prepare(binary,**kwargs):
+            self.assertEqual(binary,self.blender)
+            self.assertEqual(kwargs['original_bytes'],b'original!')
+            yield {'native_state':'available','action':'patch','patched':b'upgraded!',
+                   'recipe':None,'runtime':None,'reason':'fixture'}
+        with patch('installer.wavelength_installer.deployment.prepare',prepare):
+            data=self.install(require_native=True)
+        self.assertTrue(data['native_changed'])
+        self.assertEqual(self.blender.read_bytes(),b'upgraded!')
+        self.assertEqual((self.state/'original-blender').read_bytes(),b'original!')
+        life.remove(self.state)
+        self.assertEqual(self.blender.read_bytes(),b'original!')
+
     def test_adopted_patch_removed_structurally(self):
         from tests.test_native_states import binary
         from installer.wavelength_installer.experimental import analyze

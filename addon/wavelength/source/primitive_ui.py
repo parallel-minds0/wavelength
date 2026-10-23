@@ -1,10 +1,11 @@
 """Persistent parameter controls with transactional regeneration and Blender undo."""
 import json
 import bpy
-from . import primitives, profiles, scene, workspace, diagnostics
+from . import primitives, profiles, scene, workspace, diagnostics, procedural
 
 DEFAULTS=dict(sphere_type='ICO',subdivisions=1,radius=128.,thickness=32.,depth=64.,angle=180.,segments=8,rings=6,steps=8,rise=16.,run=32.,width=128.,landing=0.,curved=False,curve_angle=90.,inner_radius=64.,direction=0.)
 FIELDS={'ARCH':('radius','thickness','depth','angle','segments','direction'),'SPHERE':('sphere_type','radius','subdivisions','segments','rings','direction'),'STAIRS':('steps','rise','run','width','landing','curved','curve_angle','inner_radius','direction')}
+FIELDS.update(CUBE=('width','run','depth','direction'),CYLINDER=('radius','depth','segments','direction'),CONE=('radius','depth','segments','direction'))
 _SELECTED_ROOTS=set()
 _EDITING_ROOTS=set()
 _KEYMAPS=[]
@@ -105,7 +106,7 @@ def sync_assemblies(force=False):
     if bpy.app.background and not force:return None
     try:
         wm=getattr(bpy.context,'window_manager',None)
-        targets=[(w.scene,w.view_layer) for w in wm.windows] if wm and wm.windows else [(getattr(bpy.context,'scene',None),getattr(bpy.context,'view_layer',None))]
+        targets=[(w.scene,w.view_layer) for w in wm.windows if force or workspace.active(w)] if wm and wm.windows else ([(getattr(bpy.context,'scene',None),getattr(bpy.context,'view_layer',None))] if force or workspace.active() else [])
         for scene_data,view_layer in targets:
             if not scene_data or not view_layer:continue
             active=view_layer.objects.active
@@ -115,7 +116,7 @@ def sync_assemblies(force=False):
                     _EDITING_ROOTS.add(r.as_pointer())
                 continue
             for obj in scene_data.objects:
-                if not is_assembly_root(obj):continue
+                if not is_assembly_root(obj) or procedural.state(obj)=='FINALIZED':continue
                 if 'wl_assembly_locked' not in obj:obj['wl_assembly_locked']=True
                 apply_assembly_lock(obj)
                 key=obj.as_pointer()
@@ -124,6 +125,9 @@ def sync_assemblies(force=False):
                     _EDITING_ROOTS.discard(key)
                     continue
                 parts=parts_for(obj)
+                # Node editors follow the active mesh's modifier. Keep a selected
+                # generated part active while still selecting the whole assembly.
+                preferred=active if active in parts and any(m.type=='NODES' for m in active.modifiers) else obj
                 members=[obj,*parts]
                 sel=[m for m in members if m.select_get()]
                 if key in _EDITING_ROOTS:
@@ -132,7 +136,7 @@ def sync_assemblies(force=False):
                         for m in members:
                             try:m.select_set(True)
                             except RuntimeError:pass
-                        view_layer.objects.active=obj
+                        view_layer.objects.active=preferred
                         _SELECTED_ROOTS.add(key)
                         continue
                 was_selected=key in _SELECTED_ROOTS
@@ -141,20 +145,20 @@ def sync_assemblies(force=False):
                 elif len(sel)==len(members):
                     _SELECTED_ROOTS.add(key)
                     if active in parts:
-                        view_layer.objects.active=obj
+                        view_layer.objects.active=preferred
                 elif not was_selected:
                     for m in members:
                         try:m.select_set(True)
                         except RuntimeError:pass
                     if active in members:
-                        view_layer.objects.active=obj
+                        view_layer.objects.active=preferred
                     _SELECTED_ROOTS.add(key)
                 else:
                     if active in parts and sel==[active]:
                         for m in members:
                             try:m.select_set(True)
                             except RuntimeError:pass
-                        view_layer.objects.active=obj
+                        view_layer.objects.active=preferred
                         _SELECTED_ROOTS.add(key)
                     else:
                         for m in members:
@@ -167,14 +171,19 @@ def sync_assemblies(force=False):
 
 
 def rebuild(root, kind, values, context):
+    if procedural.state(root)=='FINALIZED' and root.get('wl_procedural_state'):raise ValueError('Finalized geometry cannot regenerate')
     settings = getattr(context.scene, 'wavelength', None)
     engine = root.get('wl_engine', settings.engine if settings else 'blender')
     is_engine = bool(profiles.get(engine).get('brush_semantics', False))
     unit = float(root.get('wl_unit_meters', profiles.unit_meters(settings) if settings else 1.0))
     grid_step = profiles.grid_step_units(settings) if (is_engine and settings) else (profiles.active_snap_step_units(settings, context) if settings else None)
-    gen_values = dict(values)
-    parts = primitives.generate(kind, gen_values, validate_bsp=is_engine, grid_step=grid_step)
-    if is_engine:
+    definition=procedural.definition_for(root,kind,values,engine,unit,grid_step)
+    if not root.get("wl_definition") and settings and engine==settings.engine:
+        from dataclasses import replace
+        definition=replace(definition,owner_profile_id=getattr(settings,"profile_id",""),owner_profile_name=getattr(settings,"profile_name",""))
+    unit=definition.unit_meters
+    parts=procedural.validate(definition,procedural.evaluate(definition))
+    if profiles.requires_convex_brushes(engine):
         limit = 32768 if profiles.is_source(engine) else 4096
         from mathutils import Vector
         for verts, _ in parts:
@@ -213,17 +222,32 @@ def rebuild(root, kind, values, context):
             obj.parent = root
         obj['wl_unit_meters'] = unit
         obj['wl_primitive_part'] = i
+        obj['wl_owner_profile']=definition.owner
+        obj['wl_owner_profile_id']=definition.owner_profile_id
+        obj['wl_procedural_state']='PROCEDURAL'
+        for modifier in list(obj.modifiers):
+            if modifier.type=='NODES' and modifier.node_group and str(modifier.node_group.get('wl_generator','')).startswith('wavelength.geometry_nodes.'):obj.modifiers.remove(modifier)
         if is_engine:
             scene.mark_brush(obj)
             from . import editor
             editor.apply_uv(obj, engine)
         else:
             obj['wl_assembly_part'] = i
+        for modifier in list(obj.modifiers):
+            if modifier.type=='NODES' and modifier.node_group and str(modifier.node_group.get('wl_generator','')).startswith('wavelength.geometry_nodes.'):obj.modifiers.remove(modifier)
+        if definition.generator=='wavelength.geometry_nodes.straight_stairs':
+            from . import node_stairs
+            node_stairs.attach(obj,definition,i)
+        elif definition.generator=='wavelength.geometry_nodes.primitives':
+            from . import node_primitives
+            node_primitives.attach(obj,definition,i)
     for obj in old[len(parts):]:
         mesh = obj.data
         bpy.data.objects.remove(obj, do_unlink=True)
         if mesh.users == 0:
             bpy.data.meshes.remove(mesh)
+    root['wl_definition']=definition.dumps()
+    root['wl_procedural_state']='PROCEDURAL'
     root['wl_primitive'] = kind
     root['wl_parameters'] = json.dumps(values)
     root['wl_engine'] = engine
@@ -231,6 +255,69 @@ def rebuild(root, kind, values, context):
     if 'wl_assembly_locked' not in root:
         root['wl_assembly_locked'] = True
     apply_assembly_lock(root)
+
+
+def finalize(root,context):
+    if procedural.state(root)=='FINALIZED':raise ValueError('Geometry is already finalized')
+    if context.mode!='OBJECT':raise ValueError('Finish vertex editing before finalizing')
+    parts=parts_for(root)
+    if not parts:raise ValueError('Primitive has no mesh parts')
+    definition=root.get('wl_definition')
+    if not definition:
+        definition=procedural.define(root['wl_primitive'],root.get('wl_engine','blender'),json.loads(root.get('wl_parameters','{}')),float(root.get('wl_unit_meters',1))).dumps()
+    prepared=[]
+    try:
+        depsgraph=context.evaluated_depsgraph_get()
+        for obj in parts:
+            mesh=bpy.data.meshes.new_from_object(obj.evaluated_get(depsgraph),preserve_all_data_layers=True,depsgraph=depsgraph)
+            if not mesh.materials:
+                for material in obj.data.materials:mesh.materials.append(material)
+            # Engine face metadata belongs to the mesh, independently of its generator.
+            for key in obj.data.keys():mesh[key]=obj.data[key]
+            prepared.append((obj,mesh))
+        snapshot=procedural.Definition.loads(definition)
+        inverse=root.matrix_world.inverted()
+        procedural.validate(snapshot,[
+            ([tuple(c/snapshot.unit_meters for c in (inverse@obj.matrix_world@v.co)) for v in mesh.vertices],
+             [tuple(f.vertices) for f in mesh.polygons]) for obj,mesh in prepared])
+    except Exception:
+        for _,mesh in prepared:bpy.data.meshes.remove(mesh)
+        raise
+    for obj,mesh in prepared:
+        old=obj.data;obj.data=mesh;obj.modifiers.clear()
+        if old.users==0:bpy.data.meshes.remove(old)
+        obj.lock_location=obj.lock_rotation=obj.lock_scale=(False,False,False)
+        obj['wl_owner_profile']=root.get('wl_engine','blender')
+        obj['wl_procedural_state']='FINALIZED'
+        if obj.get('wl_role')=='BRUSH':
+            scene.mark_brush(obj)
+            from . import editor
+            editor.apply_uv(obj,root.get('wl_engine','blender'))
+    root['wl_definition']=definition
+    root['wl_procedural_state']='FINALIZED';root['wl_assembly_locked']=False
+    _SELECTED_ROOTS.discard(root.as_pointer());_EDITING_ROOTS.discard(root.as_pointer())
+
+
+class WL_OT_finalize_primitive(bpy.types.Operator):
+    bl_idname='wavelength.finalize_primitive';bl_label='Finalize Geometry';bl_options={'REGISTER','UNDO'}
+    bl_description='Bake evaluated meshes and stop procedural regeneration; retain profile ownership'
+    @classmethod
+    def poll(cls,context):
+        if workspace.active(context) and context.object and context.object.get('wl_csg'):return True
+        if workspace.active(context) and context.object and context.object.get('wl_pencil_geometry') and context.object.get('wl_procedural_state')=='PROCEDURAL':return True
+        root=root_for(context.object)
+        return workspace.active(context) and root is not None and bool(root.get('wl_primitive')) and procedural.state(root)=='PROCEDURAL'
+    def execute(self,context):
+        try:
+            if context.object.get('wl_csg'):
+                from . import csg
+                csg.finalize(context,context.object)
+            elif context.object.get('wl_pencil_geometry'):
+                from . import node_pencil
+                node_pencil.finalize(context.object)
+            else:finalize(root_for(context.object),context)
+        except (ValueError,RuntimeError) as exc:self.report({'ERROR'},str(exc));return {'CANCELLED'}
+        return {'FINISHED'}
 
 
 class WL_OT_assembly_editmode_toggle(bpy.types.Operator):
@@ -263,6 +350,9 @@ class WL_OT_assembly_editmode_toggle(bpy.types.Operator):
         if root is None:
             return {'PASS_THROUGH'}
         if getattr(context,'mode','OBJECT')=='OBJECT':
+            if procedural.state(root)=='PROCEDURAL' and root.get('wl_definition') and procedural.Definition.loads(root['wl_definition']).generator.startswith('wavelength.geometry_nodes.'):
+                self.report({'INFO'},'Edit the generator parameters, or Finalize Geometry before editing generated vertices')
+                return {'CANCELLED'}
             preferred=active if (active and active!=root and active.type=='MESH') else None
             return {'FINISHED'} if enter_assembly_edit_mode(root,context,preferred) else {'PASS_THROUGH'}
         return {'FINISHED'} if exit_assembly_edit_mode(root,context) else {'PASS_THROUGH'}
@@ -377,7 +467,16 @@ class WL_OT_primitive(bpy.types.Operator):
             if values['curved']:
                 values['inner_radius']=max(g,round(values['inner_radius']/g)*g)
         try:
-            primitives.generate(self.kind,values,validate_bsp=is_engine,grid_step=grid_step)
+            existing=procedural.Definition.loads(root['wl_definition']) if root and root.get('wl_definition') else None
+            if not root or existing and existing.generator.startswith('wavelength.geometry_nodes.'):
+                candidate=procedural.definition_for(root or {},self.kind,values,engine,profiles.unit_meters(st),grid_step)
+                if candidate.generator=='wavelength.geometry_nodes.primitives':
+                    from . import node_primitives
+                    node_primitives.parameters(candidate)
+                else:
+                    from . import node_stairs
+                    node_stairs.parameters(candidate)
+            else:primitives.generate(self.kind,values,validate_bsp=profiles.requires_convex_brushes(engine),grid_step=grid_step)
             if root is None:
                 loc=context.scene.cursor.location.copy()
                 if st and profiles.snap_enabled(st,context):
@@ -414,9 +513,15 @@ class WL_PT_primitive(bpy.types.Panel):
         kind_label=(root.get('wl_primitive') or root.get('wl_assembly') or 'Assembly').title()
         parts=parts_for(root)
         self.layout.label(text=f"{kind_label} ({len(parts)} brush{'es' if len(parts)!=1 else ''})")
+        self.layout.label(text=f"{root.get('wl_engine','blender')} · {procedural.state(root).title()}")
+        if root.get('wl_definition'):
+            definition=procedural.Definition.loads(root['wl_definition'])
+            self.layout.label(text='Geometry Nodes v1' if definition.generator.startswith('wavelength.geometry_nodes.') else 'Python generator v1')
+        if procedural.state(root)=='FINALIZED':return
         self.layout.operator('wavelength.primitive_lock',text='Whole Object (Locked)' if locked else 'Individual Brushes (Unlocked)',icon='LOCKED' if locked else 'UNLOCKED',depress=locked)
         self.layout.operator('wavelength.assembly_editmode_toggle',text='Finish Vertex Editing (Tab)' if in_edit else 'Edit Assembly Vertices (Tab)',icon='OBJECT_DATAMODE' if in_edit else 'EDITMODE_HLT',depress=in_edit)
         if root.get('wl_primitive'):
+            self.layout.operator('wavelength.finalize_primitive',icon='CHECKMARK')
             params=dict(DEFAULTS,**json.loads(root.get('wl_parameters','{}')))
             if root['wl_primitive']=='STAIRS':
                 is_curved=bool(params.get('curved',False))
@@ -438,6 +543,13 @@ def add_menu(self,context):
         for kind in FIELDS:
             op=self.layout.operator('wavelength.primitive',text=kind.title(),icon='MESH_CUBE');op.kind=kind
 
+def object_menu(self,context):
+    # F3 builds its normal index from menus. A button in Properties alone does
+    # not make this operator discoverable unless Search All Operators is enabled.
+    if workspace.active(context):
+        self.layout.separator()
+        self.layout.operator('wavelength.finalize_primitive',text='Finalize Geometry',icon='CHECKMARK')
+
 
 def _register_keymaps():
     _unregister_keymaps()
@@ -458,8 +570,10 @@ def _unregister_keymaps():
 
 
 def register():
-    for cls in (WL_OT_assembly_editmode_toggle,WL_OT_primitive_lock,WL_OT_stair_curve_toggle,WL_OT_primitive,WL_PT_primitive):bpy.utils.register_class(cls)
+    for cls in (WL_OT_finalize_primitive,WL_OT_assembly_editmode_toggle,WL_OT_primitive_lock,WL_OT_stair_curve_toggle,WL_OT_primitive,WL_PT_primitive):bpy.utils.register_class(cls)
     bpy.types.VIEW3D_MT_mesh_add.append(add_menu)
+    bpy.types.VIEW3D_MT_object.append(object_menu)
+    bpy.types.VIEW3D_MT_object_context_menu.append(object_menu)
     _register_keymaps()
     if not bpy.app.timers.is_registered(sync_assemblies):
         bpy.app.timers.register(sync_assemblies,first_interval=.08,persistent=True)
@@ -472,5 +586,7 @@ def unregister():
     _SELECTED_ROOTS.clear()
     _EDITING_ROOTS.clear()
     bpy.types.VIEW3D_MT_mesh_add.remove(add_menu)
-    for cls in (WL_PT_primitive,WL_OT_primitive,WL_OT_stair_curve_toggle,WL_OT_primitive_lock,WL_OT_assembly_editmode_toggle):bpy.utils.unregister_class(cls)
+    bpy.types.VIEW3D_MT_object.remove(object_menu)
+    bpy.types.VIEW3D_MT_object_context_menu.remove(object_menu)
+    for cls in (WL_PT_primitive,WL_OT_primitive,WL_OT_stair_curve_toggle,WL_OT_primitive_lock,WL_OT_assembly_editmode_toggle,WL_OT_finalize_primitive):bpy.utils.unregister_class(cls)
 

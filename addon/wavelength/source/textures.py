@@ -24,6 +24,12 @@ def library(path):
 def sources(settings):
     paths=json.loads(settings.texture_wads)
     if not isinstance(paths,list) or not all(isinstance(x,str) for x in paths):raise ValueError('Invalid WAD source list')
+    if profiles.is_goldsrc(settings.engine):
+        tool=Path(bpy.path.abspath(getattr(settings,'compiler_dir','') or '.'))
+        for root in (tool,tool.parent):
+            for name in ('sdhlt.wad','zhlt.wad','hlt.wad'):
+                path=root/name
+                if path.is_file():paths.append(str(path))
     return list(dict.fromkeys([*paths,*([settings.wad_path] if settings.wad_path else [])]))
 
 
@@ -36,6 +42,8 @@ def palette(settings):
 
 def find(settings,name,preferred=None):
     """Resolve a texture across registered WADs, even with stale WAD paths."""
+    from .tool_textures import canonical
+    name=canonical(settings.engine,name)
     paths=sources(settings)
     if preferred:
         preferred_path=str(Path(bpy.path.abspath(preferred)).resolve())
@@ -85,6 +93,9 @@ def cache_directory(settings):
 
 
 def material(settings,name,preferred=None,target_mat=None):
+    if profiles.is_source2(settings.engine):
+        from . import source2_assets
+        return source2_assets.material(settings,name,target_mat=target_mat,content_root=target_mat.get('wl_source2_content_root') if target_mat else None)
     if profiles.is_source(settings.engine):
         from . import source_assets
         return source_assets.material(settings,name,target_mat=target_mat)
@@ -140,7 +151,7 @@ def realize_material(settings,mat):
     """Ensure a lightweight Asset Browser material has its full-res shader nodes."""
     if mat is None or not mat.get('wl_texture'):
         return mat
-    if mat.get('wl_realized') and mat.use_nodes and any(n.type=='TEX_IMAGE' and n.image for n in mat.node_tree.nodes):
+    if mat.get('wl_realized') and (not profiles.is_source(settings.engine) or mat.get('wl_source_blend_checked')) and mat.use_nodes and any(n.type=='TEX_IMAGE' and n.image for n in mat.node_tree.nodes):
         return mat
     return material(settings,str(mat['wl_texture']),preferred=mat.get('wl_wad'),target_mat=mat)
 
@@ -202,6 +213,9 @@ def refresh(settings,context=None):
 
 def all_names(settings, search=''):
     """Browse all registered WADs, not just the active WAD."""
+    if profiles.is_source2(settings.engine):
+        from . import source2_assets
+        return source2_assets.library(bpy.path.abspath(settings.game_dir)).materials(search)
     if profiles.is_source(settings.engine):
         from . import source_assets
         return source_assets.library(bpy.path.abspath(settings.game_dir)).materials(search)
@@ -217,7 +231,7 @@ def all_names(settings, search=''):
             continue
         for entry in wad.entries.values():
             name=entry[0]
-            if needle in name.casefold():
+            if needle in name.casefold() or (profiles.is_goldsrc(settings.engine) and name.casefold()=='null' and needle in 'nodraw'):
                 names.setdefault(name.casefold(),name)
     return sorted(names.values(),key=str.casefold)
 

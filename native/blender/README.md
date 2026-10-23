@@ -19,3 +19,16 @@ and rendering remain untested; see the Windows manual verification guide.
 Internal build: `tools/build_native_blender.py`. Delta generation:
 `tools/make_binary_patch.py` (maintainer-only bsdiff4 dependency). Installation uses
 the bundled Python standard library and does not need a compiler.
+
+## Windows context transform routing
+
+The candidate patch also filters competing plain G/R/S native transform keymap
+entries when `WAVELENGTH_OT_transform_route` polls for that event context. The
+Python add-on supplies the replacement bindings and existing controllers under
+native toolbar identities. The filter does not alter keymap flags, user
+preferences, modal transform maps or direct native operator invocations.
+Leaving the wavelength workspace, suspending it, using Edit Mode or a profile
+without an active engine grid makes the route poll false and leaves native
+keymap processing unchanged. Native UI/gizmo internals are not rewritten.
+The current Windows manifest records `context_transform_routing: true` for the
+paired binary delta. Linux's older binary delta does not include this hook.

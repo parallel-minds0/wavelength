@@ -213,7 +213,7 @@ def attach_reference(entity,pairs=None):
         if src.type!='CURVE':continue
         obj=bpy.data.objects.new(f'{classname} icon {made+1}',src.data)
         owner.objects.link(obj);obj.parent=entity;obj.location=(0,0,0)
-        obj.rotation_euler=(math.radians(90),0,0);obj.scale=(0.8128,0.8128,0.8128)
+        obj.rotation_euler=(math.radians(90),0,0);size=32*float(entity.get('wl_unit_meters',.0254));obj.scale=(size,size,size)
         obj['wl_exclude']=True;obj['wl_role']='ENTITY_ICON_REFERENCE';obj['wl_entity_icon_reference']=True
         obj['wl_entity_icon_asset']=str(path);obj.hide_select=True;obj.show_in_front=True
         made+=1

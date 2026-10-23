@@ -35,7 +35,7 @@ class WL_PT_grid(bpy.types.Panel):
             l.prop(s, 'snap_to_grid')
         for feature, label in (('grid', 'Map Grid'), ('snapping', 'Map Snapping')):
             op = l.operator('wavelength.workspace_toggle', text=label,
-                            depress=context.workspace.get('wl_' + feature, True))
+                            depress=context.scene.tool_settings.use_snap if feature=='snapping' else context.workspace.get('wl_' + feature, True))
             op.feature = feature
         l.operator('wavelength.snap_grid', text='Snap Selection to Grid')
         if not grid.native_available(context.space_data):
@@ -192,6 +192,12 @@ def draw_header(self, context):
     l.popover(panel='WL_PT_profiles', text='', icon='PRESET')
     l.popover(panel='WL_PT_grid', text=str(profiles.grid_step_units(s)) if grid.engine_enabled(s) else 'Grid', icon='GRID')
     if engine_editing(context):
+        if profiles.is_mesh_export(s.engine):
+            l.operator('wavelength.export_map',text='Export',icon='EXPORT')
+            return
+        if profiles.get(s.engine).get('build_supported') is False:
+            l.operator('wavelength.export_map',text='Export VMF',icon='EXPORT')
+            return
         from . import ui
         row = l.row(align=True)
         row.operator('wavelength.validate_alpha', text='', icon='CHECKMARK')
@@ -280,13 +286,11 @@ def sync_inspector():
 
 
 def draw_import(self, context):
-    if editing(context):
-        self.layout.operator('wavelength.import_map', text='Wavelength Map (.map / .vmf)')
+    self.layout.operator('wavelength.import_map', text='wavelength IO (.map, .vmf, .vmap)')
 
 
 def draw_export(self, context):
-    if engine_editing(context):
-        self.layout.operator('wavelength.export_map', text='Wavelength Map (.map / .vmf)')
+    self.layout.operator('wavelength.export_map',text='wavelength IO (.map, .vmf, .vmap, .glb, .vmdl)')
 
 
 def draw_status(self, context):

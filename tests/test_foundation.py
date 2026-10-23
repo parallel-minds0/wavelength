@@ -31,7 +31,8 @@ class FoundationTests(unittest.TestCase):
    self.assertEqual(profile_store.Store(d).get(identity)['name'],'Renamed');self.assertEqual(len(store.all()),1);store.remove(identity);self.assertEqual(store.all(),[])
  def test_legacy_project_migration(self):
   value=profile_store.validate({'schema_version':1,'engine':'quake','grid_step':'16'})
-  self.assertEqual(value['schema'],1);self.assertEqual(value['settings']['engine'],'quake')
+  self.assertEqual(value['schema'],2);self.assertEqual(value['settings']['engine'],'quake')
+  self.assertEqual(value['parent'],'quake')
  def test_profile_invalid(self):
   for settings in ({'engine':'nope'},{'engine':'quake','unit_scale':float('nan')},{'engine':'quake','wrapper':'{}'}):
    with self.assertRaises(ValueError):profile_store.validate({'name':'X','settings':settings})

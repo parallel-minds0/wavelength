@@ -1,0 +1,4 @@
+Sphinx==8.2.3
+myst-parser==4.0.1
+rst2pdf==0.105
+docutils==0.21.2

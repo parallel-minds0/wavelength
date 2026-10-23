@@ -10,9 +10,16 @@ class Pipeline:
         self.commands=list(commands);self.directory=Path(directory);self.timeout=timeout
         self.environment=environment;self.process=None;self.index=0;self.state='READY';self.log=None
         self.message='';self.started=0
+    # docs:begin pipeline-poll
     def poll(self):
+        """Advance at most one queued stage and return its nonblocking state.
+
+        Called repeatedly by the owner. Terminal states are stable; a timeout
+        cancels the active process and records FAILED rather than restarting it.
+        """
         if self.state in {'DONE','FAILED','CANCELLED'}: return self.state
         if self.process:
+            # poll() never waits for a compiler; Blender must keep handling input.
             code=self.process.poll()
             if code is None:
                 if time.monotonic()-self.started>self.timeout:
@@ -23,6 +30,11 @@ class Pipeline:
                 self.state='FAILED';self.message=f'Stage {self.index} exited with {code}';return self.state
         if self.index==len(self.commands): self.state='DONE';return self.state
         command=self.commands[self.index]
+        # Callable stages and subprocess stages share the same ordered queue.
+        if callable(command):
+            try:command()
+            except Exception as exc:self.state='FAILED';self.message=str(exc);return self.state
+            self.index+=1;self.state='RUNNING';return self.state
         self.log=(self.directory/f'stage-{self.index+1}.log').open('w')
         try:
             self.process=subprocess.Popen(command,cwd=self.directory,stdout=self.log,stderr=subprocess.STDOUT,
@@ -30,6 +42,7 @@ class Pipeline:
         except OSError as exc:
             self.log.close();self.log=None;self.state='FAILED';self.message=str(exc);return self.state
         self.index+=1;self.started=time.monotonic();self.state='RUNNING';return self.state
+    # docs:end pipeline-poll
     def cancel(self):
         if self.process and self.process.poll() is None:
             if os.name=='posix': os.killpg(self.process.pid,signal.SIGKILL)

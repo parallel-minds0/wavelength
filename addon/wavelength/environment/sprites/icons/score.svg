@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" fill="none"
+ stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
+<defs>
+  <filter id="wl-white-fill" x="-30%" y="-30%" width="160%" height="160%">
+    <feMorphology in="SourceAlpha" operator="dilate" radius="2.5" result="dilated"/>
+    <feFlood flood-color="white" result="white"/>
+    <feComposite in="white" in2="dilated" operator="in"/>
+  </filter>
+</defs>
+<g fill="white" stroke="white" stroke-width="8" stroke-linecap="round" stroke-linejoin="round">
+<path d="M18 8h28v12c0 12-6 20-14 24-8-4-14-12-14-24z"/><path d="M24 56h16M32 44v12"/><path d="M32 16l3 6 7 1-5 5 1 7-6-3-6 3 1-7-5-5 7-1z"/>
+</g>
+<g fill="none" stroke="#111111" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
+<path d="M18 8h28v12c0 12-6 20-14 24-8-4-14-12-14-24z"/><path d="M24 56h16M32 44v12"/><path d="M32 16l3 6 7 1-5 5 1 7-6-3-6 3 1-7-5-5 7-1z"/>
+</g>
+</svg>

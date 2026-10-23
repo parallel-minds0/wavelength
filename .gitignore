@@ -25,3 +25,8 @@ third-party/python/*
 
 /patches/native/*.bsdiff
 /.runtime-windows.lock
+/.venv-docs/
+/.local/docs-env/
+/.documentation-source
+*.mdmp
+*.dmp

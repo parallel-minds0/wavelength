@@ -206,6 +206,167 @@ index ddcc4d96..7b28860f 100644
    gl_Position = float4(NAN_FLT); /* Discard by default. */
    LineData line = flag_test(grid_flag, SHOW_GRID) ? decode_grid_data(gl_VertexID) :
                                                      decode_axis_data(gl_VertexID);
+diff --git a/source/blender/editors/space_view3d/space_view3d.cc b/source/blender/editors/space_view3d/space_view3d.cc
+index 56f71ab6..958bb1db 100644
+--- a/source/blender/editors/space_view3d/space_view3d.cc
++++ b/source/blender/editors/space_view3d/space_view3d.cc
+@@ -17,6 +17,7 @@
+ #include "DNA_object_types.h"
+ #include "DNA_scene_types.h"
+ #include "DNA_view3d_types.h"
++#include "DNA_workspace_types.h"
+ 
+ #include "MEM_guardedalloc.h"
+ 
+@@ -1391,6 +1392,21 @@ static void view3d_tools_region_init(wmWindowManager *wm, ARegion *region)
+ 
+ static void view3d_tools_region_draw(const bContext *C, ARegion *region)
+ {
++  /* Wavelength reserves two native-size tool columns plus their gutter.
++   * Keep this opt-in per workspace; do not alter other workspace toolbars. */
++  const WorkSpace *workspace = CTX_wm_workspace(C);
++  const IDProperty *columns = workspace && workspace->id.properties ?
++                                 IDP_GetPropertyFromGroup(workspace->id.properties,
++                                                          "wl_toolbar_columns") :
++                                 nullptr;
++  if (columns && columns->type == IDP_INT && IDP_int_get(columns) == 2) {
++    constexpr int minimum_width = 104;
++    if (region->sizex < minimum_width) {
++      region->sizex = minimum_width;
++      ED_area_tag_region_size_update(CTX_wm_area(C), region);
++    }
++  }
++
+   const char *contexts[] = {CTX_data_mode_string(C), nullptr};
+   ED_region_panels_ex(C, region, wm::OpCallContext::InvokeRegionWin, contexts);
+ }
+diff --git a/source/blender/editors/space_view3d/view3d_snap.cc b/source/blender/editors/space_view3d/view3d_snap.cc
+index e0d93b45..ead4380a 100644
+--- a/source/blender/editors/space_view3d/view3d_snap.cc
++++ b/source/blender/editors/space_view3d/view3d_snap.cc
+@@ -62,6 +62,24 @@
+ 
+ namespace blender {
+ 
++/* Profile policy stays in the addon; native grid consumers share its RNA spacing. */
++static float wavelength_profile_grid_spacing(bContext *C)
++{
++  wmOperatorType *gate = WM_operatortype_find("WAVELENGTH_OT_profile_grid_context", true);
++  if (gate == nullptr || !WM_operator_poll(C, gate)) {
++    return 0.0f;
++  }
++  PointerRNA scene = RNA_id_pointer_create(&CTX_data_scene(C)->id);
++  PropertyRNA *prop = RNA_struct_find_property(&scene, "wavelength");
++  if (prop == nullptr) {
++    return 0.0f;
++  }
++  PointerRNA settings = RNA_property_pointer_get(&scene, prop);
++  return RNA_float_get(&settings, "profile_grid_spacing");
++}
++
++
++
+ static bool snap_curs_to_sel_ex(bContext *C, const int pivot_point, float r_cursor[3]);
+ static bool snap_calc_active_center(bContext *C, const bool select_only, float r_center[3]);
+ 
+@@ -72,6 +90,13 @@ static bool snap_calc_active_center(bContext *C, const bool select_only, float r
+ /** Snaps every individual object center to its nearest point on the grid. */
+ static wmOperatorStatus snap_sel_to_grid_exec(bContext *C, wmOperator *op)
+ {
++  /* Preserve wavelength assembly ownership when the native menu command is used. */
++  if (wavelength_profile_grid_spacing(C) > 0.0f &&
++      ELEM(CTX_data_mode_enum(C), CTX_MODE_OBJECT, CTX_MODE_EDIT_MESH))
++  {
++    return WM_operator_name_call(
++        C, "WAVELENGTH_OT_snap_grid", wm::OpCallContext::ExecDefault, nullptr, nullptr);
++  }
+   using namespace blender::ed;
+   Depsgraph *depsgraph = CTX_data_ensure_evaluated_depsgraph(C);
+   ViewLayer *view_layer_eval = DEG_get_evaluated_view_layer(depsgraph);
+@@ -85,7 +110,10 @@ static wmOperatorStatus snap_sel_to_grid_exec(bContext *C, wmOperator *op)
+   float gridf, imat[3][3], bmat[3][3], vec[3];
+   int a;
+ 
+-  gridf = ED_view3d_grid_view_scale(scene, v3d, region, nullptr);
++  gridf = wavelength_profile_grid_spacing(C);
++  if (gridf <= 0.0f) {
++    gridf = ED_view3d_grid_view_scale(scene, v3d, region, nullptr);
++  }
+ 
+   if (OBEDIT_FROM_OBACT(obact)) {
+     const Main *bmain = CTX_data_main(C);
+@@ -821,7 +849,10 @@ static wmOperatorStatus snap_curs_to_grid_exec(bContext *C, wmOperator * /*op*/)
+   View3D *v3d = CTX_wm_view3d(C);
+   float gridf, *curs;
+ 
+-  gridf = ED_view3d_grid_view_scale(scene, v3d, region, nullptr);
++  gridf = wavelength_profile_grid_spacing(C);
++  if (gridf <= 0.0f) {
++    gridf = ED_view3d_grid_view_scale(scene, v3d, region, nullptr);
++  }
+   curs = scene->cursor.location;
+ 
+   curs[0] = gridf * floorf(0.5f + curs[0] / gridf);
+diff --git a/source/blender/editors/transform/transform_snap.cc b/source/blender/editors/transform/transform_snap.cc
+index 3d630363..968b930a 100644
+--- a/source/blender/editors/transform/transform_snap.cc
++++ b/source/blender/editors/transform/transform_snap.cc
+@@ -19,6 +19,7 @@
+ #include "GPU_matrix.hh"
+ #include "GPU_state.hh"
+ 
++#include "BKE_context.hh"
+ #include "BKE_editmesh.hh"
+ #include "BKE_layer.hh"
+ #include "BKE_object.hh"
+@@ -910,6 +911,22 @@ static void initSnappingMode(TransInfo *t)
+   }
+ }
+ 
++/* Profile policy stays in the addon; native grid consumers share its RNA spacing. */
++static float wavelength_profile_grid_spacing(bContext *C)
++{
++  wmOperatorType *gate = WM_operatortype_find("WAVELENGTH_OT_profile_grid_context", true);
++  if (gate == nullptr || !WM_operator_poll(C, gate)) {
++    return 0.0f;
++  }
++  PointerRNA scene = RNA_id_pointer_create(&CTX_data_scene(C)->id);
++  PropertyRNA *prop = RNA_struct_find_property(&scene, "wavelength");
++  if (prop == nullptr) {
++    return 0.0f;
++  }
++  PointerRNA settings = RNA_property_pointer_get(&scene, prop);
++  return RNA_float_get(&settings, "profile_grid_spacing");
++}
++
+ void transform_snap_grid_init(const TransInfo *t, float r_snap[3], float *r_snap_precision)
+ {
+   /* Default values. */
+@@ -918,6 +935,12 @@ void transform_snap_grid_init(const TransInfo *t, float r_snap[3], float *r_snap
+   *r_snap_precision = 0.1f;
+ 
+   if (t->spacetype == SPACE_VIEW3D) {
++    const float profile_grid = wavelength_profile_grid_spacing(t->context);
++    if (profile_grid > 0.0f) {
++      r_snap[0] = r_snap[1] = r_snap[2] = profile_grid;
++      *r_snap_precision = 1.0f;
++      return;
++    }
+     /* Used by incremental snap. */
+     if (t->region && t->region->regiontype == RGN_TYPE_WINDOW) {
+       View3D *v3d = static_cast<View3D *>(t->area->spacedata.first);
+@@ -959,6 +982,11 @@ void transform_snap_reset_from_mode(TransInfo *t, wmOperator *op)
+   resetSnapping(t);
+ 
+   t->tsnap.mode = snap_mode_from_spacetype(t);
++  if (t->spacetype == SPACE_VIEW3D && wavelength_profile_grid_spacing(t->context) > 0.0f &&
++      (t->tsnap.mode & SCE_SNAP_TO_INCREMENT))
++  {
++    t->tsnap.mode = eSnapMode((t->tsnap.mode & ~SCE_SNAP_TO_INCREMENT) | SCE_SNAP_TO_GRID);
++  }
+   t->tsnap.flag = snap_flag_from_spacetype(t);
+   t->tsnap.target_operation = snap_target_select_from_spacetype_and_tool_settings(t);
+   t->tsnap.face_nearest_steps = max_ii(ts->snap_face_nearest_steps, 1);
 diff --git a/source/blender/makesdna/DNA_view3d_types.h b/source/blender/makesdna/DNA_view3d_types.h
 index 5a1c5ee4..c0ad8eca 100644
 --- a/source/blender/makesdna/DNA_view3d_types.h
@@ -250,3 +411,40 @@ index 5cc13e71..907d32ef 100644
    prop = RNA_def_property(srna, "grid_scale_unit", PROP_FLOAT, PROP_NONE);
    RNA_def_property_clear_flag(prop, PROP_EDITABLE);
    RNA_def_property_float_funcs(prop, "rna_View3DOverlay_GridScaleUnit_get", nullptr, nullptr);
+diff --git a/source/blender/windowmanager/intern/wm_event_system.cc b/source/blender/windowmanager/intern/wm_event_system.cc
+index 9f6a0be3..9e3464b5 100644
+--- a/source/blender/windowmanager/intern/wm_event_system.cc
++++ b/source/blender/windowmanager/intern/wm_event_system.cc
+@@ -3132,6 +3132,22 @@ static std::string keymap_handler_log_kmi_op_str(bContext *C, const wmKeyMapItem
+   if (do_debug_handler) \
+   printf
+ 
++/* Wavelength owns only plain object-mode G/R/S while its route operator polls.
++ * Skip native bindings in this event context, never mutate shared/user keymaps.
++ * Modal transform maps and explicit Python/operator calls remain untouched. */
++static bool wm_wavelength_transform_keymap_suppressed(bContext *C,
++                                                     const wmEvent *event,
++                                                     const wmKeyMapItem &kmi)
++{
++  if (!ELEM(event->type, EVT_GKEY, EVT_RKEY, EVT_SKEY) || event->modifier != 0 ||
++      !STR_ELEM(kmi.idname, "TRANSFORM_OT_translate", "TRANSFORM_OT_rotate", "TRANSFORM_OT_resize"))
++  {
++    return false;
++  }
++  wmOperatorType *route = WM_operatortype_find("WAVELENGTH_OT_transform_route", true);
++  return route != nullptr && WM_operator_poll(C, route);
++}
++
+ static eHandlerActionFlag wm_handlers_do_keymap_with_keymap_handler(
+     /* From 'wm_handlers_do_intern'. */
+     bContext *C,
+@@ -3156,7 +3172,8 @@ static eHandlerActionFlag wm_handlers_do_keymap_with_keymap_handler(
+       PRINT("pass\n");
+ 
+       for (wmKeyMapItem &kmi : keymap->items) {
+-        if (wm_eventmatch(event, &kmi)) {
++        if (wm_eventmatch(event, &kmi) &&
++            !wm_wavelength_transform_keymap_suppressed(C, event, kmi)) {
+           wmEventHandler_KeymapPost keymap_post = handler->post;
+ 
+           action |= wm_handler_operator_call(

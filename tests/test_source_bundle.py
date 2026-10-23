@@ -12,7 +12,14 @@ class SourceBundleTests(unittest.TestCase):
             self.assertEqual(sha256(archive),metadata['addon_sha256'])
             with zipfile.ZipFile(archive) as z:
                 self.assertIn('wavelength/source/source_assets.py',z.namelist())
+                self.assertIn('wavelength/environment/profiles/templates.json',z.namelist())
                 self.assertIn('wavelength/source/build/pipeline.py',z.namelist())
+                self.assertIn('wavelength/documentation/handbook/index.md',z.namelist())
+                self.assertIn('wavelength/documentation/handbook/developer/architecture.md',z.namelist())
+                self.assertIn('wavelength/documentation/handbook/reference/api.md',z.namelist())
+                manifest=json.loads(z.read('wavelength/environment/sprites/manifest.json'))
+                for icon in set(manifest['entities'].values()):
+                    self.assertIn('wavelength/environment/sprites/icons/'+icon,z.namelist())
                 self.assertFalse(any('__pycache__' in name for name in z.namelist()))
         self.assertFalse(bundle.exists())
     def test_bootstrap_runtime_pin_matches_builder(self):

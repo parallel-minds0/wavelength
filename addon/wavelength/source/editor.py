@@ -188,15 +188,61 @@ def _edit_commit_handler(scene_data, depsgraph=None):
 
 def _brush_state(obj):
     """Track projection inputs, excluding generated UVs to avoid feedback loops."""
+    if obj.mode=='EDIT':
+        import bmesh
+        bm=bmesh.from_edit_mesh(obj.data)
+        vertices=tuple(tuple(vertex.co) for vertex in bm.verts)
+        polygons=tuple((tuple(tuple(v.co) for v in face.verts),face.material_index) for face in bm.faces)
+    else:
+        vertices=tuple(tuple(vertex.co) for vertex in obj.data.vertices)
+        polygons=tuple((tuple(poly.vertices),poly.material_index) for poly in obj.data.polygons)
     return (
         tuple(value for row in obj.matrix_world for value in row),
-        tuple(tuple(vertex.co) for vertex in obj.data.vertices),
-        tuple((tuple(poly.vertices),poly.material_index) for poly in obj.data.polygons),
+        vertices,polygons,
         str(obj.data.get('wl_faces','{}')),
         tuple((mat.name,mat.get('wl_texture',''),mat.get('wl_width',64),mat.get('wl_height',64))
               if mat else None for mat in obj.data.materials),
         float(obj.get('wl_unit_meters',1.0)),
     )
+
+# docs:begin live-edit-projection
+def apply_edit_uv(obj):
+    """Project preview UVs onto the live BMesh, without committing native edits.
+
+    Stored engine axes/scales are authoritative. Temporarily non-planar faces
+    are allowed here; brush export validation belongs at the commit boundary.
+    Return whether any UVs changed. Selection and persisted face records stay put.
+    """
+    import bmesh
+    bm=bmesh.from_edit_mesh(obj.data)
+    bm.normal_update()
+    ids=bm.faces.layers.int.get('wl_face_id')
+    layer=bm.loops.layers.uv.get('wavelength')
+    changed=layer is None
+    if layer is None:layer=bm.loops.layers.uv.new('wavelength')
+    records=json.loads(obj.data.get('wl_faces','{}'))
+    matrix=obj.matrix_world;normal_matrix=matrix.to_3x3().inverted().transposed()
+    unit=obj.get('wl_unit_meters',1.)
+    for face in bm.faces:
+        record=records.get(str(face[ids]),{}) if ids else {}
+        projection=record.get('projection',[0,0,0,1,1])
+        normal=(normal_matrix@face.normal).normalized()
+        axes=record.get('axes') or formats.quake_axes(normal,projection)
+        material=obj.data.materials[face.material_index] if face.material_index<len(obj.data.materials) else None
+        width=material.get('wl_width',64) if material else 64
+        height=material.get('wl_height',64) if material else 64
+        if not unit or not width or not height or not projection[3] or not projection[4]:continue
+        for loop in face.loops:
+            point=matrix@loop.vert.co/unit
+            u=dot(axes[0][:3],point)/projection[3]+axes[0][3]
+            v=dot(axes[1][:3],point)/projection[4]+axes[1][3]
+            value=(u/width,1-v/height)
+            if any(abs(loop[layer].uv[i]-value[i])>1e-7 for i in range(2)):
+                loop[layer].uv=value;changed=True
+    # Updating only UV data leaves Blender's edit transaction and selection alive.
+    if changed:bmesh.update_edit_mesh(obj.data,loop_triangles=False,destructive=False)
+    return changed
+# docs:end live-edit-projection
 
 
 def _live_tick():
@@ -218,8 +264,8 @@ def _live_tick():
                 import bmesh
                 bm=bmesh.from_edit_mesh(active.data);face=bm.faces.active
                 if face is not None:
-                    attr=active.data.attributes.get('wl_face_id')
-                    fid=attr.data[face.index].value if attr and face.index < len(attr.data) else face.index+1
+                    ids=bm.faces.layers.int.get('wl_face_id')
+                    fid=face[ids] if ids else face.index+1
                     token=(active.name_full,int(fid))
                     if token!=_last_face_ui:
                         rec=json.loads(active.data.get('wl_faces','{}')).get(str(fid),{})
@@ -242,6 +288,15 @@ def _live_tick():
             if current_mode != 'OBJECT':
                 # Remember the edit session even when live texture reprojection is off.
                 _live_modes[name] = current_mode
+                if current_mode=='EDIT':
+                    try:
+                        state=(enabled,_brush_state(obj))
+                        old=_live_state.get(name);_live_state[name]=state
+                        if enabled and state!=old and not _live_reprojecting:
+                            _live_reprojecting=True
+                            try:apply_edit_uv(obj)
+                            finally:_live_reprojecting=False
+                    except (ReferenceError,RuntimeError,ValueError,KeyError,BrushError):pass
                 continue
 
             # Edit -> Object is the universal Wavelength brush commit boundary.

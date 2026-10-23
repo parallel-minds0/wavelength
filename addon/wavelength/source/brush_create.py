@@ -41,7 +41,8 @@ def _step(context):
         if unit.system != 'NONE':
             step *= float(unit.scale_length or 1.0)
         return max(step, 1e-4)
-    return profiles.active_grid_step_meters(settings)
+    from . import tool_snap
+    return tool_snap.step(context) if tool_snap.grid_enabled(context) else 0.0
 
 
 def _ray(context, event):
@@ -78,9 +79,13 @@ def _plane_from_mouse(context, event):
         u, v, n = _axis_basis(normal)
         return location.copy(), u, v, n
 
-    axis = max(range(3), key=lambda i: abs(direction[i]))
+    from . import tool_snap
+    # Grid fallback is a world-origin plane chosen from the view, not from each
+    # perspective mouse ray (which can change dominant axis across the viewport).
+    facing=context.region_data.view_rotation@Vector((0,0,-1)) if tool_snap.profile_grid_active(context) else direction
+    axis = max(range(3), key=lambda i: abs(facing[i]))
     n = Vector((0, 0, 0))
-    n[axis] = 1.0 if direction[axis] < 0 else -1.0
+    n[axis] = 1.0 if facing[axis] < 0 else -1.0
     u, v, n = _axis_basis(n)
     return Vector((0, 0, 0)), u, v, n
 
@@ -178,7 +183,7 @@ def _sphere_geometry(settings, center, edge, u, v, n, step):
         'rings': int(getattr(settings, 'brush_rings', 6)),
         'subdivisions': int(getattr(settings, 'sphere_subdivisions', 1)),
     }
-    verts, faces = generate('SPHERE', params, validate_bsp=is_engine)[0]
+    verts, faces = generate('SPHERE', params, validate_bsp=profiles.requires_convex_brushes(settings.engine))[0]
     return [center + (u * x + v * y + n * z) * unit for x, y, z in verts], faces
 
 
@@ -207,6 +212,9 @@ def _arch_parts(settings, center, edge, u, v, n, step, height_m=None):
         verts = ring + [p + n * height for p in ring]
         faces = [(0, 3, 2, 1), (4, 5, 6, 7), (0, 1, 5, 4), (1, 2, 6, 5), (2, 3, 7, 6), (3, 0, 4, 7)]
         parts.append((verts, faces))
+    if not profiles.requires_convex_brushes(settings.engine):
+        from .primitives import _single_mesh
+        parts=_single_mesh(parts)
     return parts
 
 
@@ -272,12 +280,15 @@ def _stairs_parts(settings, a, b, u, v, n, step, height_m=None):
     values, origin, u_dir, v_dir, unit = _stairs_values_and_basis(settings, a, b, u, v, n, step, height_m)
     is_engine = bool(profiles.get(settings.engine).get('brush_semantics', False))
     g_units = min(step / unit, 16.0) if (step and step > 0.0) else None
-    return [([origin + (u_dir * x + v_dir * y + n * z) * unit for x, y, z in verts], faces) for verts, faces in generate('STAIRS', values, validate_bsp=is_engine, grid_step=g_units)]
+    return [([origin + (u_dir * x + v_dir * y + n * z) * unit for x, y, z in verts], faces) for verts, faces in generate('STAIRS', values, validate_bsp=profiles.requires_convex_brushes(settings.engine), grid_step=g_units)]
 
 
 def _primitive_parts(settings, a, b, u, v, n, step, height_m=None):
     kind = getattr(settings, 'brush_type', 'CUBE')
     if kind == 'CYLINDER': return [_radial_geometry(settings, a, b, u, v, n, step, False, height_m)]
+    if kind == 'TERRAIN':
+        verts,_=_box_geometry(settings,a,b,n,step,height_m)
+        return [(verts[:4],[(0,1,2,3)])]
     if kind == 'CONE': return [_radial_geometry(settings, a, b, u, v, n, step, True, height_m)]
     if kind == 'SPHERE': return [_sphere_geometry(settings, a, b, u, v, n, step)]
     if kind == 'ARCH': return _arch_parts(settings, a, b, u, v, n, step, height_m)
@@ -485,6 +496,8 @@ class WL_OT_cube_brush_create(bpy.types.Operator):
         if not _event_in_window_region(context, event):
             return {'PASS_THROUGH'}
         st = context.scene.wavelength
+        if self.primitive=='TERRAIN' and st.engine!='blender' and not profiles.is_source(st.engine):
+            self.report({'ERROR'},'Terrain currently supports Blender and Source profiles');return {'CANCELLED'}
         if self.primitive:
             st.brush_type = self.primitive
         self._step_value = _step(context)
@@ -657,6 +670,11 @@ class WL_OT_cube_brush_create(bpy.types.Operator):
             if self._stage == 'FOOTPRINT':
                 self._accumulate_mouse(context, event)
                 self._drag = self._footprint_drag_from_mouse(context)
+                if context.scene.wavelength.brush_type=='TERRAIN':
+                    from . import terrain
+                    verts,_=_primitive_parts(context.scene.wavelength,self._start,self._drag,self._u,self._v,self._n,self._step_value)[0]
+                    terrain.create_footprint(context,verts[0],verts[2],self._u,self._v,self._n)
+                    self._remove_draw();self._reset_prototype(context,event);return {'FINISHED'}
                 if st := getattr(context.scene, 'wavelength', None):
                     if st.brush_type == 'SPHERE':
                         self._stage = 'HEIGHT'
@@ -671,13 +689,24 @@ class WL_OT_cube_brush_create(bpy.types.Operator):
                 is_engine_brush=profiles.get(st.engine).get('brush_semantics',False)
                 name=_primitive_name(st,is_engine_brush)
                 created=[]
-                parts=_primitive_parts(st,self._start,self._drag,self._u,self._v,self._n,self._step_value,self._height_m)
-                if st.brush_type in {'ARCH','SPHERE','STAIRS'}:
+                if st.brush_type in {'CUBE','CYLINDER','CONE','ARCH','SPHERE','STAIRS'}:
                     from . import primitive_ui
                     from mathutils import Matrix
                     root=bpy.data.objects.new(name,None);context.collection.objects.link(root)
                     root.empty_display_size=0.2;root['wl_exclude']=True;root['wl_assembly_locked']=True
-                    if st.brush_type=='STAIRS':
+                    if st.brush_type=='CUBE':
+                        vertices,_=_box_geometry(st,self._start,self._drag,self._n,self._step_value,self._height_m)
+                        u_dir,v_dir,_=_axis_basis(self._n);unit=profiles.unit_meters(st)
+                        values=dict(primitive_ui.DEFAULTS,width=(vertices[1]-vertices[0]).length/unit,run=(vertices[3]-vertices[0]).length/unit,depth=self._height_m/unit)
+                        basis=Matrix((u_dir,v_dir,self._n)).transposed().to_4x4();basis.translation=sum(vertices,Vector())/8;root.matrix_world=basis
+                    elif st.brush_type in {'CYLINDER','CONE'}:
+                        unit=profiles.unit_meters(st);delta=self._drag-self._start
+                        raw=(delta-self._n*delta.dot(self._n)).length
+                        minimum=min(_neutral_size(st)*.5,self._step_value) if self._step_value and self._step_value>0 else .001
+                        radius=max(minimum,_snap(raw,self._step_value) if self._step_value and self._step_value>0 and raw>=self._step_value else raw)
+                        values=dict(primitive_ui.DEFAULTS,radius=radius/unit,depth=self._height_m/unit,segments=st.brush_sides)
+                        basis=Matrix((self._u,self._v,self._n)).transposed().to_4x4();basis.translation=self._start+self._n*self._height_m*.5;root.matrix_world=basis
+                    elif st.brush_type=='STAIRS':
                         values,origin,u_dir,v_dir,_unit=_stairs_values_and_basis(st,self._start,self._drag,self._u,self._v,self._n,self._step_value,self._height_m)
                         basis=Matrix((u_dir,v_dir,self._n)).transposed().to_4x4()
                         basis.translation=origin;root.matrix_world=basis
@@ -694,7 +723,7 @@ class WL_OT_cube_brush_create(bpy.types.Operator):
                             primitive_ui.DEFAULTS,
                             sphere_type=getattr(st,'sphere_type','UV'),
                             subdivisions=getattr(st,'sphere_subdivisions',1),
-                            radius=max(radius,2. if is_engine_brush else 1e-2),
+                            radius=max(radius,2. if profiles.requires_convex_brushes(st.engine) else 1e-2),
                             depth=self._height_m/unit,
                             thickness=thickness,
                             angle=st.arch_angle,
@@ -709,10 +738,12 @@ class WL_OT_cube_brush_create(bpy.types.Operator):
                         bpy.data.objects.remove(root,do_unlink=True);self.report({'ERROR'},str(exc));self._remove_draw();return {'CANCELLED'}
                     bpy.ops.object.select_all(action='DESELECT')
                     primitive_ui.select_assembly(root,context,True)
+                    context.view_layer.objects.active=primitive_ui.parts_for(root)[0]
                     primitive_ui._SELECTED_ROOTS.add(root.as_pointer())
                     self._remove_draw()
                     self._reset_prototype(context, event)
                     return {'FINISHED'}
+                parts=_primitive_parts(st,self._start,self._drag,self._u,self._v,self._n,self._step_value,self._height_m)
                 for index,(verts,faces) in enumerate(parts):
                     part_name=name if len(parts)==1 else f'{name} {index+1:02d}'
                     mesh=bpy.data.meshes.new(part_name); mesh.from_pydata(verts,[],faces); mesh.update()
@@ -740,7 +771,7 @@ class _WLBrushToolBase:
         if not hasattr(context.scene,'wavelength'): return
         st=context.scene.wavelength
         layout.label(text=cls.tool_label)
-        layout.prop(st,'brush_height_steps',text='Height Steps')
+        if cls.primitive!='TERRAIN':layout.prop(st,'brush_height_steps',text='Height Steps')
         if cls.primitive in {'CYLINDER','CONE'}:
             layout.prop(st,'brush_sides',text='Segments')
         if cls.primitive=='SPHERE':
@@ -767,7 +798,7 @@ class _WLBrushToolBase:
         layout.label(text='Ctrl+Wheel: subdivisions / steps')
 
 
-def _tool_class(name,idname,label,primitive,operator_id,icon='ops.generic.select_box'):
+def _tool_class(name,idname,label,primitive,operator_id,icon='ops.mesh.primitive_cube_add_gizmo'):
     return type(name,(_WLBrushToolBase,bpy.types.WorkSpaceTool),{
         'bl_idname':idname,'bl_label':label,'bl_description':f'Prototype a snapped {primitive.lower()}',
         'bl_icon':icon,'primitive':primitive,'tool_label':label,
@@ -787,14 +818,17 @@ class WL_OT_arch_brush(WL_OT_cube_brush_create):
     bl_idname='wavelength.create_arch'; bl_label='Create Arch Brush'; primitive='ARCH'
 class WL_OT_stairs_brush(WL_OT_cube_brush_create):
     bl_idname='wavelength.create_stairs'; bl_label='Create Stairs Brush'; primitive='STAIRS'
+class WL_OT_terrain_brush(WL_OT_cube_brush_create):
+    bl_idname='wavelength.create_terrain'; bl_label='Create Terrain Plane'; primitive='TERRAIN'
 
 WL_Tool_CreateCubeBrush=_tool_class('WL_Tool_CreateCubeBrush','wavelength.create_cube_brush_tool','Create Cube Brush','CUBE',WL_OT_cube_brush.bl_idname)
-WL_Tool_CreateCylinderBrush=_tool_class('WL_Tool_CreateCylinderBrush','wavelength.create_cylinder_brush_tool','Create Cylinder Brush','CYLINDER',WL_OT_cylinder_brush.bl_idname)
-WL_Tool_CreateConeBrush=_tool_class('WL_Tool_CreateConeBrush','wavelength.create_cone_brush_tool','Create Cone Brush','CONE',WL_OT_cone_brush.bl_idname)
-WL_Tool_CreateSphereBrush=_tool_class('WL_Tool_CreateSphereBrush','wavelength.create_sphere_brush_tool','Create Sphere Brush','SPHERE',WL_OT_sphere_brush.bl_idname)
+WL_Tool_CreateCylinderBrush=_tool_class('WL_Tool_CreateCylinderBrush','wavelength.create_cylinder_brush_tool','Create Cylinder Brush','CYLINDER',WL_OT_cylinder_brush.bl_idname,'ops.mesh.primitive_cylinder_add_gizmo')
+WL_Tool_CreateConeBrush=_tool_class('WL_Tool_CreateConeBrush','wavelength.create_cone_brush_tool','Create Cone Brush','CONE',WL_OT_cone_brush.bl_idname,'ops.mesh.primitive_cone_add_gizmo')
+WL_Tool_CreateSphereBrush=_tool_class('WL_Tool_CreateSphereBrush','wavelength.create_sphere_brush_tool','Create Sphere Brush','SPHERE',WL_OT_sphere_brush.bl_idname,'ops.mesh.primitive_sphere_add_gizmo')
 WL_Tool_CreateArchBrush=_tool_class('WL_Tool_CreateArchBrush','wavelength.create_arch_brush_tool','Create Arch Brush','ARCH',WL_OT_arch_brush.bl_idname)
 WL_Tool_CreateStairsBrush=_tool_class('WL_Tool_CreateStairsBrush','wavelength.create_stairs_brush_tool','Create Stairs Brush','STAIRS',WL_OT_stairs_brush.bl_idname)
-TOOLS=(WL_Tool_CreateCubeBrush,WL_Tool_CreateCylinderBrush,WL_Tool_CreateConeBrush,WL_Tool_CreateSphereBrush,WL_Tool_CreateArchBrush,WL_Tool_CreateStairsBrush)
+WL_Tool_CreateTerrainBrush=_tool_class('WL_Tool_CreateTerrainBrush','wavelength.create_terrain_brush_tool','Create Terrain Plane','TERRAIN',WL_OT_terrain_brush.bl_idname,'ops.mesh.primitive_grid_add_gizmo')
+TOOLS=(WL_Tool_CreateCubeBrush,WL_Tool_CreateCylinderBrush,WL_Tool_CreateConeBrush,WL_Tool_CreateSphereBrush,WL_Tool_CreateArchBrush,WL_Tool_CreateStairsBrush,WL_Tool_CreateTerrainBrush)
 
 _TOOL_REGISTERED=False
 

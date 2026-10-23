@@ -116,6 +116,7 @@ class Assets:
             result=self.material(include,(*seen,name))
             for k,v in keyvalues.values(keyvalues.child(pairs,'insert')).items():result.setdefault(k,v)
             result.update(keyvalues.values(keyvalues.child(pairs,'replace')))
+        if shader.lower()!='patch':result['_wl_shader']=shader.lower()
         return result
 
 def image_size(w,h,fmt):
@@ -211,6 +212,8 @@ def library(game):
 
 def material(settings,name,target_mat=None):
     import bpy
+    from .tool_textures import canonical
+    name=canonical(settings.engine,name)
     assets=library(bpy.path.abspath(settings.game_dir));name=asset_path(name)
     if name.startswith('materials/'):name=name[10:]
     if name.endswith('.vmt'):name=name[:-4]
@@ -221,7 +224,7 @@ def material(settings,name,target_mat=None):
     if not base.endswith('.vtf'):base+='.vtf'
     data=assets.read(base);key='wl_source_'+hashlib.sha256((str(assets.game)+name).encode()+data).hexdigest()[:20]
     existing=target_mat or bpy.data.materials.get(key) or next((m for m in bpy.data.materials if m.get('wl_asset_profile')==settings.engine and str(m.get('wl_texture','')).casefold()==name.casefold()),None)
-    if existing and existing.get('wl_realized') and existing.use_nodes and any(n.type=='TEX_IMAGE' and n.image for n in existing.node_tree.nodes):
+    if existing and existing.get('wl_realized') and existing.get('wl_source_blend_checked') and existing.use_nodes and any(n.type=='TEX_IMAGE' and n.image for n in existing.node_tree.nodes):
         return existing
     width,height,w,h,rgba=decode_vtf(data)
     image=bpy.data.images.get(key)
@@ -239,6 +242,21 @@ def material(settings,name,target_mat=None):
     uv=next((n for n in nodes if n.type=='UVMAP'),None) or nodes.new('ShaderNodeUVMap');uv.uv_map='wavelength'
     mat.node_tree.links.new(uv.outputs['UV'],tex.inputs['Vector'])
     mat.node_tree.links.new(tex.outputs['Color'],shader.inputs['Base Color']);shader.inputs['Roughness'].default_value=1
+    mat['wl_source_blend_checked']=True
+    if props.get('$basetexture2'):
+        second=asset_path(props['$basetexture2'])
+        if not second.startswith('materials/'):second='materials/'+second
+        if not second.endswith('.vtf'):second+='.vtf'
+        payload=assets.read(second);_,_,w2,h2,pixels2=decode_vtf(payload)
+        secondkey='wl_source_layer_'+hashlib.sha256(payload).hexdigest()[:20]
+        image2=bpy.data.images.get(secondkey)
+        if image2 is None:
+            image2=bpy.data.images.new(secondkey,width=w2,height=h2,alpha=True);image2.pixels.foreach_set(array('f',(x/255 for x in pixels2)));image2.update();image2.pack()
+        layer=nodes.get('Wavelength Layer 2') or nodes.new('ShaderNodeTexImage');layer.name='Wavelength Layer 2';layer.image=image2
+        attr=nodes.get('Wavelength Terrain Blend') or nodes.new('ShaderNodeAttribute');attr.name='Wavelength Terrain Blend';attr.attribute_name='wl_terrain_blend'
+        mix=nodes.get('Wavelength Texture Blend') or nodes.new('ShaderNodeMixRGB');mix.name='Wavelength Texture Blend'
+        mat.node_tree.links.new(uv.outputs['UV'],layer.inputs['Vector']);mat.node_tree.links.new(attr.outputs['Fac'],mix.inputs[0]);mat.node_tree.links.new(tex.outputs['Color'],mix.inputs[1]);mat.node_tree.links.new(layer.outputs['Color'],mix.inputs[2]);mat.node_tree.links.new(mix.outputs[0],shader.inputs['Base Color'])
+        mat['wl_source_blend']=props.get('_wl_shader','').startswith('worldvertextransition')
     if props.get('$translucent')=='1' or props.get('$alphatest')=='1':mat.node_tree.links.new(tex.outputs['Alpha'],shader.inputs['Alpha'])
     return mat
 

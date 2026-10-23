@@ -1,36 +1,39 @@
 """Engine authoring profiles.  Tools read units/behavior from the active profile."""
-PROFILES = {
- 'blender': {'label':'Blender — No Engine — Any Platform', 'format':None, 'grid':None, 'unit_meters':1.0,
-             'stages':[], 'bsp_version':None, 'brush_semantics':False, 'create_cube_label':'Create Cube'},
- 'quake': {'label':'Quake — Quake — Custom Platform', 'format':'classic', 'grid':16, 'unit_meters':0.0254,
-           'stages':['qbsp','vis','light'], 'bsp_version':29, 'brush_semantics':True, 'create_cube_label':'Create Cube Brush'},
- 'goldsrc': {'label':'Half-Life — GoldSrc — Custom Platform', 'family':'goldsrc', 'format':'valve220', 'grid':16, 'unit_meters':0.0254,
-             'stages':['hlcsg','hlbsp','hlvis','hlrad'], 'bsp_version':30, 'brush_semantics':True, 'create_cube_label':'Create Cube Brush'},
- 'goldsrc_linux_steam': {'label':'Half Life 1, GoldSrc, Linux, Steam', 'family':'goldsrc', 'platform':'linux', 'launch_method':'steam', 'steam_app_id':'70', 'format':'valve220', 'grid':16, 'unit_meters':0.0254,
-             'stages':['hlcsg','hlbsp','hlvis','hlrad'], 'bsp_version':30, 'brush_semantics':True, 'create_cube_label':'Create Cube Brush'},
- 'goldsrc_linux': {'label':'Half-Life — GoldSrc — Linux', 'family':'goldsrc', 'platform':'linux', 'format':'valve220', 'grid':16, 'unit_meters':0.0254,
-             'stages':['hlcsg','hlbsp','hlvis','hlrad'], 'bsp_version':30, 'brush_semantics':True, 'create_cube_label':'Create Cube Brush'},
-}
-for platform in ('linux','windows'):
-    PROFILES['source_hl2_'+platform] = {
-        'label':'Half-Life 2 — Source 1 — '+platform.title(), 'family':'source',
-        'platform':platform,'launch_method':'steam','steam_app_id':'220',
-        'format':'vmf','grid':16,'unit_meters':0.0254,
-        'stages':['vbsp','vvis','vrad'],'bsp_version':20,
-        'brush_semantics':True,'create_cube_label':'Create Cube Brush'}
-PROFILES['source_gmod_windows']={**PROFILES['source_hl2_windows'],
-    'label':"Garry's Mod — Source 1 — Windows",'steam_app_id':'4000','game':'gmod'}
-SCHEMA_VERSION=1
+from .profile_registry import TEMPLATES
+PROFILES = TEMPLATES.selectable()
+SCHEMA_VERSION=2
+
+def is_mesh_export(engine):return bool(get(engine).get('mesh_export'))
+
+# Preserve persisted RNA enum numbers when adding profiles or changing dict order.
+PROFILE_ORDER=('blender','quake','goldsrc','goldsrc_windows','goldsrc_linux','goldsrc_linux_steam','source_hl2_linux','source_hl2_windows','source_gmod_windows','godot4','source2_cs2_windows','source_windows')
+PROFILE_ITEMS=[(key,PROFILES[key]['label'],PROFILES[key]['label'],index) for index,key in enumerate(PROFILE_ORDER)]
 
 def is_source(engine):
     return family(engine)=='source'
+
+def is_source2(engine):return family(engine)=='source2'
 
 def uses_valve_axes(engine):
     return is_goldsrc(engine) or is_source(engine)
 
 
 def get(engine):
-    return PROFILES.get(engine, PROFILES['blender'])
+    if engine in PROFILES:return PROFILES[engine]
+    if engine in TEMPLATES.definitions:return TEMPLATES.resolve(engine)
+    return PROFILES['blender']
+
+# docs:begin convex-contract
+def requires_convex_brushes(engine):
+    """Return whether the profile explicitly requires convex BSP brushes.
+
+    Unrecognized or mesh-based profiles are unrestricted unless they opt in.
+    This is an authoring/export constraint, independent of Blender's display.
+    """
+    # A new engine must not inherit BSP constraints merely because it uses brushes.
+    return bool(get(engine).get('requires_convex_brushes',False))
+# docs:end convex-contract
+
 
 def family(engine):
     return get(engine).get('family', engine)
@@ -49,7 +52,7 @@ def active_grid_step_meters(settings):
     None means the profile has no engine-unit snap; Blender viewport-grid snapping is resolved from the active 3D view by the creation tool.
     """
     profile = get(settings.engine)
-    if not profile.get('brush_semantics'):
+    if profile.get('grid') is None:
         return None
     return engine_to_world(settings, grid_step_units(settings))
 
@@ -124,7 +127,7 @@ def snap_world_length(settings, value, minimum_steps=1, context=None):
 
 def display_grid(settings):
     """Parent spacing in meters and subdivisions, independent of Blender LOD."""
-    metric = settings.engine == 'blender' or settings.grid_mode == 'BLENDER'
+    metric = get(settings.engine).get('grid') is None or settings.grid_mode == 'BLENDER'
     spacing = float(getattr(settings, 'metric_grid_step', 1.0)) if metric else active_grid_step_meters(settings)
     count = int(getattr(settings, 'grid_subdivisions', 0)) or (10 if metric else int(get(settings.engine).get('grid_subdivisions', 8)))
     return spacing, max(2, count)

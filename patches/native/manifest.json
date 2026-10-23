@@ -16,17 +16,20 @@
     {
       "platform": "windows-x86_64",
       "input_sha256": "19e60200c51e981aa48a515ffc22c46d9192ea0538e249b2891394a425bd855b",
-      "output_sha256": "87e0321a94f707e13c6c7b76954be4427664bb0aeabd2bf1682a0c904c1c1a04",
-      "output_size": 97543680,
-      "patch_sha256": "57541c0c18734ec39f8397133f0da6d1540beb8fd5f36514626d8418224ec3a0",
+      "output_sha256": "133bb8296d47e911d6baf81ae55677c647ed64ad047ecddee6c204ee09e43b54",
+      "output_size": 97544704,
+      "patch_sha256": "23f65f5fdb46be0507f6867b7d41f9d28f54a21c29e12d23bc526bf5b547fd36",
       "file": "windows-x86_64-19e60200c51e981a.bsdiff",
       "native_grid_abi": 1,
       "blender_version": "5.2.3-candidate+32ede9dba158",
       "source_commit": "32ede9dba158a4816a41cd0f7c018dda1ce8f67f",
       "windows_installation_tested": true,
       "opengl_viewport_tested": true,
-      "url": "https://github.com/parallel-minds0/wavelength/releases/download/v0.19.1-pre.alpha/windows-x86_64-19e60200c51e981a.bsdiff",
-      "experimental": true
+      "experimental": true,
+      "toolbar_columns": 2,
+      "context_transform_routing": true,
+      "profile_grid_native_adapters": true,
+      "url": "https://github.com/parallel-minds0/wavelength/releases/download/v0.50.0-pre.alpha/windows-x86_64-19e60200c51e981a.bsdiff"
     }
   ]
 }

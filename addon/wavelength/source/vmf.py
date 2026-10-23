@@ -121,7 +121,27 @@ def write(document):
                     prop(key,'['+' '.join(formats.number(x) for x in axes[index])+'] '+formats.number(face.projection[3+index]))
                 prop('rotation',formats.number(face.projection[2]))
                 metadata=face.vmf or {}
-                prop('lightmapscale',metadata.get('lightmapscale','16'));prop('smoothing_groups',metadata.get('smoothing_groups','0'));end()
+                prop('lightmapscale',metadata.get('lightmapscale','16'));prop('smoothing_groups',metadata.get('smoothing_groups','0'))
+                disp=metadata.get('dispinfo')
+                if disp:
+                    power=disp['power'];size=2**power+1
+                    if power not in (2,3,4):raise ValueError('Invalid displacement power')
+                    start('dispinfo');prop('power',power)
+                    prop('startposition','['+' '.join(formats.number(x) for x in disp['startposition'])+']')
+                    prop('flags',0);prop('elevation',0);prop('subdiv',0)
+                    for key,width in (('normals',3),('distances',1),('offsets',3),('offset_normals',3),('alphas',1)):
+                        start(key)
+                        rows=disp.get(key)
+                        if rows is not None and (len(rows)!=size or any(len(row)!=size*width for row in rows)):
+                            raise ValueError('Invalid displacement grid')
+                        for i in range(size):
+                            row=rows[i] if rows is not None else ([0,0,1]*size if key=='offset_normals' else [0]*(size*width))
+                            prop('row'+str(i),' '.join(formats.number(x) for x in row))
+                        end()
+                    start('triangle_tags')
+                    for i in range(size-1):prop('row'+str(i),' '.join(['9']*(2*(size-1))))
+                    end();start('allowed_verts');prop('10',' '.join(['-1']*10));end();end()
+                end()
             end()
         end()
     return '\n'.join(lines)+'\n'

@@ -1,4 +1,4 @@
-"""Editable BSP primitives. Dimensions are engine units; each part is convex."""
+"""Profile-aware primitives: convex brush parts only when BSP validation is requested."""
 from math import sin, cos, pi
 from .geometry import validate
 
@@ -84,8 +84,41 @@ def _curved_stair_bases(count, sweep, inner, outer, cx, left, landing, c_rot, s_
     return bases
 
 
+def _single_mesh(parts, stairs=False):
+    """Remove brush-only partitions for unrestricted mesh profiles."""
+    vertices=[];indices={};faces=[]
+    def vertex(p):
+        key=tuple(round(c,8) for c in p)
+        if key not in indices:indices[key]=len(vertices);vertices.append(tuple(p))
+        return indices[key]
+    def face(points):faces.append(tuple(vertex(p) for p in points))
+    if stairs:
+        levels=sorted({0.0}|{max(p[2] for p in verts) for verts,_ in parts})
+        edges={}
+        for verts,_ in parts:
+            base=verts[:4];height=max(p[2] for p in verts)
+            face(list(reversed(base)));face([(x,y,height) for x,y,_ in base])
+            for a,b in zip(base,base[1:]+base[:1]):
+                key=tuple(sorted((tuple(round(c,8) for c in a[:2]),tuple(round(c,8) for c in b[:2]))))
+                edges.setdefault(key,[]).append((a,b,height))
+        for entries in edges.values():
+            for a,b,height in entries:
+                low=0 if len(entries)==1 else min(e[2] for e in entries)
+                if height<=low:continue
+                zs=[z for z in levels if low<=z<=height]
+                face([(a[0],a[1],low)]+[(b[0],b[1],z) for z in zs]+[(a[0],a[1],z) for z in reversed(zs[1:])])
+    else:
+        candidates={}
+        for verts,polygons in parts:
+            for polygon in polygons:
+                f=tuple(vertex(verts[i]) for i in polygon)
+                candidates.setdefault(tuple(sorted(f)),[]).append(f)
+        faces=[items[0] for items in candidates.values() if len(items)==1]
+    return [(vertices,faces)]
+
+
 def generate(kind, p, validate_bsp=True, grid_step=None):
-    validate_bsp = bool(p.get('validate_bsp', validate_bsp))
+    validate_bsp = bool(validate_bsp)
     if grid_step is None:
         grid_step = p.get('grid_step')
     g = float(grid_step) if grid_step is not None and float(grid_step) > 0 else 0.0
@@ -230,6 +263,8 @@ def generate(kind, p, validate_bsp=True, grid_step=None):
     else:
         raise ValueError('Unknown primitive')
 
+    if not validate_bsp and kind in {'ARCH','STAIRS'}:
+        parts=_single_mesh(parts,stairs=kind=='STAIRS')
     result = []
     for verts, faces in parts:
         if not pre_rotated:

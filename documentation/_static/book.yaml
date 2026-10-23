@@ -1,0 +1,45 @@
+embeddedFonts:
+  - [Vera.ttf, VeraBd.ttf, VeraIt.ttf, VeraBI.ttf]
+fontsAlias:
+  fontSans: BitstreamVeraSans-Roman
+  fontSansBold: BitstreamVeraSans-Bold
+  fontSansItalic: BitstreamVeraSans-Oblique
+  fontSansBoldItalic: BitstreamVeraSans-BoldOblique
+styles:
+  std:
+    parent: normal
+  base:
+    alignment: TA_LEFT
+    fontSize: 9
+    leading: 13
+    spaceAfter: 7
+  heading1:
+    textColor: '#17483f'
+    fontSize: 21
+    leading: 26
+  heading2:
+    textColor: '#17483f'
+    fontSize: 15
+    leading: 20
+  code:
+    fontSize: 7
+    leading: 9
+  table:
+    fontSize: 8
+    leading: 11
+  pygments-c:
+    textColor: '#3e5952'
+  pygments-c1:
+    textColor: '#3e5952'
+  pygments-cm:
+    textColor: '#3e5952'
+  pygments-sd:
+    textColor: '#465b54'
+  pygments-go:
+    textColor: '#26343b'
+pageSetup:
+  size: A4
+  margin-top: 2cm
+  margin-bottom: 2cm
+  margin-left: 2cm
+  margin-right: 2cm

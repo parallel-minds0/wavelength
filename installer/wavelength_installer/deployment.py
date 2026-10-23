@@ -6,7 +6,7 @@ from .core import inspect_blender,sha256
 from .experimental import generate,analyze,LIMITATIONS
 
 @contextmanager
-def _prepare(blender, native_grid_abi=None, patch_directory=None):
+def _prepare(blender, native_grid_abi=None, patch_directory=None, original_bytes=None):
     with tempfile.TemporaryDirectory(prefix='wl-native-') as folder:
         folder=Path(folder)
         runtime=None
@@ -25,7 +25,7 @@ def _prepare(blender, native_grid_abi=None, patch_directory=None):
                 if item.is_symlink() and not item.resolve().is_relative_to(runtime.resolve()):
                     raise ValueError('AppImage contains an external symlink; refusing deployment')
         else:payload=blender
-        payload_bytes=payload.read_bytes()
+        payload_bytes=payload.read_bytes() if original_bytes is None else original_bytes
         if native_grid_abi not in (None, 1):
             raise ValueError('Unsupported native grid API version')
         # A separately compiled renderer is adopted, never rewritten with the
@@ -98,12 +98,12 @@ def stage_runtime(prepared,state):
 
 
 @contextmanager
-def prepare(blender, strict=True, native_grid_abi=None, patch_directory=None):
+def prepare(blender, strict=True, native_grid_abi=None, patch_directory=None, original_bytes=None):
     # Catch preparation failures only, never exceptions from the caller's transaction.
     from contextlib import ExitStack
     with ExitStack() as stack:
         try:
-            prepared=stack.enter_context(_prepare(Path(blender), native_grid_abi, patch_directory))
+            prepared=stack.enter_context(_prepare(Path(blender), native_grid_abi, patch_directory, original_bytes))
         except (OSError,ValueError,subprocess.SubprocessError) as exc:
             if isinstance(exc, PermissionError) and os.name == 'nt':
                 exc = ValueError(str(exc) + ' Close Blender. For a Program Files installation, run the installer from an Administrator terminal, or use a writable portable Blender folder.')

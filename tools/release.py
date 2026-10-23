@@ -23,6 +23,7 @@ def version():
     return '.'.join(map(str,info['version']))+'-pre.alpha'
 
 def package():
+    if (ROOT/'documentation/index.md').is_file():run(sys.executable,'tools/docs.py','sync')
     destination=ROOT/'dist'/f'wavelength-addon-v{version()}.zip'
     destination.parent.mkdir(exist_ok=True)
     source=ROOT/'addon/wavelength'
@@ -30,7 +31,7 @@ def package():
         for file in sorted(source.rglob('*')):
             relative=file.relative_to(source)
             if not file.is_file() or any(part.startswith('.') or part in {'dev','third-party','__pycache__'} for part in relative.parts):continue
-            if file.suffix not in {'.py','.md','.svg','.map','.vmf'} and file.name!='LICENSE':continue
+            if file.suffix not in {'.py','.md','.svg','.map','.vmf'} and file.name!='LICENSE' and relative.as_posix() not in {'environment/sprites/manifest.json','environment/profiles/templates.json'}:continue
             archive.write(file,Path('wavelength')/relative)
     with zipfile.ZipFile(destination) as archive:
         if archive.testzip():raise RuntimeError('Invalid package')

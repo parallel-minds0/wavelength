@@ -47,13 +47,32 @@ def mark_brush(obj):
 
 
 def brush_from_object(obj,engine,require_texture=False):
+    if obj.get('wl_csg'):raise BrushError('CSG_NOT_FINALIZED','Finalize Geometry before exporting live CSG')
     if obj.mode!='OBJECT':raise BrushError('EDIT_MODE',f'{obj.name}: leave Edit Mode before exporting')
-    if obj.modifiers:raise BrushError('MODIFIERS_PRESENT',f'{obj.name}: apply modifiers to a copy first')
+    modifiers=[m for m in obj.modifiers if not (m.type=='NODES' and m.node_group and m.node_group.get('wl_generator')=='wavelength.displacement.face_mask')]
+    if modifiers:
+        if all(m.type=='NODES' and m.node_group and str(m.node_group.get('wl_generator','')).startswith('wavelength.geometry_nodes.') for m in modifiers):
+            depsgraph=bpy.context.evaluated_depsgraph_get()
+            mesh=bpy.data.meshes.new_from_object(obj.evaluated_get(depsgraph),preserve_all_data_layers=True,depsgraph=depsgraph)
+            temporary=bpy.data.objects.new(obj.name+' evaluated export',mesh)
+            try:
+                temporary.matrix_world=obj.matrix_world.copy()
+                temporary['wl_unit_meters']=obj.get('wl_unit_meters',1.0)
+                mesh['wl_faces']=obj.data.get('wl_faces','{}')
+                mesh.materials.clear()
+                for material in obj.data.materials:mesh.materials.append(material)
+                return brush_from_object(temporary,engine,require_texture)
+            finally:
+                bpy.data.objects.remove(temporary,do_unlink=True);bpy.data.meshes.remove(mesh)
+        raise BrushError('MODIFIERS_PRESENT',f'{obj.name}: apply modifiers to a copy first')
     if obj.library or obj.data.library or obj.override_library:raise BrushError('LINKED_DATA',obj.name)
     if abs(obj.matrix_world.determinant())<1e-12:raise BrushError('SINGULAR_TRANSFORM',obj.name)
     verts=[tuple(x/obj.get('wl_unit_meters',1.0) for x in (obj.matrix_world@v.co)) for v in obj.data.vertices]
     polygons=[list(p.vertices) for p in obj.data.polygons]
-    planes=validate(verts,polygons)
+    try:planes=validate(verts,polygons)
+    except BrushError as exc:
+        exc.object_name=obj.name
+        raise
     attr=obj.data.attributes.get('wl_face_id')
     if attr is None:raise BrushError('FACE_ID_MISSING',obj.name)
     ids=[v.value for v in attr.data]
@@ -83,6 +102,9 @@ def brush_from_object(obj,engine,require_texture=False):
 
 
 def export_map(scene):
+    if profiles.is_mesh_export(scene.wavelength.engine):raise BrushError('PROFILE_EXPORT_FORMAT','Use Export Meshes & Textures for this profile')
+    if any(o.get('wl_csg') and not o.get('wl_exclude') for o in scene.objects):
+        raise BrushError('CSG_NOT_FINALIZED','Finalize Geometry before exporting live CSG')
     if bpy.context.scene==scene:bpy.context.view_layer.update()
     engine=scene.wavelength.engine
     world_pairs=json.loads(scene.get('wl_world_pairs','[["classname","worldspawn"]]'))
@@ -90,8 +112,27 @@ def export_map(scene):
         world_pairs=[(k,v) for k,v in world_pairs if k!='mapversion']
         world_pairs.append(('mapversion','220'))
     world=formats.Entity(world_pairs,[]); grouped={};point=[];seen=set()
+    attachments={};validated_seams=set()
+    from . import terrain_face,terrain_sew
+    for obj in scene.objects:
+        if obj.get('wl_terrain_seams') and not obj.get('wl_exclude') and obj not in validated_seams:
+            members=terrain_sew.network(obj);terrain_sew.validate_export(obj);validated_seams.update(members)
+        if obj.get('wl_exclude') or not obj.get('wl_terrain_face_corners'):continue
+        source,_=terrain_face.validate_attachment(obj)
+        if source is None:continue
+        if source.get('wl_exclude'):raise ValueError('Displacement source brush is excluded from export')
+        attachments.setdefault(source,[]).append(obj)
     for obj in sorted(scene.objects,key=lambda o:(o.get('wl_id',''),o.name)):
-        if obj.get('wl_exclude'):continue
+        if obj.get('wl_exclude') or obj.get('wl_custom_model_owner'):continue
+        if obj.get('wl_custom_model') and not profiles.is_source(engine):raise ValueError('Custom model compilation currently requires its owning Source profile')
+        if obj.get('wl_terrain'):
+            if not profiles.is_source(engine):raise ValueError('Terrain map export currently requires a Source profile')
+            from . import terrain
+            world.brushes.extend(terrain.brushes(obj,validate_seams=False));continue
+        if obj.get('wl_displacement'):
+            if not profiles.is_source(engine):raise ValueError('Drawing displacements require a Source profile')
+            from .draw_displacement import brush
+            world.brushes.append(brush(obj));continue
         role=obj.get('wl_role')
         if not role:continue
         identity=obj.get('wl_id')
@@ -99,11 +140,22 @@ def export_map(scene):
         seen.add(identity)
         if obj.instance_type!='NONE':raise BrushError('INSTANCE_UNSUPPORTED','Realize collection instances before exporting')
         if role=='BRUSH':
+            # A displacement's own frame defines grid orientation. Reusing the
+            # original brush side can transpose rows when mesh winding and the
+            # convex exporter's outward plane orientation disagree. Source also
+            # discards the backing brush's ordinary sides, so emit independent
+            # displacement backings for legacy attachments as well.
+            if obj in attachments:continue
             try:brush=brush_from_object(obj,engine,require_texture=True)
-            except BrushError as exc:raise BrushError(exc.code,f'{obj.name}: {exc}') from exc
+            except BrushError as exc:
+                error=BrushError(exc.code,f'{obj.name}: {exc}');error.object_name=obj.name
+                raise error from exc
             entity_id=obj.get('wl_entity_id')
             if entity_id:
                 pairs=json.loads(obj.get('wl_entity_pairs','[]'))
+                if profiles.is_source(engine):
+                    from .entity import source_schema
+                    pairs=source_schema.export_pairs(scene.wavelength,pairs,bpy.path.abspath)
                 if not any(k=='classname' and v for k,v in pairs):
                     raise BrushError('ENTITY_CLASS_MISSING',f'{obj.name}: brush entity has no classname')
                 entity=grouped.setdefault(entity_id,formats.Entity(pairs,[]))
@@ -113,6 +165,13 @@ def export_map(scene):
             else:world.brushes.append(brush)
         elif role=='ENTITY':
             pairs=json.loads(obj.get('wl_pairs','[]'))
+            if profiles.is_source(engine):
+                from .entity import source_schema
+                pairs=source_schema.export_pairs(scene.wavelength,pairs,bpy.path.abspath)
+            if obj.get('wl_custom_model'):
+                rotation=obj.matrix_world.to_euler('XYZ')
+                angles=' '.join(formats.number(math.degrees(rotation[i])) for i in (1,2,0))
+                pairs=[(k,v) for k,v in pairs if k!='angles'];pairs.append(('angles',angles))
             if dict(pairs).get('classname')=='light_environment':
                 from . import sun
                 pairs=sun.export_pairs(obj,pairs)
@@ -176,7 +235,9 @@ def import_map(scene,document):
             obj['wl_unit_meters']=unit
             obj['wl_role']='ENTITY';obj['wl_id']=uid();obj['wl_pairs']=json.dumps(entity.pairs)
             collection.objects.link(obj);created.append(obj)
-            if profiles.is_goldsrc(scene.wavelength.engine):entity_models.attach_reference(obj,entity.pairs)
+            if profiles.is_goldsrc(scene.wavelength.engine) or profiles.is_source(scene.wavelength.engine):
+                entity_models.attach_reference(obj,entity.pairs)
+                created.extend(c for c in obj.children if c.get('wl_model_reference'))
             if values.get('classname')=='light_environment':
                 from . import sun
                 sun.ensure(obj)

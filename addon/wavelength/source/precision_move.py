@@ -2,22 +2,30 @@
 import bpy
 from bpy_extras import view3d_utils
 from mathutils import Vector
-from . import workspace,profiles
+from . import workspace,profiles,tool_snap,axis_guides
 _KEYS=[]
 
 class WL_OT_precision_move(bpy.types.Operator):
     bl_idname='wavelength.precision_move';bl_label='Move on Engine Grid';bl_options={'REGISTER','UNDO','BLOCKING'}
+    release_confirm:bpy.props.BoolProperty(default=False)
     axis:bpy.props.EnumProperty(items=[('FREE','View plane',''),('X','X',''),('Y','Y',''),('Z','Z','')],default='FREE')
     @classmethod
-    def poll(cls,context):return workspace.active(context,'snapping') and context.area and context.area.type=='VIEW_3D' and context.mode=='OBJECT' and context.selected_objects and context.scene.wavelength.engine!='blender' and context.scene.wavelength.grid_mode=='ENGINE'
+    def poll(cls,context):return workspace.active(context,'snapping') and context.area and context.area.type=='VIEW_3D' and context.mode=='OBJECT' and context.selected_objects and tool_snap.profile_grid_active(context)
     def invoke(self,context,event):
+        if tool_snap.enabled(context,event) and not tool_snap.grid_enabled(context,event):
+            bpy.ops.transform.translate('INVOKE_DEFAULT',constraint_axis=tuple(self.axis==a for a in 'XYZ'))
+            return {'FINISHED'}
         from . import primitive_ui
         primitive_ui.sync_assemblies(force=True)
         self._objects=[(o,o.matrix_world.copy()) for o in context.selected_objects if not any(p.select_get() for p in self.parents(o))]
         self._anchor=context.object.matrix_world.translation.copy();self._mouse=Vector((event.mouse_region_x,event.mouse_region_y));self._value='';self._step=profiles.active_grid_step_meters(context.scene.wavelength)
         self._start=view3d_utils.region_2d_to_location_3d(context.region,context.region_data,self._mouse,self._anchor)
+        axis_guides.start(self,context,self._anchor)
         context.window_manager.modal_handler_add(self);context.area.header_text_set('Move: X/Y/Z constrain · type engine units · Ctrl free move · Enter confirm · Esc cancel')
         return {'RUNNING_MODAL'}
+    def cancel(self,context):
+        axis_guides.finish(self,context)
+
     @staticmethod
     def parents(obj):
         while obj.parent:obj=obj.parent;yield obj
@@ -25,10 +33,12 @@ class WL_OT_precision_move(bpy.types.Operator):
         for obj,matrix in self._objects:
             if obj.name in bpy.data.objects:obj.matrix_world=matrix
     def modal(self,context,event):
+        if event.type=='TAB' and event.shift:return {'PASS_THROUGH'}
         if event.type in {'ESC','RIGHTMOUSE'} or not workspace.active(context,'snapping'):
-            self.restore();context.area.header_text_set(None);return {'CANCELLED'}
-        if event.type in {'LEFTMOUSE','RET','NUMPAD_ENTER'} and event.value=='PRESS':
-            context.area.header_text_set(None);return {'FINISHED'}
+            self.restore();axis_guides.finish(self,context);return {'CANCELLED'}
+        if ((event.type in {'LEFTMOUSE','RET','NUMPAD_ENTER'} and event.value=='PRESS') or
+                (event.type=='LEFTMOUSE' and event.value=='RELEASE' and self.release_confirm)):
+            axis_guides.finish(self,context);return {'FINISHED'}
         if event.value=='PRESS':
             if event.type in {'X','Y','Z'}:self.axis=event.type
             elif event.type in {'LEFT_BRACKET','RIGHT_BRACKET'}:
@@ -36,6 +46,7 @@ class WL_OT_precision_move(bpy.types.Operator):
                 self._step=profiles.active_grid_step_meters(context.scene.wavelength)
             elif event.type=='BACK_SPACE':self._value=self._value[:-1]
             elif event.unicode and event.unicode in '0123456789.-':self._value+=event.unicode
+        axis_guides.update(self)
         if event.type=='MOUSEMOVE' or event.value=='PRESS':
             point=view3d_utils.region_2d_to_location_3d(context.region,context.region_data,(event.mouse_region_x,event.mouse_region_y),self._anchor)
             delta=point-self._start
@@ -53,9 +64,10 @@ class WL_OT_precision_move(bpy.types.Operator):
                 try:
                     value=profiles.engine_to_world(context.scene.wavelength,float(self._value));direction=Vector((1,0,0)) if self.axis=='FREE' else Vector(tuple(float(i=='XYZ'.index(self.axis)) for i in range(3)));delta=direction*value
                 except ValueError:return {'RUNNING_MODAL'}
-            elif not event.ctrl:
+            elif tool_snap.grid_enabled(context,event):
+                snapped=tool_snap.point(context,event,self._anchor+delta,self._anchor)-self._anchor
                 for i in range(3):
-                    if self.axis=='FREE' or i=='XYZ'.index(self.axis):delta[i]=round((self._anchor[i]+delta[i])/self._step)*self._step-self._anchor[i]
+                    if self.axis=='FREE' or i=='XYZ'.index(self.axis):delta[i]=snapped[i]
             for obj,matrix in self._objects:
                 updated=matrix.copy();updated.translation+=delta;obj.matrix_world=updated
             context.area.tag_redraw()
@@ -65,11 +77,11 @@ class WL_GGT_move(bpy.types.GizmoGroup):
     bl_idname='WL_GGT_move';bl_label='Wavelength Grid Move';bl_space_type='VIEW_3D';bl_region_type='WINDOW';bl_options={'3D','PERSISTENT'}
     @classmethod
     def poll(cls,context):
-        return bool(WL_OT_precision_move.poll(context) and workspace.active(context,'gizmos') and context.workspace.tools.from_space_view3d_mode(context.mode,create=False) and context.workspace.tools.from_space_view3d_mode(context.mode,create=False).idname=='wavelength.precision_move_tool')
+        return bool(WL_OT_precision_move.poll(context) and workspace.active(context,'gizmos') and context.workspace.tools.from_space_view3d_mode(context.mode,create=False) and context.workspace.tools.from_space_view3d_mode(context.mode,create=False).idname in {'wavelength.precision_move_tool','wavelength.engine_transform_tool'})
     def setup(self,context):
         self.arrows=[]
         for axis,color in zip('XYZ',((.8,.15,.15),(.15,.8,.15),(.15,.3,.9))):
-            arrow=self.gizmos.new('GIZMO_GT_arrow_3d');arrow.color=color;arrow.alpha=.8;arrow.color_highlight=color;arrow.alpha_highlight=1;arrow.target_set_operator('wavelength.precision_move').axis=axis;self.arrows.append(arrow)
+            arrow=self.gizmos.new('GIZMO_GT_arrow_3d');arrow.color=color;arrow.alpha=.8;arrow.color_highlight=color;arrow.alpha_highlight=1;op=arrow.target_set_operator('wavelength.precision_move');op.axis=axis;op.release_confirm=True;self.arrows.append(arrow)
     def draw_prepare(self,context):
         from mathutils import Matrix
         for i,arrow in enumerate(self.arrows):
@@ -79,11 +91,15 @@ class WL_Tool_move(bpy.types.WorkSpaceTool):
 
 def register():
     for cls in (WL_OT_precision_move,WL_GGT_move):bpy.utils.register_class(cls)
-    bpy.utils.register_tool(WL_Tool_move,after={'builtin.move'})
-    kc=bpy.context.window_manager.keyconfigs.addon
-    if kc:
-        km=kc.keymaps.new(name='Object Mode',space_type='EMPTY');item=km.keymap_items.new('wavelength.precision_move','G','PRESS');_KEYS.append((km,item))
+    from . import engine_tools
+    engine_tools.register()
+    from . import transform_bridge
+    transform_bridge.register()
+
 def unregister():
+    from . import engine_tools,transform_bridge
+    transform_bridge.unregister()
+    engine_tools.unregister()
     for km,item in _KEYS:km.keymap_items.remove(item)
-    _KEYS.clear();bpy.utils.unregister_tool(WL_Tool_move)
+    _KEYS.clear()
     for cls in (WL_GGT_move,WL_OT_precision_move):bpy.utils.unregister_class(cls)

@@ -1,0 +1,10 @@
+:root { --accent: #217c6b; }
+body { color:#26343b; }
+div.document { width: min(1180px, 96vw); }
+div.body { max-width: 860px; padding: 24px 34px; }
+a { color:var(--accent); }
+div.body h1, div.body h2, div.body h3 { color:#163d39; }
+div.screenshot-placeholder { border:1px dashed #77a49c; background:#f1f7f5; padding:12px 18px; margin:24px 0; }
+div.screenshot-placeholder .admonition-title { color:#215e52; font-weight:600; }
+pre { white-space:pre-wrap; overflow-wrap:anywhere; }
+@media(max-width:800px) { div.document { width:100%; } div.body { padding:18px; } }

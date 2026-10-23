@@ -1,0 +1,23 @@
+{
+ "schema": 1,
+ "templates": {
+  "mesh": {"label":"Mesh Engine","abstract":true,"format":null,"grid":null,"unit_meters":1.0,"stages":[],"brush_semantics":false,"requires_convex_brushes":false},
+  "blender": {"parent":"mesh","label":"Blender — No Engine — Any Platform","create_cube_label":"Create Cube"},
+  "bsp": {"label":"Convex Brush Engine","abstract":true,"grid":16,"unit_meters":0.0254,"requires_convex_brushes":true,"brush_semantics":true,"create_cube_label":"Create Cube Brush"},
+  "quake": {"parent":"bsp","label":"Quake — Quake — Custom Platform","format":"classic","stages":["qbsp","vis","light"],"bsp_version":29},
+  "goldsrc": {"parent":"bsp","label":"Half-Life — GoldSrc — Custom Platform","family":"goldsrc","format":"valve220","stages":["hlcsg","hlbsp","hlvis","hlrad"],"bsp_version":30},
+  "goldsrc_linux": {"parent":"goldsrc","label":"Half-Life — GoldSrc — Linux","platform":"linux"},
+  "goldsrc_linux_steam": {"parent":"goldsrc_linux","label":"Half Life 1, GoldSrc, Linux, Steam","launch_method":"steam","steam_app_id":"70"},
+  "goldsrc_windows": {"parent":"goldsrc","label":"Half-Life — GoldSrc — Windows","platform":"windows","launch_method":"steam","steam_app_id":"70","entity_fgd":"halflife.fgd"},
+  "source": {"parent":"bsp","label":"Source 1","abstract":true,"backend":"source_windows","family":"source","format":"vmf","stages":[],"bsp_version":null,"build_supported":false,"tool_dirs":["bin","bin/linux64","bin/x64"]},
+  "source_windows": {"parent":"source","label":"Source 1 — Windows — VMF Export Base","platform":"windows"},
+  "hl2": {"parent":"source","label":"Half-Life 2","abstract":true,"backend":"source_hl2_windows","game":"hl2","steam_folder":"Half-Life 2","game_folder":"hl2","combined_game_folder":"hl2_complete","launch_method":"steam","steam_app_id":"220","entity_fgd":"halflife2.fgd","stages":["vbsp","vvis","vrad"],"bsp_version":20,"build_supported":true},
+  "source_hl2_linux": {"parent":"hl2","label":"Half-Life 2 — Source 1 — Linux","platform":"linux"},
+  "source_hl2_windows": {"parent":"hl2","label":"Half-Life 2 — Source 1 — Windows","platform":"windows"},
+  "source_gmod_windows": {"parent":"source_windows","label":"Garry's Mod — Source 1 — Windows","game":"gmod","steam_folder":"GarrysMod","game_folder":"garrysmod","tool_dirs":["bin/win64","bin","bin/linux64","bin/x64"],"launch_method":"steam","steam_app_id":"4000","entity_fgd":"garrysmod.fgd","stages":["vbsp","vvis","vrad"],"bsp_version":20,"build_supported":true},
+  "godot": {"parent":"mesh","label":"Godot","abstract":true,"backend":"godot4","family":"godot","format":"glb","mesh_export":true,"entities":false},
+  "godot4": {"parent":"godot","label":"Godot 4 — Meshes & Textures"},
+  "source2": {"parent":"mesh","label":"Source 2","abstract":true,"backend":"source2_cs2_windows","family":"source2","grid":16,"unit_meters":0.0254,"format":"vmap","mesh_export":true,"map_io":true,"materials":"vmat","entities":false},
+  "source2_cs2_windows": {"parent":"source2","label":"Counter-Strike 2 — Source 2 — Windows","platform":"windows","game":"cs2"}
+ }
+}

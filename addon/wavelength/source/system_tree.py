@@ -159,6 +159,8 @@ def _visibility_tick():
     # entire category and clear the explicit category-off state.
     try:
         for scene in bpy.data.scenes:
+            from . import context_state
+            if context_state.viewport_hidden(scene):continue
             hidden_keys = _hidden_categories(scene)
             if not hidden_keys:
                 continue

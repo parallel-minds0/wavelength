@@ -7,6 +7,8 @@ A depsgraph finalizer turns dropped templates into normal Wavelength entities.
 """
 import json
 import bpy
+from .. import profiles
+from bpy.app.handlers import persistent
 
 _ASSET_COLLECTION = '_WL_ENTITY_BROWSER_ASSETS'
 _TEMPLATE_KEY = 'wl_entity_browser_template'
@@ -38,7 +40,7 @@ def _asset_collection(scene):
 def rebuild_for_scene(scn, context=None, quiet=False):
     """Rebuild Current File entity assets for the active Wavelength profile."""
     s=scn.wavelength
-    if s.engine=='blender':
+    if s.engine=='blender' or profiles.is_mesh_export(s.engine):
         raise ValueError('Choose Quake or Half-Life / GoldSrc before opening the Entity Browser')
     for other_col in list(bpy.data.collections):
         if other_col.name.startswith(_ASSET_COLLECTION+'_') and other_col.name!=_ASSET_COLLECTION+'_'+s.engine:
@@ -91,10 +93,10 @@ def rebuild(context):
 
 
 def _is_template_source(obj):
-    return any(c.name.startswith(_ASSET_COLLECTION) for c in obj.users_collection)
+    return bool(obj.users_collection) and all(c.name.startswith(_ASSET_COLLECTION) for c in obj.users_collection)
 
 
-def _finalize_drop(scene, obj):
+def _finalize_drop(scene, obj, activate=True):
     from .. import scene as wl_scene, profiles
     from . import models as entity_models
     classname=str(obj.get(_TEMPLATE_KEY,'')).strip()
@@ -105,6 +107,12 @@ def _finalize_drop(scene, obj):
     # template into a different game's entity.
     if obj.get('wl_entity_browser_profile') != s.engine:
         return False
+    for collection in list(obj.users_collection):
+        if collection.name.startswith(_ASSET_COLLECTION):
+            if not any(other!=obj and other.get(_TEMPLATE_KEY)==classname for other in collection.objects):
+                template=obj.copy();collection.objects.link(template)
+            collection.objects.unlink(obj)
+    if obj.asset_data:obj.asset_clear()
     obj['wl_role']='ENTITY'
     obj['wl_id']=wl_scene.uid()
     obj['wl_pairs']=json.dumps(_defaults(s, classname))
@@ -116,16 +124,16 @@ def _finalize_drop(scene, obj):
     del obj[_TEMPLATE_KEY]
     if 'wl_entity_browser_profile' in obj:
         del obj['wl_entity_browser_profile']
-    if profiles.is_goldsrc(s.engine):
-        try: entity_models.attach_reference(obj, json.loads(obj['wl_pairs']))
-        except Exception: pass
     if classname=='light_environment':
         from .. import sun
         sun.ensure(obj,new=True)
     s.status=f'Placed {classname} from Entity Browser'
+    from .. import model_browser
+    if activate:model_browser.placed(obj)
     return True
 
 
+@persistent
 def _depsgraph(scene, depsgraph):
     global _BUSY
     from ..workspace import active
@@ -139,6 +147,29 @@ def _depsgraph(scene, depsgraph):
                 _finalize_drop(scene,obj)
     finally:
         _BUSY=False
+
+
+@persistent
+def repair_loaded_drops(_):
+    """Recover scene placements left as excluded templates by older sessions."""
+    global _BUSY
+    if _BUSY:return
+    _BUSY=True
+    try:
+        for scene in bpy.data.scenes:
+            if not hasattr(scene,'wavelength'):continue
+            for obj in list(scene.objects):
+                if not obj.get(_TEMPLATE_KEY) or _is_template_source(obj):continue
+                # Preserve authored values and transforms on recovered placements.
+                pairs=obj.get('wl_pairs');name=obj.name;identity=obj.get('wl_id')
+                if _finalize_drop(scene,obj,activate=False):
+                    obj.name=name
+                    if pairs:obj['wl_pairs']=pairs
+                    if identity:obj['wl_id']=identity
+    finally:_BUSY=False
+
+
+def repair_initial_drops():repair_loaded_drops(None)
 
 
 _LAYOUT_MARKER = 'wl_asset_browser_layout_v2'
@@ -162,7 +193,7 @@ def _apply_section_id_filter(params, section):
     id_filter=getattr(params,'filter_asset_id',None)
     if id_filter is None:
         return
-    is_textures=(section!='ENTITIES')
+    is_textures=(section=='TEXTURES')
     for attr in _OTHER_ID_FILTERS:
         if hasattr(id_filter,attr):
             try:setattr(id_filter,attr,False)
@@ -219,6 +250,10 @@ def _configure_asset_area(area, section=None):
         if hasattr(params,'asset_catalog_visibility'):params.asset_catalog_visibility='ALL'
         if hasattr(params,'filter_search'):params.filter_search=''
         _BROWSER_SECTIONS[key]=selection
+    if section in {'ENTITIES','MODELS'}:
+        from ..model_browser import CATALOG
+        if hasattr(params,'catalog_id'):params.catalog_id=CATALOG if section=='MODELS' else _CATALOG_ID
+        if hasattr(params,'asset_catalog_visibility'):params.asset_catalog_visibility='CATALOG'
     _apply_section_id_filter(params,section)
     area.tag_redraw()
     return True
@@ -227,7 +262,7 @@ def _configure_asset_area(area, section=None):
 def apply_section_to_open_browsers(context, section):
     """Switch all open Wavelength Asset Browser areas to the selected section."""
     from .. import asset_browser
-    asset_browser.schedule_profile_sync(context)
+    if section=='TEXTURES':asset_browser.schedule_profile_sync(context)
     wm=getattr(context,'window_manager',None) or getattr(bpy.context,'window_manager',None)
     if not wm:
         return
@@ -319,11 +354,14 @@ class WL_OT_entity_browser_refresh(bpy.types.Operator):
             if s.engine=='blender':
                 raise ValueError('Choose Quake or Half-Life / GoldSrc first')
             count=rebuild(context) if s.asset_browser_section=='ENTITIES' else 0
-            asset_browser.schedule_profile_sync(context,settings=s,force=True)
+            if s.asset_browser_section=='MODELS':
+                from .. import model_browser
+                model_browser.schedule(context,force=True)
+            elif s.asset_browser_section=='TEXTURES':asset_browser.schedule_profile_sync(context,settings=s,force=True)
             pub,total,_=asset_browser.sync_status(s)
             area=_find_browser(context.screen) if getattr(context,'screen',None) else None
             if area: _configure_asset_area(area, section=s.asset_browser_section)
-            self.report({'INFO'},f'Synced {pub}/{total} textures and {count} entities')
+            self.report({'INFO'},'Model choices refresh started' if s.asset_browser_section=='MODELS' else f'Synced {pub}/{total} textures and {count} entities')
             return {'FINISHED'}
         except Exception as exc:
             context.scene.wavelength.status=str(exc)
@@ -341,6 +379,7 @@ class WL_OT_entity_browser(bpy.types.Operator):
             ('','Current','Keep current section'),
             ('TEXTURES','Textures','Browse profile textures'),
             ('ENTITIES','Entities','Browse profile entities'),
+            ('MODELS','Models','Assign an engine model to the selected entity'),
         ],
         default='',
         options={'SKIP_SAVE'},
@@ -351,17 +390,23 @@ class WL_OT_entity_browser(bpy.types.Operator):
             s=context.scene.wavelength
             if s.engine=='blender':
                 raise ValueError('Choose Quake or Half-Life / GoldSrc before opening the Wavelength Asset Browser')
-            if self.section in {'TEXTURES','ENTITIES'}:
+            if self.section in {'TEXTURES','ENTITIES','MODELS'}:
                 s.asset_browser_section=self.section
+            if profiles.is_source2(s.engine):s.asset_browser_section='TEXTURES'
             target_section=s.asset_browser_section
             window,screen,browser=ensure_browser_layout(context, section=target_section)
             with bpy.context.temp_override(window=window,screen=screen,area=browser,scene=context.scene):
                 count=rebuild(bpy.context) if target_section=='ENTITIES' else 0
-                asset_browser.schedule_profile_sync(bpy.context,settings=s)
+                if target_section=='TEXTURES':asset_browser.schedule_profile_sync(bpy.context,settings=s)
+                elif target_section=='MODELS':
+                    from .. import model_browser
+                    model_browser.schedule(bpy.context)
                 _configure_asset_area(browser, section=target_section)
             pub,total,loading=asset_browser.sync_status(s)
             if target_section=='TEXTURES':
                 s.status=f'Wavelength Asset Browser (Textures): {pub}/{total} {s.engine} textures' + (' loading…' if loading else '')
+            elif target_section=='MODELS':
+                s.status='Wavelength Asset Browser: choose a model for the selected entity'
             else:
                 s.status=f'Wavelength Asset Browser (Entities): {count} {s.engine} entities'
             return {'FINISHED'}
@@ -379,8 +424,12 @@ def register():
         except RuntimeError:pass
     if _depsgraph not in bpy.app.handlers.depsgraph_update_post:
         bpy.app.handlers.depsgraph_update_post.append(_depsgraph)
+    if repair_loaded_drops not in bpy.app.handlers.load_post:bpy.app.handlers.load_post.append(repair_loaded_drops)
+    if not bpy.app.timers.is_registered(repair_initial_drops):bpy.app.timers.register(repair_initial_drops,first_interval=.1)
 
 def unregister():
+    if repair_loaded_drops in bpy.app.handlers.load_post:bpy.app.handlers.load_post.remove(repair_loaded_drops)
+    if bpy.app.timers.is_registered(repair_initial_drops):bpy.app.timers.unregister(repair_initial_drops)
     if _depsgraph in bpy.app.handlers.depsgraph_update_post:
         bpy.app.handlers.depsgraph_update_post.remove(_depsgraph)
     for cls in reversed(_CLASSES):

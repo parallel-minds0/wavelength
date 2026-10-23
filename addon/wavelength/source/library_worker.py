@@ -11,17 +11,22 @@ SCHEMA = 1
 
 
 def atomic_json(path, data):
-    path = Path(path)
-    temporary = path.with_suffix('.tmp-' + str(os.getpid()))
-    temporary.write_text(json.dumps(data), encoding='utf-8')
-    temporary.replace(path)
+    from .library_prepare_worker import write
+    write(Path(path),data)
 
 
 def source_fingerprint(settings):
     """All filesystem walks happen in the worker, never the editing process."""
     from . import profiles, source_assets, textures
     paths = set()
-    if profiles.is_source(settings.engine):
+    if profiles.is_source2(settings.engine):
+        from . import source2_assets
+        assets=source2_assets.library(settings.game_dir)
+        paths.add(assets.game/'gameinfo.gi')
+        for mount in assets.mounts:
+            if isinstance(mount,source_assets.VPK):paths.add(mount.path)
+            else:paths.update((mount/'materials').rglob('*.vmat'))
+    elif profiles.is_source(settings.engine):
         assets = source_assets.library(settings.game_dir)
         paths.add(assets.game / 'gameinfo.txt')
         for mount in assets.mounts:
@@ -66,7 +71,7 @@ def build(request):
         status.update(previous['status'], state='DONE', reused=True)
         report()
         return
-    names = textures.all_names(settings)
+    names = request.get('names') or textures.all_names(settings)
     if request.get('limit'):
         names = names[:request['limit']]
     atomic_json(root / 'index.json', {'names': names})
@@ -84,6 +89,10 @@ def build(request):
         files.append(destination.name)
         for material in batch:
             bpy.data.materials.remove(material)
+        from . import profiles
+        if profiles.is_source2(settings.engine):
+            for image in list(bpy.data.images):
+                if image.users==0:bpy.data.images.remove(image)
         batch.clear()
         status['shards'] = len(files)
         report()
@@ -94,7 +103,7 @@ def build(request):
         except (ValueError, OSError, RuntimeError, UnicodeError) as exc:
             errors[name] = str(exc)
             status['skipped'] += 1
-        if len(batch) >= 128:
+        if len(batch) >= (8 if settings.engine=='source2_cs2_windows' else 128):
             flush()
         if time.monotonic() - last_report >= 1:
             report()

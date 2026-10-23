@@ -146,7 +146,9 @@ class WL_OT_texture_paste(bpy.types.Operator):
         except Exception:d={}
         if not d:self.report({'ERROR'},'No copied face mapping');return {'CANCELLED'}
         s=context.scene.wavelength;s.texture=d['texture'];s.shift_u=d['shift_u'];s.shift_v=d['shift_v'];s.texture_rotation=d['rotation'];s.texture_scale_u=d['scale_u'];s.texture_scale_v=d['scale_v']
-        bpy.ops.wavelength.apply_texture();return {'FINISHED'}
+        from .surface_tools import viewport
+        with viewport(context):result=bpy.ops.wavelength.apply_texture()
+        return result
 
 
 class WL_OT_flag_toggle(bpy.types.Operator):
@@ -187,7 +189,11 @@ class WL_PT_authoring(bpy.types.Panel):
 CLASSES=(WL_OT_asset_entity,WL_OT_special_brush,WL_OT_origin_brush,WL_OT_path_chain,WL_OT_select_class,WL_OT_asset_report,WL_OT_texture_copy,WL_OT_texture_paste,WL_OT_flag_toggle,WL_OT_choice_set)
 def register():
     for cls in CLASSES:bpy.utils.register_class(cls)
+    from . import terrain
+    terrain.register()
 def unregister():
+    from . import terrain
+    terrain.unregister()
     for cls in reversed(CLASSES):
         try:bpy.utils.unregister_class(cls)
         except Exception:pass

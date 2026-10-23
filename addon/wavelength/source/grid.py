@@ -15,7 +15,7 @@ _FIELDS = ('show_floor', 'show_ortho_grid', 'wavelength_grid_enabled',
 
 
 def engine_enabled(settings):
-    return settings is not None and settings.engine != 'blender' and settings.grid_mode == 'ENGINE'
+    return settings is not None and profiles.get(settings.engine).get('grid') is not None and settings.grid_mode == 'ENGINE'
 
 
 def native_available(space):

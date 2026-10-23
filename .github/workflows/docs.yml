@@ -1,0 +1,28 @@
+name: Build handbook
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  handbook:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: documentation/requirements.txt
+      - run: python -m pip install -r documentation/requirements.txt
+      - run: python tools/docs.py check
+      - run: python tools/docs.py build --format all
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wavelength-handbook
+          path: |
+            build/docs/html/
+            build/docs/pdf/wavelength-handbook.pdf
+            build/docs/screenshots.json
+            build/docs/code-coverage.json

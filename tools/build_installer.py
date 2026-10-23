@@ -59,7 +59,7 @@ def main():
         for relative in ('addon','installer','native','patches','tools','tests','docs','documentation','third-party','.github','pro'):
             if (ROOT/relative).is_dir():
                 shutil.copytree(ROOT/relative,bundle/relative,ignore=shutil.ignore_patterns('__pycache__','*.pyc','.git','experimental-grid.json','dev'))
-        for relative in ('LICENSE','README.md','.gitignore','wavelength-installer','wavelength-installer.cmd','edition.json'):
+        for relative in ('LICENSE','README.md','TODO.md','.gitignore','wavelength-installer','wavelength-installer.cmd','edition.json'):
             if (ROOT/relative).is_file():shutil.copy2(ROOT/relative,bundle/relative)
         launcher=bundle/'wavelength-installer'
         launcher.chmod(0o755)

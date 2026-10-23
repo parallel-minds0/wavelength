@@ -5,11 +5,8 @@ from bpy.app.handlers import persistent
 MARKER = 'wl_workspace'
 
 def active(context=None, feature=None):
-    context = context or bpy.context
-    ws = getattr(context, 'workspace', None)
-    if not ws or not ws.get(MARKER, ws.name == 'wavelength'):
-        return False
-    return bool(ws.get('wl_enabled', True) and (not feature or ws.get('wl_' + feature, True)))
+    from . import context_policy
+    return context_policy.allows(context or bpy.context,feature)
 
 
 def ensure(context, reset=False):
@@ -60,7 +57,7 @@ def watch():
     try:
         for window in bpy.context.window_manager.windows:
             with bpy.context.temp_override(window=window):
-                if not active():continue
+                if not active(feature='preparation'):continue
                 ws=window.workspace
                 if not ws.get('wl_layout_ready'):
                     from .entity.browser import ensure_browser_layout
@@ -69,7 +66,7 @@ def watch():
                 if settings.engine!='blender':
                     from . import external_library,asset_browser
                     texture_token=repr(tuple(getattr(settings,k) for k in external_library.FIELDS))
-                    if external_library._key is None or ws.get('wl_texture_catalog')!=texture_token:
+                    if external_library._key is None or ws.get('wl_texture_catalog')!=texture_token or external_library._status.get('state')=='PAUSED':
                         asset_browser.schedule_profile_sync(bpy.context)
                         ws['wl_texture_catalog']=texture_token
                 token=settings.engine+'|'+settings.fgd_path
@@ -95,7 +92,9 @@ class WL_OT_workspace_toggle(bpy.types.Operator):
     feature:bpy.props.StringProperty()
     def execute(self, context):
         key='wl_'+self.feature
-        context.workspace[key]=not context.workspace.get(key, True)
+        if self.feature=='snapping':
+            context.scene.tool_settings.use_snap=not context.scene.tool_settings.use_snap
+        else:context.workspace[key]=not context.workspace.get(key, True)
         for area in context.screen.areas: area.tag_redraw()
         return {'FINISHED'}
 
@@ -107,7 +106,7 @@ def draw_controls(layout, context):
             return False
     row=layout.row(align=True)
     for name,label in [('enabled','Editing'),('grid','Grid'),('snapping','Snap'),('gizmos','Handles'),('textures','Live UV')]:
-        op=row.operator('wavelength.workspace_toggle',text=label,depress=context.workspace.get('wl_'+name,True));op.feature=name
+        op=row.operator('wavelength.workspace_toggle',text=label,depress=context.scene.tool_settings.use_snap if name=='snapping' else context.workspace.get('wl_'+name,True));op.feature=name
     return True
 
 

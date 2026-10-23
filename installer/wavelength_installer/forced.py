@@ -106,6 +106,15 @@ def install_forced(bundle, blender, addons, state, *, require_native=False, prep
         try:
             native_target=saved/'original-blender' if owned and old.get('runtime_dir') else blender
             api_options={'native_grid_abi':manifest['native_grid_abi'],'patch_directory':bundle/'patches/native'} if 'native_grid_abi' in manifest else {}
+            # Upgrade only an owned exact-input patch, using the verified original
+            # bytes while probing beside the actual Blender runtime resources.
+            if owned and not old.get('runtime_dir') and 'native_grid_abi' in manifest:
+                from .delta_patch import host_platform
+                patch_manifest=bundle/'patches/native/manifest.json'
+                entries=json.loads(patch_manifest.read_text())['patches'] if patch_manifest.is_file() else []
+                matches=[e for e in entries if e['platform']==host_platform() and e['input_sha256']==old['original_sha256']]
+                if len(matches)==1 and matches[0]['output_sha256']!=initial:
+                    api_options['original_bytes']=(saved/'original-blender').read_bytes()
             with (prepared_factory(native_target) if prepared_factory else prepare(native_target,strict=False,**api_options)) as prepared:
                 available=prepared.get('native_state')!='unavailable'
                 if require_native and not available:raise NativeRequiredError(prepared.get('reason','Native support unavailable'))

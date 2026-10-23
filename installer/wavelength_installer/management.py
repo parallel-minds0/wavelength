@@ -42,7 +42,21 @@ def native_plan(bundle,blender,state,old,*,force,allow_unverified,confirmed,requ
     if allow_unverified and not confirmed and not force:raise ValueError('Experimental installation requires explicit risk confirmation')
     native_api=json.loads((Path(bundle)/'bundle.json').read_text()).get('native_grid_abi')
     if native_api is not None:
-        with prepare(blender,strict=not (force or repair_mode),native_grid_abi=native_api,patch_directory=Path(bundle)/'patches/native') as prepared:yield prepared
+        options={}
+        backup=state/'original-blender'
+        # Upgrade our own exact-input native patch, preserving the original and
+        # running startup probes beside the installed runtime's libraries.
+        if (old.get('native_ownership')=='owned' and old.get('blender')==str(blender)
+            and old.get('phase')=='installed' and not old.get('runtime_dir')
+            and fingerprint(blender) in {old.get('patched_sha256'),old.get('original_sha256')}
+            and backup.is_file() and fingerprint(backup)==old.get('original_sha256')):
+            from .delta_patch import host_platform
+            path=Path(bundle)/'patches/native/manifest.json'
+            entries=json.loads(path.read_text())['patches'] if path.is_file() else []
+            matches=[e for e in entries if e['platform']==host_platform() and e['input_sha256']==old['original_sha256']]
+            if len(matches)==1 and matches[0]['output_sha256']!=fingerprint(blender):
+                options['original_bytes']=backup.read_bytes()
+        with prepare(blender,strict=not (force or repair_mode),native_grid_abi=native_api,patch_directory=Path(bundle)/'patches/native',**options) as prepared:yield prepared
         return
     if force:
         # Runtime-backed launchers must be prepared from the original container.

@@ -7,7 +7,7 @@ import subprocess
 import time
 import bpy
 
-FIELDS = ('engine', 'game_dir', 'wad_path', 'texture_wads', 'palette_path')
+FIELDS = ('engine', 'game_dir', 'wad_path', 'texture_wads', 'palette_path', 'compiler_dir')
 _job = None
 _key = None
 _root = None
@@ -17,17 +17,20 @@ _last_shards = -1
 _refresh_at = 0
 _cleanups = []
 _completed = set()
+_paused = set()
 _display_name = 'Textures'
 
 
 def snapshot(settings):
-    values = {name: getattr(settings, name) for name in FIELDS}
-    for name in ('game_dir', 'wad_path', 'palette_path'):
+    values = {name: getattr(settings, name, '') for name in FIELDS}
+    for name in ('game_dir', 'wad_path', 'palette_path', 'compiler_dir'):
         if values[name]:
             values[name] = str(Path(bpy.path.abspath(values[name])).resolve())
     values['texture_wads'] = json.dumps([str(Path(bpy.path.abspath(p)).resolve())
                                        for p in json.loads(values['texture_wads'] or '[]')])
     values['project_dir'] = ''
+    from . import profiles
+    if not profiles.is_goldsrc(settings.engine):values.pop('compiler_dir',None)
     return values
 
 
@@ -85,8 +88,11 @@ def cached_names(settings, search=''):
 def schedule(context=None, settings=None, force=False):
     global _job, _key, _root, _owner, _status, _last_shards, _refresh_at, _display_name
     scene = getattr(context, 'scene', None) or bpy.context.scene
+    from . import context_policy
+    if not context_policy.preparation_active(scene):stop();return
     settings = settings or scene.wavelength
-    if settings.engine == 'blender':
+    from . import profiles
+    if settings.engine == 'blender' or (profiles.is_mesh_export(settings.engine) and not profiles.is_source2(settings.engine)):
         stop()
         return
     values = snapshot(settings)
@@ -94,7 +100,7 @@ def schedule(context=None, settings=None, force=False):
     _display_name = getattr(settings, 'profile_name', '') or profiles.get(settings.engine)['label']
     key, root = cache_root(values)
     if key == _key:
-        if _job is not None or (key in _completed and not force):
+        if key in _paused or _job is not None or (key in _completed and not force):
             return
     stop()
     _key, _root, _owner = key, root, scene
@@ -104,6 +110,9 @@ def schedule(context=None, settings=None, force=False):
     except (OSError, ValueError, KeyError):
         _status = dict(state='STARTING', ready=0, total=0, skipped=0, shards=0)
     register_library()
+    if key in _paused:
+        _status['state']='PAUSED'
+        return
     from .asset_browser import TEXTURES_CATALOG_ID
     (root / 'blender_assets.cats.txt').write_text(
         f'VERSION 1\n\n{TEXTURES_CATALOG_ID}:Wavelength/Textures:Textures\n', encoding='utf-8')
@@ -144,6 +153,9 @@ def refresh_browsers():
 
 def tick():
     global _job, _status, _last_shards, _refresh_at
+    from . import context_policy
+    if _job and _owner and not context_policy.preparation_active(_owner):
+        stop();_status={**_status,'state':'PAUSED'};return None
     started = time.monotonic()
     while _cleanups and time.monotonic() - started < .004:
         mat = _cleanups.pop()
@@ -204,3 +216,4 @@ def unregister():
     _key = _root = _owner = None
     _status = {}
     _completed.clear()
+    _paused.clear()

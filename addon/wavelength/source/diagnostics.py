@@ -75,6 +75,10 @@ def error(action, exception):
     last_error = f'{action}: {exception} [Error {reference}]'
     logger.error('%s', last_error,
                  exc_info=(type(exception), exception, exception.__traceback__))
+    # Queue structured geometry failures without touching Blender data here.
+    import sys
+    visual=sys.modules.get(__package__+'.geometry_debug')
+    if visual is not None:visual.capture(exception)
     return f'{exception} [Error {reference}; see Diagnostics > View Log]'
 
 

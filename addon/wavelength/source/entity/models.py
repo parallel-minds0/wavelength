@@ -1,4 +1,4 @@
-"""Editor-only visual references for GoldSrc point entities."""
+"""Editor-only GoldSrc glTF and Source studio-model entity references."""
 from pathlib import Path
 import bpy
 
@@ -82,13 +82,47 @@ def remove_reference(entity):
         pass
 
 def attach_reference(entity,pairs=None):
-    """Attach a cheap, editor-only model collection instance to a point entity."""
+    """Attach an editor-only model reference to a point entity."""
     if entity is None or entity.get('wl_role')!='ENTITY':return False
+    if entity.get('wl_custom_model'):return True
     if pairs is None:
         import json
         try:pairs=json.loads(entity.get('wl_pairs','[]'))
         except (TypeError,ValueError):pairs=[]
     classname=dict(pairs).get('classname',entity.name)
+    from .. import profiles
+    settings=bpy.context.scene.wavelength
+    if profiles.is_source(settings.engine):
+        remove_reference(entity)
+        from . import source_schema
+        try:path=source_schema.representation_model(settings,classname,pairs,bpy.path.abspath)
+        except (OSError,ValueError) as exc:
+            entity['wl_model_error']=str(exc);return False
+        if not path.lower().endswith('.mdl'):
+            from . import icons as entity_icons
+            return entity_icons.attach_reference(entity,pairs)
+        try:
+            from .. import model_import
+            values=dict(pairs)
+            mesh,_=model_import.mesh(settings,path,int(values.get('skin','0')),int(values.get('body','0')))
+            model_import.attach(bpy.context,entity,mesh,path)
+            if 'wl_model_error' in entity:del entity['wl_model_error']
+            return True
+        except (ValueError,OSError,RuntimeError) as exc:
+            entity['wl_model_error']=str(exc)
+            print(f'Wavelength: Source model reference failed for {path}: {exc}')
+            return False
+    if profiles.is_goldsrc(settings.engine):
+        try:
+            from .. import goldsrc_import
+            if goldsrc_import.attach(entity,pairs):return True
+        except (ValueError,OSError,RuntimeError) as exc:
+            entity['wl_model_error']=str(exc)
+            print(f'Wavelength: GoldSrc model reference failed for {classname}: {exc}')
+            return False
+        remove_reference(entity)
+        from . import icons as entity_icons
+        return entity_icons.attach_reference(entity,pairs)
     path=asset_path(classname,pairs)
     remove_reference(entity)
     if path is None:

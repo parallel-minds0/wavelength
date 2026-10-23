@@ -7,7 +7,7 @@ quantized to Wavelength's engine grid during the interaction.
 import bpy
 import bmesh
 from mathutils import Matrix, Vector
-from . import scene, editor, profiles, workspace
+from . import scene, editor, profiles, workspace, tool_snap
 
 _GROUP = 'WL_GGT_engine_resize'
 
@@ -88,7 +88,7 @@ class WL_GGT_engine_resize(bpy.types.GizmoGroup):
                     raw_delta = float(value)
                     base_min, base_max = st['base_min'], st['base_max']
                     base_face = base_max[axis] if sign > 0 else base_min[axis]
-                    target = _snap(base_face + sign * raw_delta, step)
+                    target = _snap(base_face + sign * raw_delta, step) if tool_snap.grid_enabled(bpy.context) else base_face + sign * raw_delta
                     delta = target - base_face
                     # Prevent inversion/collapse; one engine unit is the minimum thickness.
                     opposite = base_min[axis] if sign > 0 else base_max[axis]

@@ -88,9 +88,13 @@ CLASSES = (WL_OT_view_log, WL_OT_copy_log, WL_OT_clear_log, WL_OT_export_log)
 def register():
     for cls in CLASSES:
         bpy.utils.register_class(cls)
+    from . import geometry_debug
+    geometry_debug.register()
 
 
 def unregister():
+    from . import geometry_debug
+    geometry_debug.unregister()
     for cls in reversed(CLASSES):
         bpy.utils.unregister_class(cls)
 

@@ -22,6 +22,12 @@ _LAST_TEX_SIG=None
 _LAST_ENT_SIG=None
 _BRUSH_MAT_SIGS={}
 
+def selected_asset(context):
+    asset=getattr(context,'asset',None)
+    if asset is not None:return asset
+    selected=list(getattr(context,'selected_assets',()) or ())
+    return selected[0] if len(selected)==1 else None
+
 
 def collection(context):
     scn=getattr(context,'scene',None) or getattr(bpy.context,'scene',None)
@@ -34,6 +40,9 @@ def collection(context):
 
 
 def catalog_id_for(category):
+    if category=='MODEL':
+        from .model_browser import CATALOG
+        return CATALOG
     return TEXTURES_CATALOG_ID if category in {'MATERIAL','DECAL','SKY'} else ENTITIES_CATALOG_ID
 
 
@@ -53,6 +62,8 @@ def ensure_catalog_file(settings):
     cats_file=target_dir/'blender_assets.cats.txt'
     tex_line=f'{TEXTURES_CATALOG_ID}:Wavelength/Textures:Wavelength-Textures'
     ent_line=f'{ENTITIES_CATALOG_ID}:Wavelength/Entities:Wavelength-Entities'
+    from .model_browser import CATALOG
+    model_line=f'{CATALOG}:Wavelength/Models:Wavelength-Models'
     try:
         if cats_file.is_file():
             existing=cats_file.read_text(errors='replace')
@@ -62,10 +73,11 @@ def ensure_catalog_file(settings):
                 lines.append(tex_line);changed=True
             if ENTITIES_CATALOG_ID not in existing:
                 lines.append(ent_line);changed=True
+            if CATALOG not in existing:lines.append(model_line);changed=True
             if changed:
                 cats_file.write_text('\n'.join(lines)+'\n')
         else:
-            cats_file.write_text(f'VERSION 1\n\n{tex_line}\n{ent_line}\n')
+            cats_file.write_text(f'VERSION 1\n\n{tex_line}\n{ent_line}\n{model_line}\n')
     except OSError:
         pass
 
@@ -81,9 +93,13 @@ def metadata(block,row):
     section_tag='Textures' if row['category'] in {'MATERIAL','DECAL','SKY'} else 'Entities'
     for tag in ('Wavelength',section_tag,row['category'],row['engine']):
         if tag not in block.asset_data.tags:block.asset_data.tags.new(tag)
+    if row['category'] in {'ENTITY','MODEL'}:
+        from . import profile_setup
+        profile_setup.register_asset(block,row)
 
 
 def preview(block):
+    if block.get('wl_library_preview'):return
     # Use actual decoded texture pixels, not a separate custom gallery widget.
     if isinstance(block,bpy.types.Material) and block.use_nodes:
         image=next((n.image for n in block.node_tree.nodes if n.type=='TEX_IMAGE' and n.image),None)
@@ -150,6 +166,14 @@ def publish_material_fast(settings,name,existing_by_id=None):
             except Exception:pass
         if _bounded_preview(existing):
             return existing
+    if profiles.is_source2(settings.engine):
+        from . import source2_assets
+        mat=source2_assets.material(settings,name,target_mat=existing,preview=True)
+        mat.node_tree.nodes.clear()
+        row['source']=settings.game_dir;row['validation']='decoded CS2 VMAT';row['dependencies']=[mat['wl_source2_material']]
+        metadata(mat,row);mat['wl_preview_ready']=True
+        if existing_by_id is not None:existing_by_id[row['id']]=mat
+        return mat
     if profiles.is_source(settings.engine):
         from . import source_assets
         assets=source_assets.library(bpy.path.abspath(settings.game_dir))
@@ -184,6 +208,7 @@ def publish_material_fast(settings,name,existing_by_id=None):
         mat['wl_asset_profile']=settings.engine
         if 'wl_realized' not in mat:mat['wl_realized']=False
         mat['wl_asset_origin']='User-installed game/WAD; local use, not bundled'
+        if profiles.is_goldsrc(settings.engine) and item.name.casefold()=='null':mat.name='NULL (nodraw)'
     _trim_preview_nodes(mat)
     metadata(mat,row)
     p=mat.preview_ensure();p.image_size=(pw,ph);p.image_pixels_float=pixels
@@ -342,11 +367,17 @@ def place(context,row,location=None):
         if not row.get('effect_name'):raise ValueError('Enter a named effect from this particle collection')
         path=row['effect_name']
     if category=='MODEL' and not path.lower().endswith('.mdl'):raise ValueError('This source model must be compiled to MDL before engine placement (prop pipeline milestone)')
+    model_mesh=None
+    if category=='MODEL' and profiles.is_source(s.engine):
+        from . import model_import
+        model_mesh,model_data=model_import.mesh(s,path)
+        classname='prop_static' if model_data['static'] else 'prop_dynamic'
     obj=_spawn_point_entity(context,classname)
-    pairs=json.loads(obj['wl_pairs']);pairs.append([key,path[6:] if category=='SOUND' and path.startswith('sound/') else path]);obj['wl_pairs']=json.dumps(pairs)
+    pairs=[pair for pair in json.loads(obj['wl_pairs']) if pair[0]!=key];pairs.append([key,path[6:] if category=='SOUND' and path.startswith('sound/') else path]);obj['wl_pairs']=json.dumps(pairs)
     obj['wl_asset']=json.dumps(row)
     if location is not None:obj.location=location
-    if category=='MODEL' and 'bounds' in row:
+    if model_mesh is not None:model_import.attach(context,obj,model_mesh,path)
+    elif category=='MODEL' and 'bounds' in row:
         # Parent is the engine origin, preview box has its real header offset/size.
         lo,hi=row['bounds'];child=bpy.data.objects.new('Model bounds (proxy)',None);context.collection.objects.link(child);child.parent=obj;child.empty_display_type='CUBE';child.empty_display_size=1
         unit=profiles.unit_meters(s);child.location=[(a+b)*unit/2 for a,b in zip(lo,hi)];child.scale=[(b-a)*unit/2 for a,b in zip(lo,hi)];child['wl_exclude']=True
@@ -366,6 +397,15 @@ def _brush_mat_signature(obj):
 def _ensure_mesh_uv(obj):
     """Provide the shader's named UV layer while preserving ordinary mesh UVs."""
     mesh=obj.data
+    if obj.mode=='EDIT':
+        import bmesh
+        bm=bmesh.from_edit_mesh(mesh);layers=bm.loops.layers.uv
+        if layers.get('wavelength'):return
+        previous=layers.active;layer=layers.new('wavelength')
+        for face in bm.faces:
+            axis=max(range(3),key=lambda i:abs(face.normal[i]));u,v=[i for i in range(3) if i!=axis]
+            for loop in face.loops:loop[layer].uv=loop[previous].uv.copy() if previous else (loop.vert.co[u],loop.vert.co[v])
+        bmesh.update_edit_mesh(mesh,loop_triangles=False,destructive=False);return
     if mesh.uv_layers.get('wavelength'):return
     had_uv=bool(mesh.uv_layers)
     layer=mesh.uv_layers.new(name='wavelength',do_init=True)
@@ -396,15 +436,35 @@ def dropped(owner, depsgraph=None):
             if meshes:
                 candidates.update(o for o in owner.objects if o.type=='MESH' and o.data in meshes)
         for obj in candidates:
+            if obj.get('wl_model_choice') and any(c.name.startswith('_WL_MODEL_BROWSER_') for c in obj.users_collection):continue
             if obj.get('wl_asset_template') and not any(c.name==COLLECTION for c in obj.users_collection):
                 try:
-                    placed=place(bpy.context,json.loads(obj['wl_asset']),obj.matrix_world.translation)
-                    placed.rotation_euler=obj.rotation_euler
+                    if obj.get('wl_model_choice'):
+                        from . import model_browser
+                        placed=model_browser.assign(bpy.context,json.loads(obj['wl_asset']))
+                        placed.select_set(True);bpy.context.view_layer.objects.active=placed
+                    else:
+                        placed=place(bpy.context,json.loads(obj['wl_asset']),obj.matrix_world.translation)
+                        placed.rotation_euler=obj.rotation_euler
                     bpy.data.objects.remove(obj,do_unlink=True)
-                except ValueError as exc:s.status=str(exc)
+                except (ValueError,OSError,RuntimeError,ReferenceError) as exc:
+                    s.status=str(exc)
+                    if obj.get('wl_model_choice'):
+                        from . import model_browser
+                        target,_=model_browser.target(bpy.context)
+                        if target:target.select_set(True);bpy.context.view_layer.objects.active=target
+                        bpy.data.objects.remove(obj,do_unlink=True)
+                continue
+            if obj.type=='MESH' and obj.data and obj.get('wl_custom_model_owner'):
+                if any(m and m.get('wl_texture') for m in obj.data.materials):_ensure_mesh_uv(obj)
                 continue
             if obj.type!='MESH' or obj.get('wl_exclude') or not obj.data:
                 continue
+            # Edit-mode face assignments are handled through BMesh by the
+            # placement/surface tools; polygon attributes are unavailable here.
+            if obj.mode=='EDIT':continue
+            from . import node_primitives
+            node_primitives.sync_materials(obj)
             wavelength_materials=[]
             for slot in obj.material_slots:
                 mat=slot.material
@@ -415,11 +475,15 @@ def dropped(owner, depsgraph=None):
                     mat=local or mat.copy()
                     slot.material=mat
                 wavelength_materials.append(mat)
-                if not mat.get('wl_realized'):
+                if not mat.get('wl_realized') or (profiles.is_source(s.engine) and not mat.get('wl_source_blend_checked')):
                     try:textures.realize_material(s,mat)
                     except (ValueError,OSError,RuntimeError) as exc:
                         s.status='Texture could not be loaded: '+str(exc)
                         diagnostics.error('Material drop',exc)
+            if obj.get('wl_terrain'):
+                from . import terrain
+                terrain.sync_material(obj)
+                continue
             if obj.get('wl_role')!='BRUSH':
                 if wavelength_materials:_ensure_mesh_uv(obj)
                 continue
@@ -483,11 +547,11 @@ class WL_OT_use_asset(bpy.types.Operator):
     bl_idname='wavelength.use_asset';bl_label='Use Selected Wavelength Asset';bl_options={'UNDO'}
     effect_name:bpy.props.StringProperty(name='Named particle effect')
     def invoke(self,context,event):
-        asset=getattr(context,'asset',None);block=asset.local_id if asset else None
+        asset=selected_asset(context);block=asset.local_id if asset else None
         if block and block.get('wl_asset') and json.loads(block['wl_asset'])['category']=='PARTICLE':return context.window_manager.invoke_props_dialog(self)
         return self.execute(context)
     def execute(self,context):
-        asset=getattr(context,'asset',None);block=asset.local_id if asset else None
+        asset=selected_asset(context);block=asset.local_id if asset else None
         if block is None and asset and asset.id_type=='MATERIAL':
             try:
                 # Import exactly the selected external material, never the catalog.
@@ -506,34 +570,17 @@ class WL_OT_use_asset(bpy.types.Operator):
                     raise ValueError('Material belongs to a different engine profile')
                 s=context.scene.wavelength;s.texture=block.get('wl_texture','')
                 textures.realize_material(s,block)
-                from . import editor,primitive_ui
-                targets=[]
-                seen=set()
-                for obj in context.selected_objects:
-                    root=primitive_ui.root_for(obj)
-                    if root and root.get('wl_assembly_locked',True) and obj.mode=='OBJECT':
-                        for part in primitive_ui.parts_for(root):
-                            if part.as_pointer() not in seen:
-                                seen.add(part.as_pointer());targets.append(part)
-                    elif obj.type=='MESH' and obj.get('wl_role')=='BRUSH' and obj.as_pointer() not in seen:
-                        seen.add(obj.as_pointer());targets.append(obj)
-                for obj in targets:
-                    if obj.mode=='EDIT':
-                        import bmesh
-                        bm=bmesh.from_edit_mesh(obj.data)
-                        slot=next((i for i,m in enumerate(obj.data.materials) if m==block),None)
-                        if slot is None:slot=len(obj.data.materials);obj.data.materials.append(block)
-                        for f in bm.faces:
-                            if f.select:f.material_index=slot
-                        bmesh.update_edit_mesh(obj.data)
-                    else:
-                        textures.assign(obj,range(len(obj.data.polygons)),block);editor.apply_uv(obj,s.engine)
-                        _BRUSH_MAT_SIGS[obj.as_pointer()]=_brush_mat_signature(obj)
+                from . import surface_tools
+                surface_tools.assign_material(context,block)
             elif block.get('wl_entity_browser_template'):
                 from .ui import _spawn_point_entity
                 _spawn_point_entity(context,block['wl_entity_browser_template'])
             elif block.get('wl_asset'):
-                row=json.loads(block['wl_asset']);row['effect_name']=self.effect_name;place(context,row)
+                row=json.loads(block['wl_asset']);row['effect_name']=self.effect_name
+                if row['category']=='MODEL' and context.scene.wavelength.asset_browser_section=='MODELS':
+                    from . import model_browser
+                    model_browser.assign(context,row)
+                else:place(context,row)
             else:raise ValueError('Not a Wavelength asset')
             return {'FINISHED'}
         except (ValueError,RuntimeError) as exc:self.report({'ERROR'},diagnostics.error(self.bl_idname, exc));return {'CANCELLED'}
@@ -546,18 +593,40 @@ class WL_PT_assets(bpy.types.Panel):
     def draw(self,context):
         s=context.scene.wavelength
         l=self.layout
+        if profiles.is_mesh_export(s.engine) and not profiles.is_source2(s.engine):
+            l.label(text='Use Blender material assets and image textures')
+            l.label(text='Game asset indexing is not available for this profile')
+            l.operator('wavelength.export_mesh_assets',icon='EXPORT')
+            return
         row=l.row(align=True)
-        row.prop(s,'asset_browser_section',expand=True)
+        if profiles.is_source2(s.engine):row.label(text='CS2 Materials',icon='MATERIAL')
+        else:row.prop(s,'asset_browser_section',expand=True)
+        row=l.row(align=True);row.operator('wavelength.pick_asset',text='Pick',icon='EYEDROPPER');row.operator('wavelength.use_held_asset',text='Use Held',icon='PASTEDOWN')
+        if s.asset_browser_section in {'TEXTURES','ENTITIES'}:
+            l.operator('wavelength.click_place',text='Stop Placing' if context.window_manager.wl_click_place else 'Click Place',icon='CURSOR',depress=context.window_manager.wl_click_place)
+            if s.asset_browser_section=='TEXTURES':l.prop(context.window_manager,'wl_texture_apply_scope',expand=True)
+        held=json.loads(context.scene.get('_wl_asset_clipboard','{}'))
+        if held:l.label(text='Holding: '+held.get('path',''))
         if s.asset_browser_section=='TEXTURES':
+            l.popover(panel='WL_PT_surface',text='Texture Settings',icon='PREFERENCES')
             pub,total,loading=sync_status(s)
             l.label(text='Textures: '+texture_status_label(s),icon='TEXTURE')
             l.operator('wavelength.refresh_textures',text='Reload Profile Textures',icon='FILE_REFRESH')
+        elif s.asset_browser_section=='MODELS':
+            from . import model_browser
+            obj,fields=model_browser.target(context)
+            l.label(text='Assign to '+obj.name if obj else 'Select an entity with a model property')
+            if len(fields)>1:l.prop(s,'model_browser_field')
+            l.label(text=f'{model_browser._ready}/{model_browser._total} model choices')
         else:
             ent_count=sum(1 for o in bpy.data.objects if o.get('wl_entity_browser_profile')==s.engine and o.asset_data is not None)
             l.label(text=f'Entities: {ent_count} ready',icon='EMPTY_ARROWS')
             l.operator('wavelength.entity_browser_refresh',text='Reload Profile Entities',icon='FILE_REFRESH')
-        l.operator('wavelength.use_asset',icon='CHECKMARK')
-        asset=getattr(context,'asset',None);block=asset.local_id if asset else None
+        use=l.row();use.enabled=s.asset_browser_section!='MODELS' or bool(model_browser.target(context)[0])
+        use.operator('wavelength.use_asset',text='Assign Model' if s.asset_browser_section=='MODELS' else 'Use Asset',icon='CHECKMARK')
+        asset=selected_asset(context);block=asset.local_id if asset else None
+        if block and block.get('wl_library_preview_error'):
+            l.label(text='Preview failed: '+str(block['wl_library_preview_error'])[:120],icon='ERROR')
         if block and block.get('wl_asset'):
             row_data=json.loads(block['wl_asset']);l.label(text=row_data['category']);l.label(text=row_data['validation'])
 
@@ -565,24 +634,58 @@ class WL_PT_assets(bpy.types.Panel):
 def header(self,context):
     if workspace.active(context) and context.area.ui_type=='ASSETS':
         s=context.scene.wavelength
+        if profiles.is_mesh_export(s.engine) and not profiles.is_source2(s.engine):return
         row=self.layout.row(align=True)
-        row.prop(s,'asset_browser_section',expand=True)
+        if profiles.is_source2(s.engine):row.label(text='CS2 Materials',icon='MATERIAL')
+        else:row.prop(s,'asset_browser_section',expand=True)
         if s.asset_browser_section=='TEXTURES':
             pub,total,loading=sync_status(s)
             self.layout.label(text=texture_status_label(s))
+        elif s.asset_browser_section=='MODELS':
+            from . import model_browser
+            obj,fields=model_browser.target(context)
+            self.layout.label(text='Assign to '+obj.name if obj else 'Select a model entity')
+            if len(fields)>1:self.layout.prop(s,'model_browser_field',text='')
+        self.layout.operator('wavelength.pick_asset',text='',icon='EYEDROPPER')
+        if s.asset_browser_section in {'TEXTURES','ENTITIES'}:
+            self.layout.operator('wavelength.click_place',text='Stop Placing' if context.window_manager.wl_click_place else 'Click Place',icon='CURSOR',depress=context.window_manager.wl_click_place)
+            if s.asset_browser_section=='TEXTURES':self.layout.prop(context.window_manager,'wl_texture_apply_scope',text='')
+        self.layout.operator('wavelength.use_held_asset',text='',icon='PASTEDOWN')
+        if s.asset_browser_section=='TEXTURES':self.layout.popover(panel='WL_PT_surface',text='Texture Settings',icon='PREFERENCES')
         self.layout.operator('wavelength.entity_browser_refresh',text='',icon='FILE_REFRESH')
-        self.layout.operator('wavelength.use_asset',text='Use Asset',icon='CHECKMARK')
+        use=self.layout.row();use.enabled=s.asset_browser_section!='MODELS' or bool(model_browser.target(context)[0])
+        use.operator('wavelength.use_asset',text='Assign Model' if s.asset_browser_section=='MODELS' else 'Use Asset',icon='CHECKMARK')
 
 
 def register():
     for cls in (WL_OT_assets,WL_OT_use_asset,WL_PT_assets):bpy.utils.register_class(cls)
+    from . import surface_tools
+    surface_tools.register()
+    from . import asset_placement
+    asset_placement.register()
     from . import asset_search
     asset_search.register()
+    from . import model_import
+    model_import.register()
+    from . import model_browser
+    model_browser.register()
+    from . import profile_setup
+    profile_setup.register()
     bpy.types.FILEBROWSER_HT_header.append(header)
     if dropped not in bpy.app.handlers.depsgraph_update_post:bpy.app.handlers.depsgraph_update_post.append(dropped)
 
 
 def unregister():
+    from . import asset_placement
+    asset_placement.unregister()
+    from . import surface_tools
+    surface_tools.unregister()
+    from . import profile_setup
+    profile_setup.unregister()
+    from . import model_browser
+    model_browser.unregister()
+    from . import model_import
+    model_import.unregister()
     from . import asset_search
     asset_search.unregister()
     from . import external_library
