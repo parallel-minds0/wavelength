@@ -185,7 +185,7 @@ def engine_changed(self,context):
     if profiles.is_source2(self.engine):self.asset_browser_section='TEXTURES'
     if not changing:textures.refresh(self,context)
     if self.engine in {'goldsrc_linux','goldsrc_linux_steam'} and self.wad_path:
-        self.status=f'HL1 Linux profile loaded · {len(json.loads(self.texture_wads or "[]"))} WADs · {self.texture_count} textures in {Path(self.wad_path).name}'
+        self.status=f'HL1 Linux profile loaded Â· {len(json.loads(self.texture_wads or "[]"))} WADs Â· {self.texture_count} textures in {Path(self.wad_path).name}'
     elif not self.status:
         self.status='Profile selected; tool paths updated. Rebuild before launching.'
 
@@ -258,7 +258,7 @@ class WLSettings(bpy.types.PropertyGroup):
     custom_model_directory:StringProperty(name='Model Game Directory',subtype='DIR_PATH',description='Blank uses the profile game directory; overrides must be mounted by that game')
     profile_id:StringProperty()
     profile_name:StringProperty(name='Profile name',default='My project')
-    saved_profile:EnumProperty(name='Saved profiles',items=profile_ui.items)
+    saved_profile:EnumProperty(name='Saved profiles',items=profile_ui.items,update=profile_ui.selected)
     unit_scale:FloatProperty(name='Meters per engine unit',default=.0254,min=.000001,update=lambda s,c:grid.update(s,c))
     asset_paths:StringProperty(name='Additional asset roots (JSON)',default='[]')
     engine:EnumProperty(name='Profile',items=profiles.PROFILE_ITEMS,default='blender',update=engine_changed)
@@ -266,6 +266,11 @@ class WLSettings(bpy.types.PropertyGroup):
     profile_grid_spacing:FloatProperty(get=lambda self: profiles.active_grid_step_meters(self) or self.metric_grid_step,options={'HIDDEN','SKIP_SAVE'})
     metric_grid_step:FloatProperty(name='Metric Step',default=1.0,min=.001,max=1024,update=grid.update,subtype='DISTANCE')
     grid_subdivisions:IntProperty(name='Subdivisions',default=0,min=0,max=64,description='0 uses profile default: 8 for engines, 10 for Blender',update=grid.update)
+    effective_grid_subdivisions:IntProperty(name='Subdivisions',min=2,max=64,
+        get=lambda self: profiles.display_grid(self)[1],
+        set=lambda self,value: setattr(self,'grid_subdivisions',value),
+        description='Effective grid subdivisions; inherited from the profile until changed')
+    show_edge_measurements:BoolProperty(name='Edge Measurements',default=True,description='Show live selected edge lengths in profile units, only in Edit Mode',update=grid.update)
     grid_step:EnumProperty(name='Step',items=[(str(x),str(x),'Engine units') for x in (1,2,4,8,16,32,64,128,256)],default='16',update=grid.update)
     snap_to_grid:BoolProperty(name='Snap to Grid',default=False,description='Snap primitives and brushes to the metric grid when using the Blender profile')
     log_filter:EnumProperty(name='Log Filter',items=[('ALL','All','Show all CLI/log messages'),('WARN','Warn+','Show warnings and errors'),('ERROR','Errors','Show errors only')],default='ALL')
@@ -364,7 +369,7 @@ class SafeOperator:
             self.report({'ERROR'},diagnostics.error(self.bl_idname, exc));return {'CANCELLED'}
 
 class WL_OT_setup(SafeOperator,bpy.types.Operator):
-    bl_idname='wavelength.setup';bl_label='Use Local Toolchain';bl_description='Configure this checkout’s installed tools and test game'
+    bl_idname='wavelength.setup';bl_label='Use Local Toolchain';bl_description='Configure this checkoutâ€™s installed tools and test game'
     def run(self,context):
         s=context.scene.wavelength
         if profiles.is_mesh_export(s.engine):
@@ -431,17 +436,36 @@ class WL_OT_hollow(SafeOperator,bpy.types.Operator):
         s=context.scene.wavelength
         is_engine=s.engine!='blender'
         if obj is None or obj.type!='MESH' or (is_engine and obj.get('wl_role')!='BRUSH'):raise ValueError('Select one rectangular brush')
-        if len(obj.data.vertices)!=8 or len(obj.data.polygons)!=6 or any(len(p.vertices)!=4 for p in obj.data.polygons):
+        if obj.modifiers:
+            evaluated=obj.evaluated_get(context.evaluated_depsgraph_get());mesh=evaluated.to_mesh()
+            try:
+                coords=[v.co.copy() for v in mesh.vertices]
+                polygons=[tuple(p.vertices) for p in mesh.polygons]
+            finally:evaluated.to_mesh_clear()
+        else:
+            coords=[v.co.copy() for v in obj.data.vertices]
+            polygons=[tuple(p.vertices) for p in obj.data.polygons]
+        if len(coords)!=8 or len(polygons)!=6 or any(len(p)!=4 for p in polygons):
             raise ValueError('Make Hollow currently requires a rectangular six-sided brush')
-        coords=[v.co.copy() for v in obj.data.vertices]
         mins=[min(v[i] for v in coords) for i in range(3)];maxs=[max(v[i] for v in coords) for i in range(3)]
         eps=1e-6
         if any(any(abs(v[i]-mins[i])>eps and abs(v[i]-maxs[i])>eps for i in range(3)) for v in coords):
             raise ValueError('Make Hollow currently requires an axis-aligned rectangular brush mesh')
         settings=context.scene.wavelength;unit=profiles.unit_meters(settings);t=profiles.engine_to_world(settings, settings.hollow_thickness)
+        from mathutils import Vector
         size=[maxs[i]-mins[i] for i in range(3)]
-        if any(2*t>=d-eps for d in size):raise ValueError('Hollow thickness must be less than half of every brush dimension')
-        x0,y0,z0=mins;x1,y1,z1=maxs;ix0,iy0,iz0=x0+t,y0+t,z0+t;ix1,iy1,iz1=x1-t,y1-t,z1-t
+        if abs(obj.matrix_world.determinant())<1e-12:raise ValueError('Cannot hollow a brush with a zero-scale transform')
+        normal_matrix=obj.matrix_world.to_3x3().inverted().transposed()
+        # Plane separation scales by the inverse-transpose normal length. This
+        # keeps wall thickness in engine units under scale, rotation and shear.
+        factors=[(normal_matrix@Vector(tuple(float(j==i) for j in range(3)))).length for i in range(3)]
+        offsets=[t*f for f in factors]
+        dimensions=[d/f/unit for d,f in zip(size,factors)]
+        if any(2*offset>=d-eps for offset,d in zip(offsets,size)):
+            dims=' × '.join(f'{d:g}' for d in dimensions)
+            raise ValueError(f'Hollow thickness {settings.hollow_thickness:g} is too large for {obj.name} ({dims} engine units); use less than {min(dimensions)/2:g} units')
+        tx,ty,tz=offsets
+        x0,y0,z0=mins;x1,y1,z1=maxs;ix0,iy0,iz0=x0+tx,y0+ty,z0+tz;ix1,iy1,iz1=x1-tx,y1-ty,z1-tz
         boxes=[('Left',(x0,y0,z0),(ix0,y1,z1)),('Right',(ix1,y0,z0),(x1,y1,z1)),
                ('Front',(ix0,y0,z0),(ix1,iy0,z1)),('Back',(ix0,iy1,z0),(ix1,y1,z1)),
                ('Bottom',(ix0,iy0,z0),(ix1,iy1,iz0)),('Top',(ix0,iy0,iz1),(ix1,iy1,z1))]
@@ -499,7 +523,7 @@ class WL_OT_ids(SafeOperator,bpy.types.Operator):
 
 class WL_OT_snap(SafeOperator,bpy.types.Operator):
     bl_idname='wavelength.snap_grid';bl_label='Snap Selection to Grid';bl_options={'REGISTER','UNDO'}
-    bl_description='Snap selected vertices or object origins to exact world-space grid increments'
+    bl_description='Snap selected vertices, brush boundaries or other object origins to the active grid'
     def run(self,context):
         from . import tool_snap
         step=tool_snap.step(context)
@@ -520,7 +544,9 @@ class WL_OT_snap(SafeOperator,bpy.types.Operator):
                 if obj.as_pointer() not in seen:
                     seen.add(obj.as_pointer());targets.append(obj)
             for obj in targets:
-                matrix=obj.matrix_world.copy();matrix.translation=[snap(x) for x in matrix.translation];obj.matrix_world=matrix
+                anchor=tool_snap.move_anchor(obj) if tool_snap.profile_grid_active(context) else obj.matrix_world.translation.copy()
+                delta=type(anchor)([snap(x) for x in anchor])-anchor
+                matrix=obj.matrix_world.copy();matrix.translation+=delta;obj.matrix_world=matrix
         else:raise ValueError('Snap works in Object or Mesh Edit Mode')
 
 
@@ -561,6 +587,9 @@ def _spawn_point_entity(context, classname):
     unit=profiles.unit_meters(s);obj.empty_display_type='ARROWS';obj.empty_display_size=profiles.engine_to_world(s,16);obj['wl_unit_meters']=unit;obj.location=context.scene.cursor.location
     pairs=_entity_creation_defaults(s,classname)
     obj['wl_role']='ENTITY';obj['wl_id']=scene.uid();obj['wl_pairs']=json.dumps(pairs)
+    if profiles.is_source(s.engine):
+        from . import source_pose
+        source_pose.apply(obj,pairs,force=True)
     if profiles.is_goldsrc(s.engine) or profiles.is_source(s.engine):entity_models.attach_reference(obj,pairs)
     if classname=='light_environment':
         from . import sun
@@ -624,7 +653,7 @@ class WL_MT_add_entity(bpy.types.Menu):
     bl_idname='WL_MT_add_entity';bl_label='Entity'
     def draw(self,context):
         layout=self.layout
-        layout.operator('wavelength.add_entity_search',text='Search Entities…',icon='VIEWZOOM')
+        layout.operator('wavelength.add_entity_search',text='Search Entitiesâ€¦',icon='VIEWZOOM')
         layout.separator()
         layout.operator_menu_enum('wavelength.add_entity_browse','classname',text='Browse All Entities',icon='EMPTY_ARROWS')
 
@@ -820,7 +849,10 @@ class WL_OT_properties(SafeOperator,bpy.types.Operator):
                 if other.get('wl_entity_id')==identity:other[key]=json.dumps(pairs)
         else:
             obj[key]=json.dumps(pairs)
-            if profiles.is_goldsrc(s.engine) or profiles.is_source(s.engine):entity_models.attach_reference(obj,pairs)
+            if profiles.is_source(s.engine):
+                from . import asset_loading
+                asset_loading.entity(context.scene,obj)
+            elif profiles.is_goldsrc(s.engine):entity_models.attach_reference(obj,pairs)
             from . import sun
             if sun.is_sun(obj):sun.ensure(obj)
             elif sun.light_for(obj):sun.queue(obj)
@@ -935,6 +967,37 @@ class WL_OT_texture(SafeOperator,bpy.types.Operator):
 class WL_OT_import(SafeOperator,bpy.types.Operator,ImportHelper):
     bl_idname='wavelength.import_map';bl_label='Import wavelength IO';bl_options={'REGISTER','UNDO'}
     filename_ext='.map';filter_glob:StringProperty(default='*.map;*.vmf;*.vmap',options={'HIDDEN'})
+    def execute(self,context):
+        if bpy.app.background or Path(self.filepath).suffix.lower()=='.vmap':return SafeOperator.execute(self,context)
+        from . import map_import,diagnostics,context_policy
+        try:
+            if not context_policy.operation_allowed(context,self.bl_idname):raise ValueError('wavelength editing is disabled in this context')
+            path=Path(self.filepath)
+            if path.suffix.lower() not in {'.map','.vmf'}:raise ValueError('Choose a .map or .vmf file')
+            if self.import_format!='AUTO' and path.suffix.lower()!='.'+self.import_format.lower():raise ValueError('The selected import format does not match the file extension')
+            self._session=map_import.Session(context,path)
+            self._timer=context.window_manager.event_timer_add(.01,window=context.window)
+            context.window_manager.modal_handler_add(self)
+            return {'RUNNING_MODAL'}
+        except Exception as exc:
+            self.report({'ERROR'},diagnostics.error(self.bl_idname,exc));return {'CANCELLED'}
+    def modal(self,context,event):
+        from . import diagnostics
+        if event.type=='ESC' or self._session.closed:
+            self.cancel(context);context.scene.wavelength.status='Map import canceled';return {'CANCELLED'}
+        # Blender's Event RNA does not expose the WindowManager timer handle.
+        # TIMER events advance bounded work; other events remain interactive.
+        if event.type!='TIMER':return {'PASS_THROUGH'}
+        try:
+            if self._session.advance():
+                self._session.close();context.window_manager.event_timer_remove(self._timer)
+                self.report({'INFO'},context.scene.wavelength.status);return {'FINISHED'}
+        except Exception as exc:
+            self.cancel(context);self.report({'ERROR'},diagnostics.error(self.bl_idname,exc));return {'CANCELLED'}
+        return {'RUNNING_MODAL'}
+    def cancel(self,context):
+        if getattr(self,'_session',None):self._session.close();self._session=None
+        if getattr(self,'_timer',None):context.window_manager.event_timer_remove(self._timer);self._timer=None
     def format_changed(self,context):
         self.filter_glob={'AUTO':'*.map;*.vmf;*.vmap','MAP':'*.map','VMF':'*.vmf','VMAP':'*.vmap'}[self.import_format]
     import_format:EnumProperty(name='Format',items=[('AUTO','Supported maps (.map, .vmf, .vmap)','Detect the format from the filename'),('MAP','Quake / GoldSrc (.map)','Import a brush map'),('VMF','Source 1 (.vmf)','Import a Valve brush map'),('VMAP','Source 2 (.vmap)','Editable map meshes and materials; no entities or model instances')],update=format_changed)
@@ -953,16 +1016,19 @@ class WL_OT_import(SafeOperator,bpy.types.Operator,ImportHelper):
             context.scene.wavelength.status=f'Imported {count} VMAP meshes'+('; '+warnings[0] if warnings else '')
             self.report({'WARNING'} if warnings else {'INFO'},context.scene.wavelength.status)
             return
-        if path.stat().st_size>formats.MAX_BYTES:raise ValueError('MAP exceeds 16 MiB limit')
         from . import vmf
         is_vmf=path.suffix.lower()=='.vmf'
         document=(vmf.parse if is_vmf else formats.parse)(path.read_text(encoding='utf-8-sig'))
         # Import into a fresh scene to avoid replacing existing world metadata.
         if any(o.get('wl_role') for o in context.scene.objects):raise ValueError('Import into an empty wavelength scene')
-        scene.import_map(context.scene,document);s=context.scene.wavelength;s.map_path=self.filepath
+        # Select units and game mounts before allocating geometry/materials.
+        # Selecting Source afterwards imported VMF coordinates as Blender meters
+        # and tried to resolve Source materials through the old profile's WADs.
+        s=context.scene.wavelength
         if is_vmf:
             if not profiles.is_source(s.engine):s.engine='source_hl2_windows' if os.name=='nt' else 'source_hl2_linux'
         elif any(f.axes for e in document.entities for b in e.brushes for f in b):s.engine='goldsrc'
+        scene.import_map(context.scene,document);s.map_path=self.filepath
         s.status='MAP imported; comments/formatting are normalized on export'
 
 class WL_OT_export(SafeOperator,bpy.types.Operator,ExportHelper):
@@ -1045,7 +1111,7 @@ def build_tick():
                     errors.extend(line.strip() for line in file.read_text(errors='replace').splitlines() if 'error' in line.lower())
                 s.build_error='\n'.join(dict.fromkeys(errors)) or _JOB.message
                 event_log.error('Map compilation', RuntimeError(s.build_error))
-                s.status='Build failed — see error below'
+                s.status='Build failed â€” see error below'
             _JOB=None;return None
         if state=='DONE':
             output=_JOB_PATH/(_JOB_MAP_NAME+'.bsp')
@@ -1231,7 +1297,7 @@ class WL_OT_leak(SafeOperator,bpy.types.Operator):
 
 def _draw_face_actions(layout):
     row=layout.row(align=True)
-    for action,label in [('RESET','Reset'),('ROT90','+90°'),('FLIP_U','Flip U'),('FLIP_V','Flip V')]:
+    for action,label in [('RESET','Reset'),('ROT90','+90Â°'),('FLIP_U','Flip U'),('FLIP_V','Flip V')]:
         row.operator('wavelength.texture_nudge',text=label).action=action
     row=layout.row(align=True)
     row.operator('wavelength.texture_copy',text='Copy Mapping')
@@ -1428,7 +1494,7 @@ class WL_PT_entity(bpy.types.Panel):
                     try:mask=int(choice[0])
                     except (ValueError,TypeError):continue
                     op=flagrow.operator('wavelength.flag_toggle',text=str(choice[1]),depress=bool(item.integer & mask));op.field_index=index;op.mask=mask
-        row=fields.row(align=True);row.operator_menu_enum('wavelength.property_add','property_key',text='Add Property',icon='ADD');row.operator('wavelength.property_custom_add',text='Custom Key…')
+        row=fields.row(align=True);row.operator_menu_enum('wavelength.property_add','property_key',text='Add Property',icon='ADD');row.operator('wavelength.property_custom_add',text='Custom Keyâ€¦')
         apply=fields.operator('wavelength.entity_properties',text='Apply to This Entity',icon='CHECKMARK');apply.apply=True
 
 class WL_PT_texture(bpy.types.Panel):
@@ -1991,7 +2057,7 @@ class WL_PT_source_outputs(bpy.types.Panel):
         pairs=json.loads(obj.get('wl_entity_pairs' if obj.get('wl_entity_id') else 'wl_pairs','[]'))
         for i,(key,value) in enumerate(pairs):
             if not key.startswith(OUTPUT):continue
-            row=l.row(align=True);op=row.operator('wavelength.source_output',text=key[len(OUTPUT):]+' → '+value.split(',')[0]);op.index=i
+            row=l.row(align=True);op=row.operator('wavelength.source_output',text=key[len(OUTPUT):]+' â†’ '+value.split(',')[0]);op.index=i
             op=row.operator('wavelength.source_output',text='',icon='X');op.index=i;op.remove=True
         l.operator('wavelength.source_output',text='Add Output',icon='ADD')
 
@@ -2026,7 +2092,11 @@ def register():
         bpy.types.Scene.wavelength=PointerProperty(type=WLSettings)
         from . import context_state
         context_state.register()
+        from . import object_index
+        object_index.register()
         workspace.register();precision_move.register();primitive_ui.register();asset_browser.register();profile_ui.register();grid.register();identity.register();editor.register();resize_gizmo.register();system_tree.register();authoring.register();entity_browser.register()
+        from . import asset_loading
+        asset_loading.register()
         from . import csg
         csg.register()
         from . import mesh_assets
@@ -2091,6 +2161,8 @@ def register():
         for module in (profile_ui,asset_browser,primitive_ui,precision_move,workspace,grid):
             try:module.unregister()
             except Exception:pass
+        from . import asset_loading
+        asset_loading.unregister()
         if hasattr(bpy.types.Scene,'wavelength'):
             try: del bpy.types.Scene.wavelength
             except Exception: pass
@@ -2141,6 +2213,10 @@ def unregister():
     except Exception: pass
     try: grid.unregister()
     except Exception: pass
+    from . import object_index
+    object_index.unregister()
+    from . import asset_loading
+    asset_loading.unregister()
     if hasattr(bpy.types.Scene,'wavelength'):
         try: del bpy.types.Scene.wavelength
         except Exception: pass

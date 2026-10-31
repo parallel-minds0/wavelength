@@ -97,7 +97,7 @@ def _draw_label():
     units = f'{settings.grid_step} engine units' if engine_enabled(settings) else f'{spacing:g} m'
     label = _error or f'NATIVE GRID  |  {units}  |  {subdivisions} subdivisions'
     blf.size(0, 15)
-    blf.color(0, 0.78, 0.66, 0.16, 0.90)
+    blf.color(0, 0.45, 0.72, 0.77, 0.75)
     blf.position(0, 20, 46, 0)
     blf.draw(0, label)
 
@@ -134,6 +134,8 @@ def register():
     if not _handles:
         # Text only. No POST_VIEW handler, GPU shader, batch, or depth override.
         _handles.append(bpy.types.SpaceView3D.draw_handler_add(_draw_label, (), 'WINDOW', 'POST_PIXEL'))
+        from . import measurements
+        _handles.append(bpy.types.SpaceView3D.draw_handler_add(measurements.draw, (), 'WINDOW', 'POST_PIXEL'))
 
 
 def unregister():

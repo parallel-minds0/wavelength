@@ -45,7 +45,8 @@ def _auto_window(context):
         with context.temp_override(area=area,region=region):
             try:row=payload(context)
             except (ValueError,AttributeError,RuntimeError):continue
-            if row.get('engine')!=context.scene.wavelength.engine:continue
+            try:row=profile_payload(context.scene.wavelength,row)
+            except ValueError:continue
             if context.scene.wavelength.asset_browser_section not in {'TEXTURES','ENTITIES'}:continue
             key=(context.scene.as_pointer(),json.dumps(row,sort_keys=True))
             if key==_dismissed:continue
@@ -69,8 +70,17 @@ def payload(context):
                     engine=context.scene.wavelength.engine,material=block.name if block else '',library=asset.full_library_path if block is None else '',asset_name=asset.name)
     raise ValueError('Click placement supports textures and point entities')
 
+def profile_payload(settings,row):
+    """Only assets belonging to the active profile may be placed."""
+    if row.get('engine')==settings.engine:return row
+    raise ValueError('Select an asset from the current profile')
+
+
 def material(context,row):
+    row=profile_payload(context.scene.wavelength,row)
     mat=bpy.data.materials.get(row.get('material',''))
+    if mat is None:
+        mat=next((m for m in bpy.data.materials if m.get('wl_texture')==row['path'] and m.get('wl_asset_profile')==context.scene.wavelength.engine),None)
     if mat is None and row.get('library'):
         with bpy.data.libraries.load(row['library'],link=False) as (available,requested):
             if row['asset_name'] not in available.materials:raise ValueError('Selected material is missing from its library')
@@ -79,13 +89,15 @@ def material(context,row):
     if mat is None:mat=textures.material(context.scene.wavelength,row['path']);row['material']=mat.name
     if mat.library:mat=mat.copy();row['material']=mat.name
     profile=mat.get('wl_asset_profile')
-    if profile and profile!=context.scene.wavelength.engine:raise ValueError('Texture belongs to another engine profile')
+    if profile and profile!=context.scene.wavelength.engine:
+        raise ValueError('Texture belongs to another engine profile')
     if mat.get('wl_texture'):textures.realize_material(context.scene.wavelength,mat)
     return mat
 
 def paint(context,obj,index,mat,scope='SURFACE'):
     """Assign material indices, never replace a shared material slot's contents."""
     from . import asset_browser,primitive_ui
+    obj=getattr(obj,'original',obj)
     if obj.type!='MESH':raise ValueError('Click a mesh surface')
     if obj.get('wl_asset_template') or obj.get('wl_entity_browser_template') or obj.get('wl_entity_icon_reference'):raise ValueError('Editor helpers cannot be textured')
     targets=[obj]
@@ -95,6 +107,11 @@ def paint(context,obj,index,mat,scope='SURFACE'):
     try:
         for target in targets:
             if target.type!='MESH':continue
+            if target.get('wl_source_displacement'):
+                from . import source_displacement
+                source_displacement.assign_material(context,target,mat)
+                asset_browser._BRUSH_MAT_SIGS[target.as_pointer()]=asset_browser._brush_mat_signature(target)
+                continue
             if scope in {'SURFACE','SELECTED'}:
                 stable={'ARMATURE','CAST','CORRECTIVE_SMOOTH','DISPLACE','LAPLACIANSMOOTH','LATTICE','MESH_DEFORM','SHRINKWRAP','SIMPLE_DEFORM','SMOOTH','WARP','WAVE'}
                 if any(m.show_viewport and m.type not in stable for m in target.modifiers):raise ValueError('Finalize generated geometry before painting individual surfaces')
@@ -177,7 +194,7 @@ class WL_OT_stamp(bpy.types.Operator):
     def execute(self,context):
         try:
             row=json.loads(self.data)
-            if row.get('engine')!=context.scene.wavelength.engine:raise ValueError('Select an asset from the current profile')
+            row=profile_payload(context.scene.wavelength,row)
             if row['category']=='ENTITY':
                 if context.mode!='OBJECT':raise ValueError('Enter Object Mode to place entities')
                 from .ui import _spawn_point_entity
@@ -201,7 +218,7 @@ class PlacementSession:
         global _active
         prune_session()
         if _active:
-            _active.finish(context);return {'FINISHED'}
+            _active.finish(context,dismiss=True);return {'FINISHED'}
         try:self.row=payload(context)
         except ValueError as exc:operator.report({'WARNING'},str(exc));return {'CANCELLED'}
         self.operator=operator
@@ -216,11 +233,11 @@ class PlacementSession:
         self.status(context);return {'RUNNING_MODAL'}
     def status(self,context):
         context.workspace.status_text_set('Click Place: '+self.row['path']+' · '+context.window_manager.wl_texture_apply_scope.title()+' · Esc/right-click stops')
-    def finish(self,context):
+    def finish(self,context,dismiss=False):
         global _active,_dismissed
         self.closed=True
         _active=None
-        try:_dismissed=(self.owner.as_pointer(),json.dumps(self.row,sort_keys=True))
+        try:_dismissed=(self.owner.as_pointer(),json.dumps(self.row,sort_keys=True)) if dismiss else None
         except ReferenceError:_dismissed=None
         for action in (
             lambda:bpy.types.SpaceView3D.draw_handler_remove(self.handler,'WINDOW') if self.handler else None,
@@ -246,7 +263,7 @@ class PlacementSession:
     def modal(self,context,event):
         if self.closed:return {'FINISHED'}
         if event.type in {'ESC','RIGHTMOUSE'} or context.scene!=self.owner or context.scene.wavelength.engine!=self.engine or not workspace.active(context):
-            self.finish(context);return {'FINISHED'}
+            self.finish(context,dismiss=event.type in {'ESC','RIGHTMOUSE'});return {'FINISHED'}
         if event.type=='TIMER':return {'RUNNING_MODAL'}
         in_browser=self.browser.x<=event.mouse_x<self.browser.x+self.browser.width and self.browser.y<=event.mouse_y<self.browser.y+self.browser.height
         if event.type=='LEFTMOUSE' and event.value=='PRESS' and in_browser:
@@ -279,11 +296,32 @@ class PlacementSession:
                 if (event.type=='LEFTMOUSE' and event.value=='PRESS') or drop:
                     if not hit and self.row['category']!='ENTITY':return {'RUNNING_MODAL'}
                     if not self.has_undo:bpy.ops.ed.undo_push(message='Begin Click Placement');self.has_undo=True
-                    result=bpy.ops.wavelength.stamp_asset(data=json.dumps(self.row),object_name=obj.name if obj else '',face=index,location=snapped,scope=resolved_scope(context),selected_faces=drop)
+                    # Interactive clicks and drops share the selected-face rule.
+                    # With no edit selection, paint_drop falls back to the hit face.
+                    result=bpy.ops.wavelength.stamp_asset(data=json.dumps(self.row),object_name=obj.name if obj else '',face=index,location=snapped,scope=resolved_scope(context),selected_faces=True)
                     if result=={'FINISHED'}:bpy.ops.ed.undo_push(message='Place Entity' if self.row['category']=='ENTITY' else 'Paint Surface')
                     if drop and getattr(self,'drop_only',False):self.finish(context);return {'FINISHED'}
             return {'RUNNING_MODAL'}
-        except (ValueError,RuntimeError,ReferenceError) as exc:context.scene.wavelength.status=str(exc);return {'RUNNING_MODAL'}
+        except (ValueError,RuntimeError,ReferenceError) as exc:
+            context.scene.wavelength.status=str(exc)
+            if event.type=='LEFTMOUSE':
+                try:self.operator.report({'WARNING'},str(exc))
+                except ReferenceError:pass
+            return {'RUNNING_MODAL'}
+
+
+class WL_OT_arm_asset(bpy.types.Operator):
+    bl_idname='wavelength.arm_asset';bl_label='Use Selected Asset for Placement'
+    bl_options={'INTERNAL'}
+    @classmethod
+    def poll(cls,context):
+        return workspace.active(context) and context.area and context.area.type=='FILE_BROWSER' and context.area.ui_type=='ASSETS'
+    def invoke(self,context,event):
+        global _dismissed
+        # Re-selecting the same thumbnail is an explicit request to paint again.
+        # Keep Blender's normal selection/drag handling intact.
+        _dismissed=None
+        return {'PASS_THROUGH'}
 
 class WL_OT_click_place(bpy.types.Operator):
     bl_idname='wavelength.click_place';bl_label='Click Place'
@@ -318,11 +356,13 @@ class WL_OT_drag_texture(bpy.types.Operator):
 def register():
     bpy.types.WindowManager.wl_click_place=bpy.props.BoolProperty(default=False,options={'SKIP_SAVE'})
     bpy.types.WindowManager.wl_texture_apply_scope=bpy.props.EnumProperty(name='Apply To',items=[('AUTO','Auto','Object Mode paints the object; Edit Mode paints the hit face'),('SURFACE','Surface','Paint only the clicked mesh face, in either mode'),('OBJECT','Object','Paint the whole clicked mesh or locked brush assembly')],default='AUTO',options={'SKIP_SAVE'})
-    for cls in (WL_OT_stamp,WL_OT_click_place,WL_OT_drag_texture):bpy.utils.register_class(cls)
+    for cls in (WL_OT_stamp,WL_OT_click_place,WL_OT_drag_texture,WL_OT_arm_asset):bpy.utils.register_class(cls)
     config=bpy.context.window_manager.keyconfigs.addon
     if config:
         keymap=config.keymaps.new(name='File Browser Main',space_type='FILE_BROWSER',region_type='WINDOW')
         item=keymap.keymap_items.new('wavelength.drag_texture','LEFTMOUSE','CLICK_DRAG')
+        _keymaps.append((keymap,item))
+        item=keymap.keymap_items.new('wavelength.arm_asset','LEFTMOUSE','RELEASE')
         _keymaps.append((keymap,item))
     bpy.app.timers.register(auto_place,first_interval=1,persistent=True)
     bpy.app.handlers.load_pre.append(clear_session)
@@ -336,5 +376,5 @@ def unregister():
     if _active:_active.finish(bpy.context)
     for keymap,item in _keymaps:keymap.keymap_items.remove(item)
     _keymaps.clear()
-    for cls in (WL_OT_drag_texture,WL_OT_click_place,WL_OT_stamp):bpy.utils.unregister_class(cls)
+    for cls in (WL_OT_arm_asset,WL_OT_drag_texture,WL_OT_click_place,WL_OT_stamp):bpy.utils.unregister_class(cls)
     del bpy.types.WindowManager.wl_click_place;del bpy.types.WindowManager.wl_texture_apply_scope

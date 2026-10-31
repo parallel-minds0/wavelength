@@ -197,3 +197,18 @@ Engine tests check Godot-imported texture pixels, UVs, physical bounds and axes,
 and CS2 resource-compiler success, material references and compiled bounds. This
 path does not implement VMAP serialization, CS2 resource extraction, entities,
 collision, animation or automatic deployment/compilation.
+
+Arch **Fill Center** ignores manual Thickness and generates solid segments meeting
+at the center. Unchecking it restores the stored manual thickness. The control is
+available in Geometry Nodes modifier inputs and the wavelength Arch settings;
+changing it on one procedural segment updates the whole Arch. Source output uses
+welded triangular-prism brushes, including for full circles. Existing procedural
+arches gain the input when selected; finalized meshes are not regenerated.
+
+Source entity poses use Valve QAngle order: pitch/yaw/roll maps to Blender XYZ
+Euler components roll/pitch/yaw, giving Rz(yaw) @ Ry(pitch) @ Rx(roll).
+source_pose.py applies this at import and entity property updates. Export derives
+angles from the world rotation, preserving the original text when orientation is
+unchanged. Model-only refreshes do not reset artist rotations. Legacy unrotated
+point entities receive their stored angles on load; existing nonidentity rotations
+are retained. Brush-entity plane geometry is not rotated again.

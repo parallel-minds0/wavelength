@@ -16,7 +16,7 @@ bmesh.update_edit_mesh(mesh)
 area=next(a for a in ctx.screen.areas if a.type=='VIEW_3D');region=next(r for r in area.regions if r.type=='WINDOW');steps=[]
 def extract():
     bpy.ops.ed.undo_push(message='Original source brush')
-    with ctx.temp_override(area=area,region=region):assert bpy.ops.wavelength.displacement_from_face('EXEC_DEFAULT',True)=={'FINISHED'}
+    with ctx.temp_override(area=area,region=region):assert bpy.ops.wavelength.displacement_from_face('EXEC_DEFAULT',True,native=False)=={'FINISHED'}
     assert 'Undo source' not in ctx.scene.objects
     assert len([o for o in ctx.scene.objects if o.get('wl_terrain_detached')])==6
     bpy.ops.screen.screenshot(filepath=str(folder/'independent-ui.png'))

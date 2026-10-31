@@ -78,8 +78,33 @@ def cancel(target):
     del target[KEY]
     if 'wl_csg_cutter' in target:del target['wl_csg_cutter']
 
+def clean_boolean_mesh(mesh,target):
+    """Weld sub-hundredth-unit Boolean slivers in the object's world metric.
+
+    Work without world translation to retain float precision far from the origin.
+    This operates on the temporary Boolean result, never the source operands;
+    normal manifold/convex export validation still gates the transaction.
+    """
+    unit=target.get('wl_unit_meters',1.)
+    basis=target.matrix_world.to_3x3()*(1./unit)
+    inverse=basis.inverted()
+    bm=bmesh.new()
+    try:
+        bm.from_mesh(mesh)
+        before=(len(bm.verts),len(bm.edges),len(bm.faces))
+        for v in bm.verts:v.co=basis@v.co
+        bmesh.ops.remove_doubles(bm,verts=list(bm.verts),dist=.01)
+        bmesh.ops.dissolve_degenerate(bm,edges=list(bm.edges),dist=.01)
+        if before==(len(bm.verts),len(bm.edges),len(bm.faces)):return
+        for v in bm.verts:v.co=inverse@v.co
+        bm.normal_update();bm.to_mesh(mesh);mesh.update()
+    finally:bm.free()
+
+
 def _bsp_meshes(mesh,target,engine):
     """Preserve boundary planes/materials; project UVs for newly created caps."""
+    clean_boolean_mesh(mesh,target)
+    _solid(mesh)
     unit=target.get('wl_unit_meters',profiles.unit_meters(bpy.context.scene.wavelength))
     # Partition in the target's own frame. A world-aligned bounding box would
     # introduce six unrelated planes around every rotated solid and explode the

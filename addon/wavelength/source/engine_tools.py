@@ -32,6 +32,11 @@ class WL_OT_engine_transform(bpy.types.Operator):
                          if not any(p.select_get() for p in WL_OT_precision_move.parents(o))]
         self._pivot = context.object.matrix_world.translation.copy()
         self._dimensions = context.object.dimensions.copy()
+        root=primitive_ui.root_for(context.object)
+        if root:
+            graph=context.evaluated_depsgraph_get()
+            points=[p.matrix_world@Vector(c) for p in primitive_ui.parts_for(root) for c in p.evaluated_get(graph).bound_box]
+            if points:self._dimensions=Vector(tuple(max(p[i] for p in points)-min(p[i] for p in points) for i in range(3)))
         self._mouse = event.mouse_x
         self._value = ''
         self._step = tool_snap.step(context)
@@ -45,7 +50,7 @@ class WL_OT_engine_transform(bpy.types.Operator):
 
     def modal(self, context, event):
         if event.type=='TAB' and event.shift:return {'PASS_THROUGH'}
-        if event.type in {'ESC', 'RIGHTMOUSE'} or not workspace.active(context, 'snapping'):
+        if event.type in {'ESC', 'RIGHTMOUSE'} or not workspace.active(context):
             for obj, matrix in self._objects:
                 obj.matrix_world = matrix
             axis_guides.finish(self,context)
@@ -63,6 +68,7 @@ class WL_OT_engine_transform(bpy.types.Operator):
                 self._value += event.unicode
         axis_guides.update(self)
         if event.type == 'MOUSEMOVE' or event.value == 'PRESS':
+            self._step=tool_snap.step(context)
             try:
                 amount = float(self._value) if self._value else None
             except ValueError:
@@ -70,7 +76,7 @@ class WL_OT_engine_transform(bpy.types.Operator):
             distance = event.mouse_x - self._mouse
             if self.kind == 'ROTATE':
                 degrees = amount if amount is not None else distance * .5
-                if amount is None and tool_snap.enabled(context,event,'ROTATE'):
+                if tool_snap.enabled(context,event,'ROTATE'):
                     ts=context.scene.tool_settings
                     key='snap_angle_increment_3d_precision' if event.shift else 'snap_angle_increment_3d'
                     increment=math.degrees(getattr(ts,key,math.radians(5)))
@@ -80,7 +86,7 @@ class WL_OT_engine_transform(bpy.types.Operator):
             else:
                 factor = amount if amount is not None else 1 + distance / 150
                 factors = [factor if self.axis == 'FREE' or self.axis == a else 1 for a in 'XYZ']
-                if amount is None and tool_snap.grid_enabled(context,event,'SCALE'):
+                if tool_snap.grid_enabled(context,event,'SCALE'):
                     for i in range(3):
                         size = self._dimensions[i]
                         if size > 1e-8 and (self.axis == 'FREE' or self.axis == 'XYZ'[i]):
@@ -254,4 +260,3 @@ def unregister():
         _original_draw = None
     bpy.utils.unregister_class(WL_GGT_engine_transform)
     bpy.utils.unregister_class(WL_OT_engine_transform)
-

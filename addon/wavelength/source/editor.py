@@ -10,8 +10,10 @@ from . import scene,formats,profiles
 from .geometry import cross,dot,sub,length,validate,TOLERANCE,BrushError
 
 
-def apply_uv(obj,engine):
-    faces=scene.brush_from_object(obj,engine)
+def apply_uv(obj,engine,faces=None):
+    # Imported brush planes were already validated by the preparation worker.
+    # Avoid exporting/validating the brand-new mesh again just to recover them.
+    if faces is None:faces=scene.brush_from_object(obj,engine)
     attr=obj.data.attributes['wl_face_id'];by_id={i:f for i,f in zip(sorted(d.value for d in attr.data),faces)}
     layer=obj.data.uv_layers.get('wavelength') or obj.data.uv_layers.new(name='wavelength')
     for polygon in obj.data.polygons:
@@ -106,6 +108,11 @@ def capture_uv(obj,engine,indices=None):
             for fitrow in (u,v):
                 axis=[0.,0.,0.,fitrow[2]];axis[sv]=fitrow[0];axis[tv]=fitrow[1];axes.append(axis)
             face.axes=axes;face.projection=[0,0,0,1,1]
+            if profiles.is_source(engine):
+                for index,axis in enumerate(face.axes):
+                    magnitude=math.sqrt(sum(x*x for x in axis[:3]))
+                    axis[:3]=[x/magnitude for x in axis[:3]]
+                    face.projection[3+index]=1/magnitude
         else:
             angle=math.atan2(u[1]/base[0][sv],u[0]/base[0][sv]);scale_u=1/math.hypot(*u[:2])
             direction=(-math.sin(angle)*base[1][tv],math.cos(angle)*base[1][tv])
@@ -124,6 +131,7 @@ _live_modes={}
 _edit_sessions=set()
 _LIVE_POLL_SECONDS=0.10
 _last_face_ui=None
+_pending_brushes=set()
 
 def note_edit_session(obj):
     """Record that a brush has entered an edit transaction.
@@ -163,14 +171,27 @@ def _finalize_edit_session(obj, settings=None):
 
 @persistent
 def _edit_commit_handler(scene_data, depsgraph=None):
+    if scene_data.get('wl_importing'):return
     """Commit registered brush edit sessions on the actual mode transition.
 
     depsgraph_update_post runs as Blender applies the Edit -> Object transition, so
     unlike a polling timer it cannot initialize after the edge has already passed.
     """
     from .workspace import active
-    if not active(bpy.context, 'textures') or not _edit_sessions:
+    if not active(bpy.context):
         return
+    # Native vertex edits need the same commit lifecycle as shaping handles,
+    # even with Live UV disabled or an edit shorter than the timer interval.
+    for obj in getattr(bpy.context,'objects_in_mode',()):
+        if obj.type == 'MESH' and obj.get('wl_role') == 'BRUSH':note_edit_session(obj)
+    if depsgraph is not None and not _live_reprojecting:
+        for update in depsgraph.updates:
+            obj=update.id
+            if isinstance(obj,bpy.types.Object):
+                obj=obj.original
+                if obj.type=='MESH' and obj.get('wl_role')=='BRUSH' and (update.is_updated_geometry or update.is_updated_transform):
+                    _pending_brushes.add(obj.name_full)
+
     settings = getattr(scene_data, 'wavelength', None)
     for name in tuple(_edit_sessions):
         obj = bpy.data.objects.get(name)
@@ -250,12 +271,13 @@ def _live_tick():
     global _live_reprojecting
     try:
         from .workspace import active
-        if not active(bpy.context, 'textures'):return _LIVE_POLL_SECONDS
+        if not active(bpy.context):return _LIVE_POLL_SECONDS
         scene_data=bpy.context.scene
+        if scene_data and scene_data.get('wl_importing'):return _LIVE_POLL_SECONDS
         if not scene_data or not hasattr(scene_data,'wavelength'):
             return _LIVE_POLL_SECONDS
         settings=scene_data.wavelength
-        enabled=settings.live_texture_reproject
+        enabled=settings.live_texture_reproject and active(bpy.context, 'textures')
         # Keep the face-texture inspector synchronized with the active Edit Mode face.
         global _last_face_ui
         active=bpy.context.edit_object
@@ -278,8 +300,16 @@ def _live_tick():
                         _last_face_ui=token
             except (ReferenceError,RuntimeError,ValueError,KeyError,IndexError,TypeError):
                 pass
+        # Object changes arrive through the depsgraph. Only live Edit Mode
+        # meshes need polling; an idle map must not hash every brush at 10 Hz.
+        names=set(_pending_brushes)|set(_edit_sessions)
+        _pending_brushes.difference_update(names)
+        names.update(o.name_full for o in getattr(bpy.context,'objects_in_mode',()) if o.type=='MESH' and o.get('wl_role')=='BRUSH')
         live_names=set();now=time.monotonic()
-        for obj in scene_data.objects:
+        for name in names:
+            obj=bpy.data.objects.get(name)
+            if obj is None or obj.name not in scene_data.objects:
+                _live_state.pop(name,None);_live_modes.pop(name,None);continue
             if obj.type!='MESH' or obj.get('wl_role')!='BRUSH':
                 continue
             name=obj.name_full;live_names.add(name)
@@ -324,17 +354,13 @@ def _live_tick():
                 pass
             finally:
                 _live_reprojecting=False
-        for name in set(_live_state) | set(_live_modes):
-            if name not in live_names:
-                _live_state.pop(name,None)
-                _live_modes.pop(name,None)
     except (ReferenceError,RuntimeError,AttributeError):
         pass
     return _LIVE_POLL_SECONDS
 
 
 def register():
-    _live_state.clear(); _live_modes.clear(); _edit_sessions.clear()
+    _live_state.clear(); _live_modes.clear(); _edit_sessions.clear(); _pending_brushes.clear()
     if _edit_commit_handler not in bpy.app.handlers.depsgraph_update_post:
         bpy.app.handlers.depsgraph_update_post.append(_edit_commit_handler)
     if not bpy.app.timers.is_registered(_live_tick):
@@ -348,4 +374,4 @@ def unregister():
         bpy.app.handlers.depsgraph_update_post.remove(_edit_commit_handler)
     except ValueError:
         pass
-    _live_state.clear(); _live_modes.clear(); _edit_sessions.clear()
+    _live_state.clear(); _live_modes.clear(); _edit_sessions.clear(); _pending_brushes.clear()

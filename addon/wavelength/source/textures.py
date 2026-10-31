@@ -92,13 +92,13 @@ def cache_directory(settings):
     return folder
 
 
-def material(settings,name,preferred=None,target_mat=None):
+def material(settings,name,preferred=None,target_mat=None,defer=False):
     if profiles.is_source2(settings.engine):
         from . import source2_assets
         return source2_assets.material(settings,name,target_mat=target_mat,content_root=target_mat.get('wl_source2_content_root') if target_mat else None)
     if profiles.is_source(settings.engine):
         from . import source_assets
-        return source_assets.material(settings,name,target_mat=target_mat)
+        return source_assets.material(settings,name,target_mat=target_mat,defer=defer)
     wad,item=find(settings,name,preferred)
     expected=b'WAD3' if profiles.is_goldsrc(settings.engine) else b'WAD2'
     if wad.kind!=expected:raise ValueError('Texture WAD belongs to the other engine mode')

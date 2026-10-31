@@ -5,6 +5,36 @@ from wavelength.source import source_assets as assets,keyvalues,vmf,formats
 from tests import test_source
 
 class AssetTests(unittest.TestCase):
+    def test_vectorized_dxt_matches_portable_decoder(self):
+        import random,importlib.util
+        from unittest.mock import patch
+        if importlib.util.find_spec('numpy') is None:self.skipTest('numpy is optional outside Blender')
+        rng=random.Random(346)
+        for fmt in (13,14,15,20):
+            for w,h,maximum in ((12,8,512),(12,8,5),(1,2,512),(17,11,8)):
+                stride=8 if fmt in (13,20) else 16
+                pixels=bytes(rng.randrange(256) for _ in range(((w+3)//4)*((h+3)//4)*stride))
+                image=self.vtf(fmt,pixels,w,h)
+                expected=assets.decode_vtf(image,maximum)
+                with patch.object(assets,'_decode_blocks_numpy',side_effect=ImportError):actual=assets.decode_vtf(image,maximum)
+                self.assertEqual(expected,actual,(fmt,w,h,maximum))
+
+    def test_vmt_cache_invalidates_included_file_and_mount_override(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root=Path(folder);game=root/'hl2';override=root/'override'
+            for p in (game/'materials',override/'materials'):p.mkdir(parents=True)
+            (game/'gameinfo.txt').write_text('GameInfo { FileSystem { SearchPaths { game "override" game "|gameinfo_path|." } } }')
+            base=game/'materials/base.vmt';base.write_text('LightmappedGeneric { "$basetexture" "brick/red" }')
+            (game/'materials/child.vmt').write_text('patch { include "materials/base.vmt" }')
+            lib=assets.Assets(game)
+            self.assertEqual(lib.material('child')['$basetexture'],'brick/red')
+            base.write_text('LightmappedGeneric { "$basetexture" "brick/blue" }')
+            self.assertEqual(lib.material('child')['$basetexture'],'brick/blue')
+            (override/'materials/base.vmt').write_text('LightmappedGeneric { "$basetexture" "override/green" }')
+            self.assertEqual(lib.material('child')['$basetexture'],'override/green')
+            value=lib.material('child');value['$basetexture']='mutated'
+            self.assertEqual(lib.material('child')['$basetexture'],'override/green')
+
     def test_keyvalues_paths_duplicates_and_truncation(self):
         self.assertEqual(keyvalues.parse('root { "path" "foo\\bar" x 1 x 2 }'),[('root',[('path','foo\\bar'),('x','1'),('x','2')])])
         for text in ('root { key }','"unterminated','root {'):

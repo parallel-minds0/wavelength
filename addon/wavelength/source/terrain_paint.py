@@ -165,8 +165,11 @@ class WL_OT_terrain_paint(bpy.types.Operator):
     bl_description='Paint terrain with the selected type; hold the button to choose Raise / Lower, Smooth or Texture Blend'
     mode:EnumProperty(items=[('CURRENT','Current','Use the selected terrain paint type')]+[(key,label,label) for key,label,_ in PAINT_TYPES],default='CURRENT',options={'SKIP_SAVE'})
     @classmethod
-    def poll(cls,context):return workspace.active(context) and context.object and context.object.get('wl_terrain') and context.object.get('wl_procedural_state')=='PROCEDURAL' and context.mode=='OBJECT'
+    def poll(cls,context):return workspace.active(context) and context.object and context.mode=='OBJECT' and (context.object.get('wl_source_displacement') or (context.object.get('wl_terrain') and context.object.get('wl_procedural_state')=='PROCEDURAL'))
     def invoke(self,context,event):
+        if context.object.get('wl_source_displacement'):
+            bpy.ops.wavelength.source_displacement_paint('INVOKE_DEFAULT',mode=self.mode)
+            return {'FINISHED'}
         area=context.area if context.area.type=='VIEW_3D' else next((a for a in context.screen.areas if a.type=='VIEW_3D'),None)
         if area is None:self.report({'ERROR'},'Open a 3D viewport');return {'CANCELLED'}
         self.obj=context.object;s=self.obj.wavelength_terrain

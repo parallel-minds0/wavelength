@@ -1,7 +1,7 @@
 """Read local Source VPK/VMT/VTF assets without extracting game archives."""
 from pathlib import Path,PurePosixPath
 from array import array
-import struct,zlib,re,hashlib
+import struct,zlib,re,hashlib,time
 
 LIMIT=128*1024*1024
 
@@ -58,7 +58,7 @@ class Assets:
         self.game=Path(game).expanduser().resolve()
         if not (self.game/'gameinfo.txt').is_file():raise ValueError('Select a Source game directory containing gameinfo.txt')
         from . import keyvalues
-        self.mounts=[];seen=set()
+        self.mounts=[];seen=set();self._vmt_cache={}
         document=keyvalues.parse((self.game/'gameinfo.txt').read_text(errors='replace'))
         paths=keyvalues.child(keyvalues.child(keyvalues.child(document,'gameinfo'),'filesystem'),'searchpaths')
         def mount(path):
@@ -82,6 +82,48 @@ class Assets:
         if not self.mounts:
             mount(self.game)
             for path in sorted(self.game.glob('*_dir.vpk')):mount(path)
+    def prefix(self,name,length=80):
+        """Read only metadata for a deferred preview; full reads still check CRC."""
+        name=asset_path(name)
+        for mount in self.mounts:
+            if isinstance(mount,VPK):
+                entry=mount.entries.get(name)
+                if entry is None:continue
+                crc,index,offset,size,preload=entry
+                archive=mount.path if index==0x7fff else mount.path.with_name(mount.path.name[:-8]+f'_{index:03d}.vpk')
+                if index==0x7fff:offset+=mount.base
+                if len(preload)>=length:return preload[:length]
+                with archive.open('rb') as f:f.seek(offset);return preload+f.read(min(size,length-len(preload)))
+            else:
+                path=mount/name
+                if path.is_file():
+                    with path.open('rb') as f:return f.read(length)
+        raise ValueError('Source asset not found: '+name)
+
+    def fingerprint(self,name):
+        """Identify the winning mounted asset without reading/decompressing it.
+
+        Walk mount precedence each time so a new loose override invalidates an
+        existing VPK result. VPK CRC and archive stamps cover companion updates.
+        """
+        name=asset_path(name)
+        for mount in self.mounts:
+            if isinstance(mount,VPK):
+                entry=mount.entries.get(name)
+                if entry is None:continue
+                crc,index,offset,length,preload=entry
+                archive=mount.path if index==0x7fff else mount.path.with_name(mount.path.name[:-8]+f'_{index:03d}.vpk')
+                try:
+                    a=archive.stat();d=mount.path.stat()
+                    return (str(mount.path),d.st_mtime_ns,d.st_size,crc,index,offset,length,a.st_mtime_ns,a.st_size)
+                except OSError:return (str(archive),'missing',crc)
+            else:
+                path=mount/name
+                try:stat=path.stat()
+                except OSError:continue
+                if path.is_file():return (str(path),stat.st_mtime_ns,stat.st_size)
+        return None
+
     def read(self,name):
         name=asset_path(name)
         for mount in self.mounts:
@@ -105,6 +147,9 @@ class Assets:
         if not name.startswith('materials/'):name='materials/'+name
         if not name.endswith('.vmt'):name+='.vmt'
         if name in seen or len(seen)>16:raise ValueError('VMT include cycle')
+        cached=self._vmt_cache.get(name)
+        if cached and all(self.fingerprint(p)==stamp for p,stamp in cached[1].items()):return dict(cached[0])
+        dependencies={name:self.fingerprint(name)}
         text=self.read(name).decode('utf-8-sig',errors='replace')
         from . import keyvalues
         document=keyvalues.parse(text)
@@ -114,9 +159,14 @@ class Assets:
             include=result.get('include')
             if not include:raise ValueError('Patch material is missing include')
             result=self.material(include,(*seen,name))
+            parent=asset_path(include)
+            if not parent.startswith('materials/'):parent='materials/'+parent
+            if not parent.endswith('.vmt'):parent+='.vmt'
+            dependencies.update(self._vmt_cache[parent][1])
             for k,v in keyvalues.values(keyvalues.child(pairs,'insert')).items():result.setdefault(k,v)
             result.update(keyvalues.values(keyvalues.child(pairs,'replace')))
         if shader.lower()!='patch':result['_wl_shader']=shader.lower()
+        self._vmt_cache[name]=(dict(result),dependencies)
         return result
 
 def image_size(w,h,fmt):
@@ -125,6 +175,39 @@ def image_size(w,h,fmt):
     channels={0:4,1:4,2:3,3:3,5:1,6:2,8:1,11:4,12:4,16:4}
     if fmt not in channels:raise ValueError(f'Unsupported VTF pixel format {fmt}')
     return w*h*channels[fmt]
+
+def _decode_blocks_numpy(pixels,w,h,pw,ph,fmt):
+    """Decode only sampled DXT texels in vector operations, not Python loops."""
+    import numpy as np
+    stride=8 if fmt in (13,20) else 16;c=0 if stride==8 else 8
+    dtype=np.dtype({'names':['a','b','bits'],'formats':['<u2','<u2','<u4'],'offsets':[c,c+2,c+4],'itemsize':stride})
+    blocks=np.frombuffer(pixels,dtype=dtype)
+    x=np.arange(pw,dtype=np.uint32)*w//pw;y=np.arange(ph,dtype=np.uint32)*h//ph
+    ids=(y//4)[:,None]*((w+3)//4)+(x//4)[None,:]
+    a=blocks['a'][ids].astype(np.uint32);b=blocks['b'][ids].astype(np.uint32)
+    local=(y%4)[:,None]*4+(x%4)[None,:]
+    choice=(blocks['bits'][ids]>>(2*local))&3
+    rgba=np.empty((ph,pw,4),dtype=np.uint8)
+    opaque=(a>b) if stride==8 else np.ones(a.shape,dtype=bool)
+    for channel,shift,mask,divisor in ((0,11,31,31),(1,5,63,63),(2,0,31,31)):
+        ca=((a>>shift)&mask)*255//divisor;cb=((b>>shift)&mask)*255//divisor
+        cc=np.where(opaque,(2*ca+cb)//3,(ca+cb)//2)
+        cd=np.where(opaque,(ca+2*cb)//3,0)
+        rgba[:,:,channel]=np.where(choice==0,ca,np.where(choice==1,cb,np.where(choice==2,cc,cd)))
+    alpha=np.where((~opaque)&(choice==3),0,255)
+    if fmt==14:
+        packed=np.frombuffer(pixels,dtype=np.dtype({'names':['alpha'],'formats':['<u8'],'offsets':[0],'itemsize':16}))['alpha'][ids]
+        alpha=((packed>>(local.astype(np.uint64)*4))&15)*17
+    elif fmt==15:
+        packed=np.frombuffer(pixels,dtype=np.dtype({'names':['alpha'],'formats':['<u8'],'offsets':[0],'itemsize':16}))['alpha'][ids]
+        aa=(packed&255).astype(np.int32);bb=((packed>>8)&255).astype(np.int32)
+        selected=((packed>>(16+local.astype(np.uint64)*3))&7).astype(np.int32)
+        mixed=np.where(aa>bb,((8-selected)*aa+(selected-1)*bb)//7,
+                       np.where(selected<6,((6-selected)*aa+(selected-1)*bb)//5,np.where(selected==6,0,255)))
+        alpha=np.where(selected==0,aa,np.where(selected==1,bb,mixed))
+    rgba[:,:,3]=alpha
+    return bytearray(rgba[::-1].tobytes())
+
 
 def decode_vtf(data,max_dimension=512):
     if len(data)<64 or data[:4]!=b'VTF\0':raise ValueError('Invalid VTF header')
@@ -162,6 +245,9 @@ def decode_vtf(data,max_dimension=512):
     pw,ph=max(1,int(w*ratio)),max(1,int(h*ratio))
     sample_x={min(w-1,x*w//pw):x for x in range(pw)}
     sample_y={min(h-1,y*h//ph):y for y in range(ph)}
+    if fmt in (13,14,15,20):
+        try:return width,height,pw,ph,_decode_blocks_numpy(pixels,w,h,pw,ph,fmt)
+        except ImportError:pass
     rgba=bytearray(pw*ph*4)
     def put(x,y,color):
         if x in sample_x and y in sample_y:
@@ -205,12 +291,59 @@ def decode_vtf(data,max_dimension=512):
     return width,height,pw,ph,rgba
 
 _cache={}
-def library(game):
-    key=str(Path(game).expanduser().resolve())
-    if key not in _cache:_cache[key]=Assets(key)
-    return _cache[key]
+_checked={}
+def _library_stamp(assets):
+    paths=[assets.game/'gameinfo.txt',assets.game,assets.game.parent,*[m.path if isinstance(m,VPK) else m for m in assets.mounts]]
+    result=[]
+    for p in paths:
+        try:st=p.stat();result.append((str(p),st.st_mtime_ns,st.st_size))
+        except OSError:result.append((str(p),None,None))
+    return result
 
-def material(settings,name,target_mat=None):
+def library(game):
+    key=str(Path(game).expanduser().resolve());now=time.monotonic()
+    assets=_cache.get(key)
+    if assets and now-_checked.get(key,(0,None))[0]>1:
+        stamp=_library_stamp(assets)
+        if _checked.get(key,(0,None))[1]!=stamp:assets=None
+        else:_checked[key]=(now,stamp)
+    if assets is None:
+        assets=Assets(key);_cache[key]=assets;_checked[key]=(now,_library_stamp(assets))
+    return assets
+
+
+def preview_key(assets,path):
+    from . import runtime_cache
+    return runtime_cache.key(['vtf-preview-1',str(assets.game),path,assets.fingerprint(path),512])
+
+def decoded_preview(assets,path):
+    from . import runtime_cache
+    identity=preview_key(assets,path)
+    decoded=runtime_cache.read(identity)
+    values=None
+    if decoded and len(decoded)>=16:
+        ow,oh,w,h=struct.unpack_from('<4I',decoded)
+        if 0<w<=512 and 0<h<=512 and ow and oh and len(decoded)==16+w*h*4:values=(ow,oh,w,h,decoded[16:])
+    if values is None:
+        values=decode_vtf(assets.read(path))
+        runtime_cache.write(identity,struct.pack('<4I',*values[:4])+values[4])
+    return values
+
+def preview_image(assets,path):
+    import bpy
+    identity=preview_key(assets,path);label='wl_source_image_'+identity
+    existing=bpy.data.images.get(label)
+    if existing:return existing,existing['wl_width'],existing['wl_height']
+    ow,oh,w,h,pixels=decoded_preview(assets,path)
+    image=bpy.data.images.new(label,width=w,height=h,alpha=True)
+    import numpy as np
+    image.pixels.foreach_set(np.frombuffer(pixels,dtype=np.uint8).astype(np.float32)*(1.0/255.0));image.update();image.pack()
+    image['wl_width']=ow;image['wl_height']=oh
+    image['wl_source_image_key']=identity
+    return image,ow,oh
+
+
+def material(settings,name,target_mat=None,defer=False):
     import bpy
     from .tool_textures import canonical
     name=canonical(settings.engine,name)
@@ -222,18 +355,42 @@ def material(settings,name,target_mat=None):
     base=asset_path(base)
     if not base.startswith('materials/'):base='materials/'+base
     if not base.endswith('.vtf'):base+='.vtf'
-    data=assets.read(base);key='wl_source_'+hashlib.sha256((str(assets.game)+name).encode()+data).hexdigest()[:20]
-    existing=target_mat or bpy.data.materials.get(key) or next((m for m in bpy.data.materials if m.get('wl_asset_profile')==settings.engine and str(m.get('wl_texture','')).casefold()==name.casefold()),None)
-    if existing and existing.get('wl_realized') and existing.get('wl_source_blend_checked') and existing.use_nodes and any(n.type=='TEX_IMAGE' and n.image for n in existing.node_tree.nodes):
+    from . import runtime_cache
+    key='wl_source_'+runtime_cache.key(['material-2',str(assets.game),name,props,assets.fingerprint(base),
+                                      assets.fingerprint('materials/'+asset_path(props['$basetexture2']).removeprefix('materials/').removesuffix('.vtf')+'.vtf') if props.get('$basetexture2') else None])
+    from . import native_source
+    existing=target_mat or bpy.data.materials.get(key)
+    if native_source.direct(settings) and existing and existing.get('wl_source_cache_key')==key and existing.get('wl_source_native_material')==name:
         return existing
-    width,height,w,h,rgba=decode_vtf(data)
-    image=bpy.data.images.get(key)
-    if image is None:
-        image=bpy.data.images.new(key,width=w,height=h,alpha=True)
-        image.pixels.foreach_set(array('f',(x/255 for x in rgba)));image.update();image.pack()
+    if not native_source.direct(settings) and existing and existing.get('wl_source_cache_key')==key and existing.get('wl_realized') and existing.get('wl_source_blend_checked') and existing.use_nodes and any(n.type=='TEX_IMAGE' and n.image for n in existing.node_tree.nodes):
+        return existing
+    if native_source.direct(settings):
+        mat=existing or bpy.data.materials.new(key)
+        mat['wl_source_blend']=props.get('_wl_shader','').startswith('worldvertextransition')
+        header=assets.prefix(base)
+        if len(header)<20 or header[:4]!=b'VTF\0':raise ValueError('Invalid VTF header: '+base)
+        width,height=struct.unpack_from('<HH',header,16)
+        if not width or not height:raise ValueError('Invalid VTF dimensions: '+base)
+        mat['wl_source_cache_key']=key
+        return native_source.bind_material(settings,mat,name,width,height)
+    if defer:
+        mat=existing or bpy.data.materials.new(key)
+        header=assets.prefix(base)
+        if len(header)<20 or header[:4]!=b'VTF\0':raise ValueError('Invalid VTF header: '+base)
+        width,height=struct.unpack_from('<HH',header,16)
+        if not width or not height:raise ValueError('Invalid VTF dimensions: '+base)
+        mat['wl_texture']=name;mat['wl_width']=width;mat['wl_height']=height
+        mat['wl_asset_profile']=settings.engine;mat['wl_source_pending']=True
+        mat['wl_source_blend']=props.get('_wl_shader','').startswith('worldvertextransition')
+        from . import asset_loading
+        paths=[base]
+        if props.get('$basetexture2'):paths.append('materials/'+asset_path(props['$basetexture2']).removeprefix('materials/').removesuffix('.vtf')+'.vtf')
+        asset_loading.material(settings,mat,name,paths)
+        return mat
+    image,width,height=preview_image(assets,base)
     mat=existing or bpy.data.materials.new(key);mat.use_nodes=True
     mat['wl_texture']=name;mat['wl_width']=width;mat['wl_height']=height
-    mat['wl_asset_profile']=settings.engine;mat['wl_realized']=True
+    mat['wl_asset_profile']=settings.engine
     mat['wl_asset_origin']='User-installed Source game; private preview'
     nodes=mat.node_tree.nodes;shader=nodes.get('Principled BSDF') or next((n for n in nodes if n.type=='BSDF_PRINCIPLED'),None) or nodes.new('ShaderNodeBsdfPrincipled')
     output=next((n for n in nodes if n.type=='OUTPUT_MATERIAL'),None) or nodes.new('ShaderNodeOutputMaterial')
@@ -247,16 +404,12 @@ def material(settings,name,target_mat=None):
         second=asset_path(props['$basetexture2'])
         if not second.startswith('materials/'):second='materials/'+second
         if not second.endswith('.vtf'):second+='.vtf'
-        payload=assets.read(second);_,_,w2,h2,pixels2=decode_vtf(payload)
-        secondkey='wl_source_layer_'+hashlib.sha256(payload).hexdigest()[:20]
-        image2=bpy.data.images.get(secondkey)
-        if image2 is None:
-            image2=bpy.data.images.new(secondkey,width=w2,height=h2,alpha=True);image2.pixels.foreach_set(array('f',(x/255 for x in pixels2)));image2.update();image2.pack()
+        image2,_,_=preview_image(assets,second)
         layer=nodes.get('Wavelength Layer 2') or nodes.new('ShaderNodeTexImage');layer.name='Wavelength Layer 2';layer.image=image2
         attr=nodes.get('Wavelength Terrain Blend') or nodes.new('ShaderNodeAttribute');attr.name='Wavelength Terrain Blend';attr.attribute_name='wl_terrain_blend'
         mix=nodes.get('Wavelength Texture Blend') or nodes.new('ShaderNodeMixRGB');mix.name='Wavelength Texture Blend'
         mat.node_tree.links.new(uv.outputs['UV'],layer.inputs['Vector']);mat.node_tree.links.new(attr.outputs['Fac'],mix.inputs[0]);mat.node_tree.links.new(tex.outputs['Color'],mix.inputs[1]);mat.node_tree.links.new(layer.outputs['Color'],mix.inputs[2]);mat.node_tree.links.new(mix.outputs[0],shader.inputs['Base Color'])
         mat['wl_source_blend']=props.get('_wl_shader','').startswith('worldvertextransition')
     if props.get('$translucent')=='1' or props.get('$alphatest')=='1':mat.node_tree.links.new(tex.outputs['Alpha'],shader.inputs['Alpha'])
+    mat['wl_realized']=True;mat['wl_source_cache_key']=key;mat.pop('wl_source_pending',None);mat.pop('wl_asset_error',None)
     return mat
-

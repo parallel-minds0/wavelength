@@ -1,0 +1,6 @@
+cmake_minimum_required(VERSION 3.20)
+project(wavelength_source_assets LANGUAGES CXX)
+add_executable(wavelength_source_asset_tests tests.cc)
+target_compile_features(wavelength_source_asset_tests PRIVATE cxx_std_17)
+enable_testing()
+add_test(NAME source_asset_readers COMMAND wavelength_source_asset_tests)

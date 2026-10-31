@@ -10,21 +10,27 @@ from gpu_extras.batch import batch_for_shader
 from . import tool_snap,brush_create
 
 class Targets:
-    def __init__(self,context,target):
+    def __init__(self,context,target,scene_targets=False,always_geometry=False):
         self.vertices=[];self.edges=[];self.faces=[];self.bvh=None;self.hidden_vertices=set()
-        if target:
+        self.always_geometry=always_geometry
+        targets=[target] if target else []
+        if scene_targets:
+            targets=[o for o in context.visible_objects if o.type=='MESH' and not any(o.get(k) for k in ('wl_exclude','wl_cutter_guide','wl_editor_helper','wl_asset_template','wl_entity_browser_template'))]
+        for target in targets:
+            offset=len(self.vertices)
             if target.mode=='EDIT':
                 mesh=bmesh.from_edit_mesh(target.data)
                 mesh.verts.index_update()
-                self.vertices=[target.matrix_world@v.co for v in mesh.verts]
-                self.hidden_vertices={v.index for v in mesh.verts if v.hide}
-                self.edges=[tuple(v.index for v in e.verts) for e in mesh.edges if not e.hide]
-                self.faces=[tuple(v.index for v in p.verts) for p in mesh.faces if not p.hide]
+                self.vertices.extend(target.matrix_world@v.co for v in mesh.verts)
+                self.hidden_vertices.update(offset+v.index for v in mesh.verts if v.hide)
+                self.edges.extend(tuple(offset+v.index for v in e.verts) for e in mesh.edges if not e.hide)
+                self.faces.extend(tuple(offset+v.index for v in p.verts) for p in mesh.faces if not p.hide)
             else:
                 evaluated=target.evaluated_get(context.evaluated_depsgraph_get());mesh=evaluated.data
-                self.vertices=[evaluated.matrix_world@v.co for v in mesh.vertices]
-                self.edges=[tuple(e.vertices) for e in mesh.edges];self.faces=[tuple(p.vertices) for p in mesh.polygons]
-            if self.faces:self.bvh=BVHTree.FromPolygons(self.vertices,self.faces)
+                self.vertices.extend(evaluated.matrix_world@v.co for v in mesh.vertices)
+                self.edges.extend(tuple(offset+i for i in e.vertices) for e in mesh.edges)
+                self.faces.extend(tuple(offset+i for i in p.vertices) for p in mesh.polygons)
+        if self.faces:self.bvh=BVHTree.FromPolygons(self.vertices,self.faces)
         self.center=sum(self.vertices,Vector())/len(self.vertices) if self.vertices else Vector()
         self.radius=max(((v-self.center).length for v in self.vertices),default=0)+1
         self.key=None;self.screen=[]
@@ -38,7 +44,7 @@ class Targets:
         if location is None:location=brush_create._intersect_plane(origin,direction,plane,normal);up=normal
         if location is None:return None
         raw=location.copy();kind='FACE' if index is not None else 'PLANE';highlight=[]
-        geometry_enabled=not getattr(event,'ctrl',False)
+        geometry_enabled=self.always_geometry or not getattr(event,'ctrl',False)
         if geometry_enabled or tool_snap.grid_enabled(context,event):
             ts=context.scene.tool_settings;elements=set(ts.snap_elements)
             # Knife-style geometry targets coexist with the chosen grid target.
@@ -108,24 +114,49 @@ def draw(context,result,pixel=False):
     finally:gpu.state.point_size_set(1);gpu.state.depth_test_set('NONE' if pixel else 'LESS_EQUAL')
 
 _hover_cache={}
+
+
+def creation_targets(context):
+    """Short-lived scene snapshot shared by passive brush and pencil hover.
+
+    Use live edit meshes, visible evaluated meshes and world transforms. Hidden
+    editor helpers cannot steal a target, and the BVH rejects occluded vertices.
+    Modal tools own a snapshot for the duration of their creation operation.
+    """
+    import time
+    key=(context.scene.as_pointer(),context.view_layer.as_pointer(),context.mode)
+    now=time.monotonic();entry=_hover_cache.get('creation')
+    if not entry or entry[0]!=key or now-entry[1]>.25:
+        entry=(key,now,Targets(context,None,scene_targets=True,always_geometry=True))
+        _hover_cache['creation']=entry
+    return entry[2]
+
+
+def creation_point(context,value,plane,normal,targets):
+    """Snap a proposed brush endpoint without breaking its construction plane.
+
+    Brush dragging uses an offset virtual cursor. Project the actual proposed
+    endpoint, rather than the hardware mouse, so snapping doesn't cause a jump.
+    """
+    xy=view.location_3d_to_region_2d(context.region,context.region_data,value)
+    if xy is None:return None
+    event=SimpleNamespace(mouse_region_x=xy.x,mouse_region_y=xy.y,ctrl=False)
+    return targets.resolve(context,event,plane,normal,plane,lock_plane=True)
 def hover_result(context,xy):
     from . import pencil
     if pencil._drawing or not context.region_data:return
-    target=context.object if context.object and context.object.type=='MESH' else None
-    if target is None:
-        current=pencil.guide(context)
-        if current:target=current.wavelength_cutter.target
-    key=(target.as_pointer() if target else 0,context.mode)
+    target=pencil.selected_target(context)
+    if target is None:return
     # Cache for a short hover burst; rebuild after edits rather than retaining stale geometry.
-    import time
-    now=time.monotonic();entry=_hover_cache.get('entry')
-    if not entry or entry[0]!=key or now-entry[1]>.5:
-        if target and target.mode=='EDIT':target.update_from_editmode()
-        entry=(key,now,Targets(context,target));_hover_cache['entry']=entry
     # Blender's tool cursor callback supplies window pixels, unlike modal events.
     event=SimpleNamespace(mouse_region_x=xy[0]-context.region.x,mouse_region_y=xy[1]-context.region.y,ctrl=False)
-    plane,u,v,n=brush_create._plane_from_mouse(context,event)
-    return entry[2].resolve(context,event,plane,n,plane,lock_plane=tool_snap.profile_grid_active(context))
+    plane,u,v,n=pencil.target_plane(context,event,target)
+    import time
+    key=(context.scene.as_pointer(),target.as_pointer(),context.mode)
+    now=time.monotonic();entry=_hover_cache.get('cutter')
+    if not entry or entry[0]!=key or now-entry[1]>.25:
+        entry=(key,now,Targets(context,target,always_geometry=True));_hover_cache['cutter']=entry
+    return entry[2].resolve(context,event,plane,n,plane)
 
 
 def hover(context,tool,xy):

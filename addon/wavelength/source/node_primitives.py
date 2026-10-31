@@ -76,7 +76,7 @@ def parameters(definition):
     if any(isinstance(v,(int,float)) and not math.isfinite(v) for v in p.values()):raise ValueError('Primitive parameters must be finite')
     kind=definition.kind
     if kind=='ARCH':
-        if not 3<=int(p['segments'])<=64 or not 0<float(p['thickness'])<float(p['radius']) or p['depth']<minimum or not 0<p['angle']<=360 or p['angle']/p['segments']>=180:raise ValueError('Invalid arch dimensions')
+        if not 3<=int(p['segments'])<=64 or p['radius']<=0 or (not p.get('fill_center') and not 0<float(p['thickness'])<float(p['radius'])) or p['depth']<minimum or not 0<p['angle']<=360 or p['angle']/p['segments']>=180:raise ValueError('Invalid arch dimensions')
     elif kind=='STAIRS':
         if not p.get('curved'):raise ValueError('Use the straight-stair node asset for straight stairs')
         if not 1<=int(p['steps'])<=64 or min(p['rise'],p['width'],p['inner_radius'])<minimum or p['landing']<0 or not 0<abs(p['curve_angle'])<=360 or abs(p['curve_angle'])/p['steps']>=180:raise ValueError('Invalid curved-stair dimensions')
@@ -97,12 +97,14 @@ def parameters(definition):
 
 def group(kind,sphere_type='ICO'):
     name=f'wavelength · {kind.title()} {sphere_type if kind=="SPHERE" else ""} · v1'
+    if kind=='ARCH':name+=' · Fill Center'
     existing=bpy.data.node_groups.get(name)
     if existing:
         if existing.get('wl_generator')!=GENERATOR:raise ValueError('Conflicting primitive node group')
         return existing
     inputs=[('Geometry','NodeSocketGeometry',None),('Radius','NodeSocketFloat',128.),('Thickness','NodeSocketFloat',32.),('Depth','NodeSocketFloat',64.),('Angle','NodeSocketFloat',180.),('Segments','NodeSocketInt',8),('Rings','NodeSocketInt',6),('Detail','NodeSocketInt',1),('Steps','NodeSocketInt',8),('Rise','NodeSocketFloat',16.),('Run','NodeSocketFloat',32.),('Width','NodeSocketFloat',128.),('Landing','NodeSocketFloat',0.),('Inner Radius','NodeSocketFloat',64.),('Sweep','NodeSocketFloat',90.),('Snap','NodeSocketFloat',0.),('Direction','NodeSocketFloat',0.),('Units','NodeSocketFloat',1.),('Brush Part','NodeSocketBool',False),('Part Index','NodeSocketInt',0),('Material','NodeSocketMaterial',None)]
     inputs.extend([('Texture Width','NodeSocketFloat',64.),('Texture Height','NodeSocketFloat',64.)])
+    if kind=='ARCH':inputs.append(('Fill Center','NodeSocketBool',False))
     g=Graph(name,GENERATOR,inputs);q=g.input.outputs;m=g.math
     index=g.node('GeometryNodeInputIndex','Element index').outputs[0]
     if kind in {'ARCH','STAIRS'}:
@@ -120,7 +122,8 @@ def group(kind,sphere_type='ICO'):
         corner=[m('ADD',xyz[key],.5) for key in 'XYZ']
         if kind=='ARCH':
             theta=m('ADD',m('SUBTRACT',math.pi/2,m('MULTIPLY',q['Angle'],math.pi/360)),m('MULTIPLY',m('DIVIDE',m('ADD',part,corner[1]),q['Segments']),m('MULTIPLY',q['Angle'],math.pi/180)))
-            radius=m('ADD',m('SUBTRACT',q['Radius'],q['Thickness']),m('MULTIPLY',corner[0],q['Thickness']))
+            thickness=g.choose(q['Fill Center'],q['Radius'],q['Thickness'])
+            radius=m('ADD',m('SUBTRACT',q['Radius'],thickness),m('MULTIPLY',corner[0],thickness))
             position=g.vector(m('MULTIPLY',radius,m('COSINE',theta)),m('MULTIPLY',corner[2],m('MULTIPLY',q['Depth'],-1)),m('MULTIPLY',radius,m('SINE',theta)))
         else:
             left=m('GREATER_THAN',q['Sweep'],0);sign=g.choose(left,1,-1)
@@ -144,6 +147,13 @@ def group(kind,sphere_type='ICO'):
             y=g.choose(m('GREATER_THAN',snap,0),m('MULTIPLY',m('ROUND',m('DIVIDE',ry,safe)),snap),ry)
             position=g.vector(x,y,m('MULTIPLY',corner[2],m('MULTIPLY',m('MINIMUM',m('ADD',part,1),q['Steps']),q['Rise'])))
         setpos=g.node('GeometryNodeSetPosition','Evaluate parametric corners');g.wire(geometry,setpos.inputs['Geometry']);g.wire(position,setpos.inputs['Position']);geometry=setpos.outputs[0]
+        if kind=='ARCH':
+            # Closing a cell creates coincident inner corners. Weld them into a
+            # triangular prism so Source receives a valid solid, not zero faces.
+            weld=g.node('GeometryNodeMergeByDistance','Close center cleanly')
+            weld.inputs['Mode'].default_value='Connected'
+            g.wire(geometry,weld.inputs['Geometry']);weld.inputs['Distance'].default_value=1e-6
+            geometry=g.choose(q['Fill Center'],weld.outputs[0],geometry,'GEOMETRY')
         union=g.node('GeometryNodeMeshBoolean','Connected mesh / BSP parts');union.operation='UNION';union.solver='EXACT';union.inputs['Self Intersection'].default_value=True;g.wire(geometry,union.inputs['Mesh 2'])
         geometry=g.choose(q['Brush Part'],geometry,union.outputs[0],'GEOMETRY')
     else:
@@ -172,10 +182,14 @@ def set_input(modifier,name,value):
             return
     raise ValueError('Missing generator input '+name)
 
-def attach(obj,definition,index=0):
-    p=parameters(definition);modifier=obj.modifiers.new('wavelength · Primitive Generator','NODES');modifier.node_group=group(definition.kind,p.get('sphere_type','ICO'))
-    names={'radius':'Radius','thickness':'Thickness','depth':'Depth','angle':'Angle','segments':'Segments','rings':'Rings','subdivisions':'Detail','steps':'Steps','rise':'Rise','run':'Run','width':'Width','landing':'Landing','inner_radius':'Inner Radius','curve_angle':'Sweep','snap':'Snap','direction':'Direction'}
+def attach(obj,definition,index=0,modifier=None):
+    p=parameters(definition)
+    modifier=modifier or obj.modifiers.new('wavelength · Primitive Generator','NODES')
+    tree=group(definition.kind,p.get('sphere_type','ICO'))
+    if modifier.node_group!=tree:modifier.node_group=tree
+    names={'radius':'Radius','thickness':'Thickness','fill_center':'Fill Center','depth':'Depth','angle':'Angle','segments':'Segments','rings':'Rings','subdivisions':'Detail','steps':'Steps','rise':'Rise','run':'Run','width':'Width','landing':'Landing','inner_radius':'Inner Radius','curve_angle':'Sweep','snap':'Snap','direction':'Direction'}
     for key,name in names.items():
+        if key=='fill_center' and definition.kind!='ARCH':continue
         if key in p:set_input(modifier,name,p[key])
     set_input(modifier,'Units',definition.unit_meters);set_input(modifier,'Brush Part',definition.convex_brushes);set_input(modifier,'Part Index',index)
     set_input(modifier,'Material',next((mat for mat in obj.data.materials if mat),None))

@@ -96,7 +96,8 @@ def update(obj,force=False):
 
 _state={}
 def tick():
-    for obj in tuple(bpy.data.objects):
+    from . import object_index
+    for obj in object_index.matching('pencil',bpy.data,lambda o:bool(o.get('wl_pencil_geometry'))):
         if obj.get('wl_pencil_geometry') and obj.get('wl_procedural_state')=='PROCEDURAL':
             try:update(obj)
             except (ReferenceError,RuntimeError,ValueError):pass

@@ -5,7 +5,7 @@ active-profile entity templates as Current File assets.  Blender supplies the
 thumbnail/name tile UI and native drag from the Asset Browser into a 3D View.
 A depsgraph finalizer turns dropped templates into normal Wavelength entities.
 """
-import json
+import json,hashlib
 import bpy
 from .. import profiles
 from bpy.app.handlers import persistent
@@ -31,13 +31,18 @@ def _asset_collection(scene):
     collection=bpy.data.collections.get(name)
     if collection is None:
         collection=bpy.data.collections.new(name)
-        scene.collection.children.link(collection)
+    # Current File assets do not need to participate in the map's depsgraph.
+    # Persist the template collection without linking hundreds of helper IDs.
+    collection.use_fake_user=True
+    for owner in bpy.data.scenes:
+        for parent in (owner.collection,*owner.collection.children_recursive):
+            if collection.name in parent.children:parent.children.unlink(collection)
     collection.hide_viewport=True
     collection.hide_render=True
     return collection
 
 
-def rebuild_for_scene(scn, context=None, quiet=False):
+def rebuild_for_scene(scn, context=None, quiet=False, force=False):
     """Rebuild Current File entity assets for the active Wavelength profile."""
     s=scn.wavelength
     if s.engine=='blender' or profiles.is_mesh_export(s.engine):
@@ -49,11 +54,16 @@ def rebuild_for_scene(scn, context=None, quiet=False):
                     try:obj.asset_clear()
                     except Exception:pass
     collection=_asset_collection(scn)
+    from . import catalog as entities
+    entries=list(entities.items(s,context))
+    token=hashlib.sha256(repr((s.engine,s.fgd_path,s.game_dir,entries)).encode()).hexdigest()
+    if not force and collection.get('wl_entity_catalog_key')==token and len(collection.objects)==len(entries):
+        return len(entries)
     for obj in list(collection.objects):
         bpy.data.objects.remove(obj, do_unlink=True)
     from . import catalog as entities
     count=0
-    for classname, label, description in list(entities.items(s, context)):
+    for classname, label, description in entries:
         obj=bpy.data.objects.new(classname, None)
         collection.objects.link(obj)
         obj.empty_display_type='PLAIN_AXES'
@@ -81,15 +91,16 @@ def rebuild_for_scene(scn, context=None, quiet=False):
         metadata(obj,record(s.engine,classname,'ENTITY',source=s.fgd_path or 'Built-in registry'))
         preview(obj)
         count+=1
+    collection['wl_entity_catalog_key']=token
     if not quiet:
         s.status=f'Entity Browser: {count} {s.engine} entities published as Current File assets'
     return count
 
 
-def rebuild(context):
+def rebuild(context,force=False):
     """Rebuild Current File entity assets for the active Wavelength profile."""
     scn=getattr(context,'scene',None) or bpy.context.scene
-    return rebuild_for_scene(scn, context=context, quiet=False)
+    return rebuild_for_scene(scn, context=context, quiet=False,force=force)
 
 
 def _is_template_source(obj):
@@ -353,7 +364,7 @@ class WL_OT_entity_browser_refresh(bpy.types.Operator):
             s=context.scene.wavelength
             if s.engine=='blender':
                 raise ValueError('Choose Quake or Half-Life / GoldSrc first')
-            count=rebuild(context) if s.asset_browser_section=='ENTITIES' else 0
+            count=rebuild(context,force=True) if s.asset_browser_section=='ENTITIES' else 0
             if s.asset_browser_section=='MODELS':
                 from .. import model_browser
                 model_browser.schedule(context,force=True)
@@ -397,6 +408,7 @@ class WL_OT_entity_browser(bpy.types.Operator):
             window,screen,browser=ensure_browser_layout(context, section=target_section)
             with bpy.context.temp_override(window=window,screen=screen,area=browser,scene=context.scene):
                 count=rebuild(bpy.context) if target_section=='ENTITIES' else 0
+                if target_section=='ENTITIES':window.workspace['wl_entity_catalog']=s.engine+'|'+s.fgd_path
                 if target_section=='TEXTURES':asset_browser.schedule_profile_sync(bpy.context,settings=s)
                 elif target_section=='MODELS':
                     from .. import model_browser
@@ -435,4 +447,3 @@ def unregister():
     for cls in reversed(_CLASSES):
         try:bpy.utils.unregister_class(cls)
         except RuntimeError:pass
-

@@ -10,10 +10,48 @@ from . import workspace
 NATIVE={'builtin.move':'MOVE','builtin.rotate':'ROTATE','builtin.scale':'SCALE','builtin.transform':'TRANSFORM'}
 LEGACY={'wavelength.precision_move_tool':'builtin.move',**{'wavelength.engine_'+name+'_tool':'builtin.'+name for name in ('rotate','scale','transform')}}
 _keys=[];_original_tools=None;_states={}
+_snap_states={}
+_edit_widget_states={}
+
+
+def sync_grid_policy():
+    """Keep native transforms on the profile grid; restore outside wavelength."""
+    from . import tool_snap
+    active=set()
+    for window in bpy.context.window_manager.windows:
+        with bpy.context.temp_override(window=window):
+            if not workspace.active() or not tool_snap.profile_grid_active(bpy.context):continue
+            scene=window.scene;key=scene.as_pointer();active.add(key);ts=scene.tool_settings
+            fields=('use_snap','use_snap_translate','use_snap_rotate','use_snap_scale','use_snap_grid_absolute')
+            if key not in _snap_states:
+                _snap_states[key]=(scene,{k:getattr(ts,k) for k in fields if hasattr(ts,k)},set(ts.snap_elements))
+            for name in fields:
+                if hasattr(ts,name) and not getattr(ts,name):setattr(ts,name,True)
+            if set(ts.snap_elements)!={'GRID'}:ts.snap_elements={'GRID'}
+    for key,(scene,values,elements) in tuple(_snap_states.items()):
+        if key in active:continue
+        try:
+            for name,value in values.items():setattr(scene.tool_settings,name,value)
+            scene.tool_settings.snap_elements=elements
+        except ReferenceError:pass
+        _snap_states.pop(key,None)
 
 def available(context):
     from .precision_move import WL_OT_precision_move
     return bool(WL_OT_precision_move.poll(context) and context.object)
+
+
+def edit_selection_available(context):
+    """Native Edit Mode transforms operate only on visible selected elements."""
+    if context.mode!='EDIT_MESH':return False
+    import bmesh
+    modes=context.scene.tool_settings.mesh_select_mode
+    for obj in context.objects_in_mode_unique_data:
+        if obj.type!='MESH':continue
+        bm=bmesh.from_edit_mesh(obj.data)
+        for enabled,elements in zip(modes,(bm.verts,bm.edges,bm.faces)):
+            if enabled and any(e.select and not e.hide for e in elements):return True
+    return False
 
 class WL_OT_profile_grid_context(bpy.types.Operator):
     """Native adapters query this context gate, then the profile spacing RNA."""
@@ -21,7 +59,7 @@ class WL_OT_profile_grid_context(bpy.types.Operator):
     @classmethod
     def poll(cls,context):
         from . import tool_snap
-        return bool(context.area and context.area.type=='VIEW_3D' and workspace.active(context,'snapping') and tool_snap.profile_grid_active(context))
+        return bool(context.area and context.area.type=='VIEW_3D' and workspace.active(context) and tool_snap.profile_grid_active(context))
     def execute(self,context):return {'FINISHED'}
 
 class WL_OT_transform_route(bpy.types.Operator):
@@ -60,9 +98,12 @@ def draw_settings(context,layout,tool):
 
 def tools_from_context(cls,context,mode=None):
     enabled=available(context) and (mode is None or mode=='OBJECT')
+    shaping=workspace.active(context) and (mode or context.mode)=='EDIT_MESH' and not edit_selection_available(context)
     def adapt(item):
         if item is None:return None
         if type(item) is tuple:return tuple(adapt(t) for t in item)
+        if shaping and item.idname in NATIVE:
+            return item._replace(widget='',widget_properties=None,keymap=None,operator='',draw_settings=None)
         if enabled and item.idname in NATIVE:
             kind=NATIVE[item.idname]
             return item._replace(widget='WL_GGT_native_transform',widget_properties=None,
@@ -75,6 +116,8 @@ def tools_from_context(cls,context,mode=None):
 def sync():
     """Refresh tool runtime bindings on workspace/profile/context transitions."""
     from bl_ui.space_toolsystem_toolbar import VIEW3D_PT_tools_active
+    sync_grid_policy()
+    hidden_spaces=set()
     for window in bpy.context.window_manager.windows:
         for area in window.screen.areas:
             if area.type!='VIEW_3D':continue
@@ -82,8 +125,16 @@ def sync():
             if region is None:continue
             with bpy.context.temp_override(window=window,area=area,region=region):
                 ctx=bpy.context
-                if ctx.mode!='OBJECT':continue
-                tool=ctx.workspace.tools.from_space_view3d_mode('OBJECT',create=False)
+                space=ctx.space_data;space_key=space.as_pointer()
+                if ctx.mode=='EDIT_MESH' and workspace.active(ctx) and not edit_selection_available(ctx):
+                    hidden_spaces.add(space_key)
+                    names=('show_gizmo_object_translate','show_gizmo_object_rotate','show_gizmo_object_scale')
+                    if space_key not in _edit_widget_states:
+                        _edit_widget_states[space_key]=(space,{n:getattr(space,n) for n in names if hasattr(space,n)})
+                    for n in names:
+                        if hasattr(space,n) and getattr(space,n):setattr(space,n,False)
+                if ctx.mode not in {'OBJECT','EDIT_MESH'}:continue
+                tool=ctx.workspace.tools.from_space_view3d_mode(ctx.mode,create=False)
                 if not tool:continue
                 name=LEGACY.get(tool.idname,tool.idname)
                 if name not in NATIVE:continue
@@ -91,9 +142,15 @@ def sync():
                 if expected is None:continue
                 wanted=expected.widget or ''
                 key=(ctx.workspace.as_pointer(),ctx.mode)
-                state=(name,wanted,available(ctx))
+                state=(name,wanted,available(ctx),workspace.active(ctx))
                 if tool.idname!=name or _states.get(key)!=state:
                     bpy.ops.wm.tool_set_by_id(name=name);_states[key]=state
+    for key,(space,values) in tuple(_edit_widget_states.items()):
+        if key in hidden_spaces:continue
+        try:
+            for name,value in values.items():setattr(space,name,value)
+        except ReferenceError:pass
+        _edit_widget_states.pop(key,None)
     return .1
 
 def register():
@@ -114,6 +171,17 @@ def register():
     if not bpy.app.timers.is_registered(sync):bpy.app.timers.register(sync,first_interval=.1,persistent=True)
 
 def unregister():
+    for space,values in tuple(_edit_widget_states.values()):
+        try:
+            for name,value in values.items():setattr(space,name,value)
+        except ReferenceError:pass
+    _edit_widget_states.clear()
+    for scene,values,elements in tuple(_snap_states.values()):
+        try:
+            for name,value in values.items():setattr(scene.tool_settings,name,value)
+            scene.tool_settings.snap_elements=elements
+        except ReferenceError:pass
+    _snap_states.clear()
     global _original_tools
     if bpy.app.timers.is_registered(sync):bpy.app.timers.unregister(sync)
     from bl_ui.space_toolsystem_toolbar import VIEW3D_PT_tools_active

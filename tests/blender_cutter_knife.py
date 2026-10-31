@@ -4,7 +4,7 @@ sys.path.insert(0,str(Path(__file__).resolve().parents[1]/'addon'))
 import bpy,addon_utils
 from mathutils import Quaternion
 addon_utils.enable('wavelength',default_set=False)
-from wavelength.source import pencil
+from wavelength.source import pencil,cutter_snap
 bpy.context.preferences.use_preferences_save=False
 bpy.context.preferences.view.show_splash=False
 folder=Path(__file__).resolve().parents[1]/'build/cutter';folder.mkdir(exist_ok=True)
@@ -20,6 +20,14 @@ def test():
                 bpy.ops.mesh.primitive_cube_add(location=(x,0,0));return ctx.object
             target=cube(0);original=target.data
             linked=bpy.data.objects.new('Linked Duplicate',original);ctx.collection.objects.link(linked);linked.location=(5,0,0)
+            linked.select_set(True)
+            assert pencil.selected_target(ctx)==target
+            targets=cutter_snap.Targets(ctx,pencil.selected_target(ctx),always_geometry=True)
+            assert len(targets.vertices)==8
+            assert max(p.x for p in targets.vertices)==1
+            target.select_set(False);linked.select_set(False)
+            assert pencil.selected_target(ctx) is None
+            target.select_set(True)
             mat=bpy.data.materials.new('Preserved');target.data.materials.append(mat)
             root=pencil.create_guide(ctx,[pencil.point((-2,0,1)),pencil.point((2,0,1))],(0,0,1),False,target)
             rv=ctx.region_data;rv.view_rotation=Quaternion((.9,.2,.1,.3)).normalized();rv.view_perspective='PERSP';rv.update()

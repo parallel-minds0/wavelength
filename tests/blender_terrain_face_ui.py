@@ -19,7 +19,7 @@ bm=bmesh.from_edit_mesh(mesh)
 for f in bm.faces:f.select_set(False)
 max(bm.faces,key=lambda f:f.normal.z).select_set(True);bmesh.update_edit_mesh(mesh)
 area=next(a for a in ctx.screen.areas if a.type=='VIEW_3D');region=next(r for r in area.regions if r.type=='WINDOW')
-with ctx.temp_override(area=area,region=region):assert bpy.ops.wavelength.displacement_from_face()=={'FINISHED'}
+with ctx.temp_override(area=area,region=region):assert bpy.ops.wavelength.displacement_from_face(native=False)=={'FINISHED'}
 terrain_obj=ctx.object;terrain_obj.wavelength_terrain.amplitude=24
 rv=area.spaces.active.region_3d;rv.view_rotation=Quaternion((.86,.36,.14,.33)).normalized();rv.view_location=(0,0,0);rv.view_distance=12
 props=next(a for a in ctx.screen.areas if a.type=='PROPERTIES');props.spaces.active.context='OBJECT'

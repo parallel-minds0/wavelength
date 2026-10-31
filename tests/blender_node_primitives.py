@@ -34,5 +34,6 @@ for owner in ('blender','source_hl2_windows'):
             if kind!='STAIRS':assert abs(total-expected)<max(.001,expected*1e-4),(owner,kind,total,expected)
         ui.finalize(root,ctx)
         assert all(not obj.modifiers and obj.data.uv_layers for obj in parts)
+        assert all(obj.parent is None and ui.root_for(obj) is None for obj in parts)
         print('PASS node primitive, manifold output, profile export and finalization',owner,kind,change,flush=True)
 print('PASS ALL NODE PRIMITIVES',flush=True)

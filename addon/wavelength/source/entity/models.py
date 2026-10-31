@@ -71,8 +71,17 @@ def _import_collection(path):
     return collection
 
 def remove_reference(entity):
+    if entity.get('_wl_reference_fresh'):return
     for child in list(entity.children):
         if child.get('wl_model_reference'):
+            # A picked model can be the active object. Do not leave a native
+            # context/tool binding pointing at a removed reference object.
+            for scene in bpy.data.scenes:
+                for layer in scene.view_layers:
+                    if layer.objects.active==child:
+                        layer.objects.active=entity
+                        try:entity.select_set(True,view_layer=layer)
+                        except RuntimeError:pass
             bpy.data.objects.remove(child,do_unlink=True)
     # Model and SVG representations are mutually exclusive.
     try:
@@ -81,7 +90,29 @@ def remove_reference(entity):
     except Exception:
         pass
 
-def attach_reference(entity,pairs=None):
+def copy_references(source, entity):
+    """Native object duplication does not include unselected visual children."""
+    flags = ('wl_model_reference', 'wl_entity_icon_reference')
+    if any(any(child.get(flag) for flag in flags) for child in entity.children):
+        return
+    owner = entity.users_collection[0] if entity.users_collection else bpy.context.scene.collection
+    def clone(obj, parent):
+        ref = obj.copy()  # Share cached mesh/curve assets, but own the transform.
+        owner.objects.link(ref)
+        ref.parent = parent
+        ref.matrix_parent_inverse = obj.matrix_parent_inverse.copy()
+        ref.matrix_basis = obj.matrix_basis.copy()
+        if ref.get('wl_id'):
+            from ..scene import uid
+            ref['wl_id'] = uid()
+        for child in obj.children:
+            clone(child, ref)
+    for child in tuple(source.children):
+        if any(child.get(flag) for flag in flags):
+            clone(child, entity)
+
+
+def attach_reference(entity,pairs=None,settings=None):
     """Attach an editor-only model reference to a point entity."""
     if entity is None or entity.get('wl_role')!='ENTITY':return False
     if entity.get('wl_custom_model'):return True
@@ -91,20 +122,35 @@ def attach_reference(entity,pairs=None):
         except (TypeError,ValueError):pairs=[]
     classname=dict(pairs).get('classname',entity.name)
     from .. import profiles
-    settings=bpy.context.scene.wavelength
+    settings=settings or bpy.context.scene.wavelength
     if profiles.is_source(settings.engine):
-        remove_reference(entity)
         from . import source_schema
         try:path=source_schema.representation_model(settings,classname,pairs,bpy.path.abspath)
         except (OSError,ValueError) as exc:
             entity['wl_model_error']=str(exc);return False
         if not path.lower().endswith('.mdl'):
+            remove_reference(entity)
             from . import icons as entity_icons
             return entity_icons.attach_reference(entity,pairs)
+        from .. import native_source
+        if native_source.direct(settings):
+            try:native_source.attach(entity,path,pairs,settings=settings);return True
+            except (ValueError,OSError,RuntimeError) as exc:
+                entity['wl_model_error']=str(exc);return False
         try:
             from .. import model_import
             values=dict(pairs)
-            mesh,_=model_import.mesh(settings,path,int(values.get('skin','0')),int(values.get('body','0')))
+            try:
+                mesh,_=model_import.mesh(settings,path,int(values.get('skin','0') or '0'),int(values.get('body','0') or '0'))
+                entity.pop('wl_model_warning',None)
+            except ValueError as exc:
+                if str(exc)!='Invalid model skin/body selection':raise
+                # Decompiled maps can retain runtime/sentinel variants. Keep
+                # their entity keys, but show the default editor representation.
+                mesh,_=model_import.mesh(settings,path,0,0)
+                entity['wl_model_warning']='Unsupported skin/body variant; displaying the default preview'
+
+            remove_reference(entity)
             model_import.attach(bpy.context,entity,mesh,path)
             if 'wl_model_error' in entity:del entity['wl_model_error']
             return True

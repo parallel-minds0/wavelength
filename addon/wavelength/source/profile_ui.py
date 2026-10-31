@@ -7,6 +7,21 @@ from .profile_store import Store
 from .profile_registry import TEMPLATES
 from . import workspace,profiles
 _ITEMS=[];_PARENTS=[]
+_SELECTING=False
+
+
+def selected(settings,context):
+    """The profile picker activates its choice, including its inherited grid."""
+    global _SELECTING
+    if _SELECTING or context is None:return
+    from . import ui
+    if ui._IN_ENGINE_CHANGE or settings.saved_profile==settings.profile_id:return
+    _SELECTING=True
+    try:
+        apply(context,store().get(settings.saved_profile))
+    except (ValueError,OSError,TypeError,KeyError) as exc:
+        settings.status='Profile could not be loaded: '+str(exc)
+    finally:_SELECTING=False
 def store():return Store(Path(bpy.utils.user_resource('CONFIG'))/'wavelength'/'profiles')
 def items(self,context):
     global _ITEMS

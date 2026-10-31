@@ -508,7 +508,11 @@ def register():
     terrain_face.register()
     from . import terrain_sew
     terrain_sew.register()
+    from . import source_displacement
+    source_displacement.register()
 def unregister():
+    from . import source_displacement
+    source_displacement.unregister()
     from . import terrain_sew
     terrain_sew.unregister()
     from . import terrain_face

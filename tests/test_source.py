@@ -4,6 +4,19 @@ sys.path.insert(0,str(Path(__file__).resolve().parents[1]/'addon'))
 from wavelength.source import formats,vmf,profiles,source_tools
 
 class SourceTests(unittest.TestCase):
+    def test_unit_axes_preserve_uvs_and_lightmap_scale(self):
+        doc=self.fixture();face=doc.entities[0].brushes[0][0]
+        face.axes=[[0,4,0,17],[4,0,0,-31]];face.projection=[0,0,0,1,1]
+        face.vmf={**(face.vmf or {}),'lightmapscale':'9'}
+        exported=vmf.parse(vmf.write(doc)).entities[0].brushes[0][0]
+        self.assertEqual(exported.projection[3:],[.25,.25])
+        self.assertEqual(exported.vmf['lightmapscale'],'9')
+        self.assertEqual(face.axes,[[0,4,0,17],[4,0,0,-31]])
+        for index in range(2):
+            self.assertAlmostEqual(sum(x*x for x in exported.axes[index][:3]),1)
+            for point in ((0,0,0),(8712,9336,40),(-500,202,3)):
+                def uv(f):return sum(f.axes[index][i]*point[i] for i in range(3))/f.projection[3+index]+f.axes[index][3]
+                self.assertAlmostEqual(uv(face),uv(exported))
     def fixture(self):
         p=Path(__file__).resolve().parents[1]/'addon/wavelength/environment/maps/minimal_source.vmf'
         doc=vmf.parse(p.read_text())
@@ -21,9 +34,39 @@ class SourceTests(unittest.TestCase):
         self.assertNotIn('"wad"',text)
         for a,b in zip(doc.entities[0].brushes,parsed.entities[0].brushes):
             self.assertEqual(formats.brush_mesh(a),formats.brush_mesh(b))
-    def test_reject_displacements(self):
+    def test_hammer_escape_delimited_connections(self):
+        doc=self.fixture()
+        value='light_break\x1bTurnOff\x1b\x1b1.65\x1b-1'
+        doc.entities.append(formats.Entity([('classname','logic_relay'),
+            ('literal',r'\u001b'+'\x1b'+r'\u001b'),
+            (vmf.OUTPUT+'OnTrigger',value),(vmf.OUTPUT+'OnTrigger',value)],[]))
+        text=vmf.write(doc)
+        self.assertNotIn(value,text)
+        self.assertIn(value.replace('\x1b',','),text)
+        expected=[(k,v.replace('\x1b',',') if k.startswith(vmf.OUTPUT) else v)
+                  for k,v in doc.entities[-1].pairs]
+        self.assertEqual(vmf.parse(text).entities[-1].pairs,expected)
+        self.assertEqual(doc.entities[-1].pairs[-1][1],value)
+
+    def test_extended_connection_parameter_is_not_corrupted(self):
+        doc=self.fixture();value='target\x1bSetValue\x1ba,b\x1b0\x1b-1'
+        doc.entities.append(formats.Entity([('classname','logic_relay'),
+            (vmf.OUTPUT+'OnTrigger',value)],[]))
+        self.assertEqual(vmf.parse(vmf.write(doc)).entities[-1].pairs[-1][1],value)
+
+    def test_hammer_plus_editor_blocks(self):
+        text=vmf.write(self.fixture())
+        expected=vmf.parse(text)
+        metadata='\n'.join(name+'\n{\n"enabled" "0"\n}\n' for name in vmf.EDITOR_ROOTS if name.endswith('_plus'))
+        text=text.replace('world\n{','world\n{\ngroup\n{\n"id" "123"\neditor\n{\n"color" "1 2 3"\n}\n}\n',1)
+        actual=vmf.parse(metadata+text)
+        self.assertEqual(actual.entities,expected.entities)
+        with self.assertRaisesRegex(ValueError,'Unsupported VMF root'):
+            vmf.parse('unknown_gameplay_data\n{\n}\n'+text)
+
+    def test_reject_malformed_displacements(self):
         text=vmf.write(self.fixture()).replace('side\n{','side\n{\ndispinfo\n{\n}\n',1)
-        with self.assertRaisesRegex(ValueError,'displacements'):vmf.parse(text)
+        with self.assertRaisesRegex(ValueError,'displacement'):vmf.parse(text)
     def test_profiles(self):
         for name in ('source_hl2_linux','source_hl2_windows'):
             self.assertTrue(profiles.is_source(name));self.assertTrue(profiles.uses_valve_axes(name))

@@ -113,9 +113,9 @@ def stage_game(settings,work):
     (stage/'gameinfo.txt').write_text(text,encoding='utf-8');return stage
 
 
-def prepare(scene,work):
+def prepare(scene,work,entities=None):
     """Snapshot sources; return queued compiler commands and a validation step."""
-    entities=[o for o in scene.objects if definition(o) and not o.get('wl_exclude')]
+    if entities is None:entities=[o for o in scene.objects if definition(o) and not o.get('wl_exclude')]
     if not entities:return None
     s=scene.wavelength;stage=stage_game(s,work)
     from .build.toolchains import resolve_compiler
@@ -219,6 +219,10 @@ class BuildModels:
         from .source_tools import validate_bsp
         validate_bsp(path.read_bytes())
         if self.pack:path.write_bytes(model_formats.pack_bsp(path.read_bytes(),self.pack))
+        self.deploy()
+
+    def deploy(self):
+        """Commit validated model resources, also usable without building a BSP."""
         backups={}
         try:
             for root,files in self.deployments:

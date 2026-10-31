@@ -30,6 +30,27 @@ def point(co):return dict(co=list(co),left=list(co),right=list(co))
 def is_guide(obj):return bool(obj and obj.type=='CURVE' and obj.get('wl_cutter_guide'))
 
 
+def selected_target(context):
+    """Bind one selected mesh; hovering never chooses a different cut target."""
+    current=guide(context)
+    if current:return current.wavelength_cutter.target
+    obj=context.object
+    return obj if obj and obj.type=='MESH' and obj.select_get() and not obj.get('wl_exclude') else None
+
+
+def target_plane(context,event,target):
+    origin,direction=brush_create._ray(context,event)
+    surface=target_hit(context,target,origin,direction)
+    if surface:
+        u,v,n=brush_create._axis_basis(surface[1]);return surface[0],u,v,n
+    # Misses use the view-aligned grid plane, never a neighbouring object's face.
+    facing=context.region_data.view_rotation@Vector((0,0,-1))
+    axis=max(range(3),key=lambda i:abs(facing[i]));n=Vector((0,0,0))
+    n[axis]=1 if facing[axis]<0 else -1
+    u,v,n=brush_create._axis_basis(n)
+    return Vector((0,0,0)),u,v,n
+
+
 def guide(context):
     if is_guide(context.object):return context.object
     obj=context.scene.wavelength_draw.guide
@@ -288,21 +309,16 @@ class WL_OT_draw_path(bpy.types.Operator):
         current=guide(context)
         settings=current.wavelength_cutter if current else context.scene.wavelength_draw
         self._operation_settings={key:getattr(settings,key) for key in ('operation','through','depth','direction','keep','separate_objects')}
-        self._target=context.object if context.object and context.object.type=='MESH' else None
+        self._target=selected_target(context)
+        if self._target is None:
+            self.report({'WARNING'},'Select the mesh to cut first')
+            return {'CANCELLED'}
         if self._target and context.mode=='EDIT_MESH':self._target.update_from_editmode()
         context.view_layer.update()
-        self._plane,self._u,self._v,self._normal=brush_create._plane_from_mouse(context,event)
-        if self._target is None:
-            origin,direction=brush_create._ray(context,event)
-            hit,_,_,_,obj,_=context.scene.ray_cast(context.evaluated_depsgraph_get(),origin,direction)
-            if hit and obj and obj.type=='MESH' and not obj.get('wl_exclude'):self._target=obj
-        origin,direction=brush_create._ray(context,event)
-        surface=target_hit(context,self._target,origin,direction)
-        if surface:
-            self._plane=surface[0];self._u,self._v,self._normal=brush_create._axis_basis(surface[1])
+        self._plane,self._u,self._v,self._normal=target_plane(context,event,self._target)
         self._extruding=False;self._extrude_closed=False
         self._points=[];self._pending=None;self._hover=None;self._closing=False;self._axis=None;self._value=''
-        self._targets=cutter_snap.Targets(context,self._target);self._snap_result=None
+        self._targets=cutter_snap.Targets(context,self._target,always_geometry=True);self._snap_result=None
         self._area=context.area.as_pointer();self._handle=None;self._update(context,event)
         if self._hover is None:return {'CANCELLED'}
         self._pending=point(self._hover);self._mouse=(event.mouse_region_x,event.mouse_region_y)
@@ -315,9 +331,11 @@ class WL_OT_draw_path(bpy.types.Operator):
         anchor=Vector(self._points[-1]['co']) if self._points else self._plane
         # A profile-grid stroke stays on the surface/grid plane selected at its
         # first point. Native free drawing keeps its existing surface following.
-        self._snap_result=self._targets.resolve(context,event,self._plane,self._normal,anchor,lock_plane=tool_snap.profile_grid_active(context))
+        self._snap_result=self._targets.resolve(context,event,self._plane,self._normal,anchor,lock_plane=bool(self._points or self._pending) and tool_snap.profile_grid_active(context))
         if self._snap_result is None:return
         value=self._snap_result[0].copy()
+        if not self._points and self._pending is None:
+            self._plane=value.copy();self._u,self._v,self._normal=brush_create._axis_basis(self._snap_result[1])
         if self._points and self._value:
             try:
                 distance=profiles.engine_to_world(context.scene.wavelength,float(self._value));delta=value-anchor

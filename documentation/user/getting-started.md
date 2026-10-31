@@ -21,6 +21,20 @@ assets are reported without discarding the rest of the cache. See
 
 ## Author geometry and apply textures
 
+Brush and pencil creation always target nearby visible mesh vertices and edges,
+even when Blender's grid magnet is off. A highlighted vertex/edge takes priority
+over the grid and preserves its exact position. Otherwise the cursor follows the
+surface under it, with profile-grid snapping when enabled, or the profile's
+construction plane in empty space. Hover works before the first click and does
+not require selecting the target object. Hidden meshes and editor helpers are
+excluded. Geometry targets remain active while Ctrl changes the grid snap state.
+
+Brush footprints and profile-grid pencil strokes keep the construction plane
+established at their first point; subsequent targets must lie on that plane.
+Brush height can match a nearby surface/vertex level without jumping to distant
+background geometry. Gold/orange highlights identify vertex/edge targeting;
+green indicates surface/grid placement. No extra snapping mode needs enabling.
+
 Use brush primitives or ordinary Blender geometry according to the active
 profile. Finalize procedural geometry before tools that require an editable base
 mesh. Blender mode matters: Auto texture scope paints objects in Object Mode and

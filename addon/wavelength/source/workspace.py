@@ -62,6 +62,10 @@ def watch():
                 if not ws.get('wl_layout_ready'):
                     from .entity.browser import ensure_browser_layout
                     ensure_browser_layout(bpy.context);ws['wl_layout_ready']=True
+                from . import system_tree_view
+                if not ws.get('wl_system_tree_layout_v1'):
+                    system_tree_view.ensure(bpy.context)
+                    ws['wl_system_tree_layout_v1']=True
                 settings=window.scene.wavelength
                 if settings.engine!='blender':
                     from . import external_library,asset_browser

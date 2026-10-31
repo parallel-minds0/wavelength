@@ -82,8 +82,9 @@ def tick():
             image = bpy.data.images.load(str(path), check_existing=False)
             parent = pixel_near(image, screen_point((-1, -.47, 0)))
             minor = pixel_near(image, screen_point((-.8, -.47, 0)))
-            assert max(r-b for r,g,b in parent) > .12, ('No yellow parent', parent)
-            assert max(abs(r-b) for r,g,b in minor) < .08, ('Subdivision is yellow', minor)
+            parent_tint = max(b-r for r,g,b in parent)
+            assert parent_tint > .04, ('No cyan parent', parent)
+            assert max(b-r for r,g,b in minor) < parent_tint, ('Subdivision is too strong', minor)
             samples['cube'] = pixel_near(image, screen_point((1, 1, .7)), 5)
             bpy.data.images.remove(image)
             # Leaving the workspace stops the bridge. Disable only the native flag
@@ -121,7 +122,7 @@ def tick():
             assert not grid._native, 'Workspace exit did not restore viewports'
             assert not view.spaces.active.overlay.wavelength_grid_enabled
             wavelength.unregister()
-            (OUT / 'result.json').write_text(json.dumps({'passed': True, 'backend': gpu.platform.backend_type_get(), 'renderer': gpu.platform.renderer_get(), 'checks': ['yellow parent', 'grey profile subdivisions', 'orthographic solid depth', 'perspective solid depth', 'workspace restoration']}))
+            (OUT / 'result.json').write_text(json.dumps({'passed': True, 'backend': gpu.platform.backend_type_get(), 'renderer': gpu.platform.renderer_get(), 'checks': ['faint cyan parent', 'dim cyan profile subdivisions', 'orthographic solid depth', 'perspective solid depth', 'workspace restoration']}))
             print('PASS NATIVE GRID VIEWPORT', flush=True)
             bpy.ops.wm.quit_blender()
             return None

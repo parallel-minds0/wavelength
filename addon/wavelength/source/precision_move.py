@@ -10,7 +10,7 @@ class WL_OT_precision_move(bpy.types.Operator):
     release_confirm:bpy.props.BoolProperty(default=False)
     axis:bpy.props.EnumProperty(items=[('FREE','View plane',''),('X','X',''),('Y','Y',''),('Z','Z','')],default='FREE')
     @classmethod
-    def poll(cls,context):return workspace.active(context,'snapping') and context.area and context.area.type=='VIEW_3D' and context.mode=='OBJECT' and context.selected_objects and tool_snap.profile_grid_active(context)
+    def poll(cls,context):return workspace.active(context) and context.area and context.area.type=='VIEW_3D' and context.mode=='OBJECT' and context.selected_objects and tool_snap.profile_grid_active(context)
     def invoke(self,context,event):
         if tool_snap.enabled(context,event) and not tool_snap.grid_enabled(context,event):
             bpy.ops.transform.translate('INVOKE_DEFAULT',constraint_axis=tuple(self.axis==a for a in 'XYZ'))
@@ -18,10 +18,10 @@ class WL_OT_precision_move(bpy.types.Operator):
         from . import primitive_ui
         primitive_ui.sync_assemblies(force=True)
         self._objects=[(o,o.matrix_world.copy()) for o in context.selected_objects if not any(p.select_get() for p in self.parents(o))]
-        self._anchor=context.object.matrix_world.translation.copy();self._mouse=Vector((event.mouse_region_x,event.mouse_region_y));self._value='';self._step=profiles.active_grid_step_meters(context.scene.wavelength)
+        self._anchor=tool_snap.move_anchor(context.object);self._mouse=Vector((event.mouse_region_x,event.mouse_region_y));self._value='';self._step=profiles.active_grid_step_meters(context.scene.wavelength)
         self._start=view3d_utils.region_2d_to_location_3d(context.region,context.region_data,self._mouse,self._anchor)
         axis_guides.start(self,context,self._anchor)
-        context.window_manager.modal_handler_add(self);context.area.header_text_set('Move: X/Y/Z constrain · type engine units · Ctrl free move · Enter confirm · Esc cancel')
+        context.window_manager.modal_handler_add(self);context.area.header_text_set('Move: X/Y/Z constrain · type engine units · current profile grid · Enter confirm · Esc cancel')
         return {'RUNNING_MODAL'}
     def cancel(self,context):
         axis_guides.finish(self,context)
@@ -34,7 +34,7 @@ class WL_OT_precision_move(bpy.types.Operator):
             if obj.name in bpy.data.objects:obj.matrix_world=matrix
     def modal(self,context,event):
         if event.type=='TAB' and event.shift:return {'PASS_THROUGH'}
-        if event.type in {'ESC','RIGHTMOUSE'} or not workspace.active(context,'snapping'):
+        if event.type in {'ESC','RIGHTMOUSE'} or not workspace.active(context):
             self.restore();axis_guides.finish(self,context);return {'CANCELLED'}
         if ((event.type in {'LEFTMOUSE','RET','NUMPAD_ENTER'} and event.value=='PRESS') or
                 (event.type=='LEFTMOUSE' and event.value=='RELEASE' and self.release_confirm)):
@@ -48,6 +48,7 @@ class WL_OT_precision_move(bpy.types.Operator):
             elif event.unicode and event.unicode in '0123456789.-':self._value+=event.unicode
         axis_guides.update(self)
         if event.type=='MOUSEMOVE' or event.value=='PRESS':
+            self._step=profiles.active_grid_step_meters(context.scene.wavelength)
             point=view3d_utils.region_2d_to_location_3d(context.region,context.region_data,(event.mouse_region_x,event.mouse_region_y),self._anchor)
             delta=point-self._start
             if self.axis!='FREE':
@@ -64,13 +65,17 @@ class WL_OT_precision_move(bpy.types.Operator):
                 try:
                     value=profiles.engine_to_world(context.scene.wavelength,float(self._value));direction=Vector((1,0,0)) if self.axis=='FREE' else Vector(tuple(float(i=='XYZ'.index(self.axis)) for i in range(3)));delta=direction*value
                 except ValueError:return {'RUNNING_MODAL'}
-            elif tool_snap.grid_enabled(context,event):
+            if tool_snap.grid_enabled(context,event):
                 snapped=tool_snap.point(context,event,self._anchor+delta,self._anchor)-self._anchor
                 for i in range(3):
                     if self.axis=='FREE' or i=='XYZ'.index(self.axis):delta[i]=snapped[i]
             for obj,matrix in self._objects:
                 updated=matrix.copy();updated.translation+=delta;obj.matrix_world=updated
-            context.area.tag_redraw()
+            # Flush parenting before drawing the move arrows/model references.
+            # Both use the same evaluated position, including in other views.
+            context.view_layer.update()
+            for area in context.screen.areas:
+                if area.type=='VIEW_3D':area.tag_redraw()
         return {'RUNNING_MODAL'}
 
 class WL_GGT_move(bpy.types.GizmoGroup):
@@ -82,6 +87,11 @@ class WL_GGT_move(bpy.types.GizmoGroup):
         self.arrows=[]
         for axis,color in zip('XYZ',((.8,.15,.15),(.15,.8,.15),(.15,.3,.9))):
             arrow=self.gizmos.new('GIZMO_GT_arrow_3d');arrow.color=color;arrow.alpha=.8;arrow.color_highlight=color;arrow.alpha_highlight=1;op=arrow.target_set_operator('wavelength.precision_move');op.axis=axis;op.release_confirm=True;self.arrows.append(arrow)
+            # The operator owns translation and snapping. Arrow3D otherwise
+            # adds a second, unsnapped modal offset to its object-bound matrix.
+            arrow.target_set_handler('offset',get=lambda:0.,set=lambda value:None)
+            arrow.use_draw_modal=True
+            arrow.use_draw_value=False
     def draw_prepare(self,context):
         from mathutils import Matrix
         for i,arrow in enumerate(self.arrows):

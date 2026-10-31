@@ -1,5 +1,6 @@
 """Source render meshes for imported models and engine prop previews."""
-import hashlib,json
+import hashlib,json,math
+from collections import OrderedDict
 from pathlib import Path
 import bpy
 from bpy.props import StringProperty,IntProperty,EnumProperty
@@ -7,6 +8,8 @@ from bpy_extras.io_utils import ImportHelper
 from . import profiles,source_assets,studio_model
 
 _MODEL_ITEMS=[]
+_DECODED=OrderedDict()
+_MESHES={}
 
 
 class WL_OT_add_source_model(bpy.types.Operator):
@@ -37,13 +40,64 @@ class WL_OT_add_source_model(bpy.types.Operator):
         return {'FINISHED'}
 
 
+def _valid_decoded(data):
+    if not isinstance(data,dict) or not {'vertices','normals','uvs','faces','slots','materials','directories','static','checksum'}<=data.keys():return False
+    try:
+        count=len(data['vertices'])
+        if not 0<count<=studio_model.LIMIT or len(data['faces'])>studio_model.LIMIT:return False
+        for key,width in (('vertices',3),('normals',3),('uvs',2)):
+            if len(data[key])!=count:return False
+            if any(len(v)!=width or any(not isinstance(x,(int,float)) or not math.isfinite(x) for x in v) for v in data[key]):return False
+        if len(data['slots'])!=len(data['faces']) or not data['materials']:return False
+        if any(len(f)!=3 or any(not isinstance(v,int) or not 0<=v<count for v in f) for f in data['faces']):return False
+        if any(not isinstance(s,int) or not 0<=s<len(data['materials']) for s in data['slots']):return False
+        if any(not isinstance(v,str) for key in ('materials','directories') for v in data[key]):return False
+        return isinstance(data['checksum'],int) and isinstance(data['static'],bool)
+    except (TypeError,KeyError):return False
+
+
+def decoded(settings,path,skin,body,assets,reader=None):
+    """Read the decoded cache before touching VVD/VTX payloads."""
+    from . import runtime_cache
+    path=source_assets.asset_path(path)
+    identity=None
+    if reader is None:
+        names=[path,path[:-4]+'.vvd',*(path[:-4]+x for x in ('.dx90.vtx','.dx80.vtx','.sw.vtx','.vtx'))]
+        identity=runtime_cache.key(['source-model-1',str(assets.game),path,skin,body,[(n,assets.fingerprint(n)) for n in names]])
+        data=_DECODED.get(identity)
+        if data is None:
+            payload=runtime_cache.read(identity)
+            try:data=json.loads(payload) if payload else None
+            except (ValueError,UnicodeError):data=None
+            if not _valid_decoded(data):data=None
+            if data is None:
+                data=studio_model.load(assets,path,skin,body)
+                runtime_cache.write(identity,json.dumps(data,separators=(',',':')).encode())
+            _DECODED[identity]=data
+        _DECODED.move_to_end(identity)
+        while len(_DECODED)>24:_DECODED.popitem(last=False)
+    else:data=studio_model.load(assets,path,skin,body)
+    return identity,data
+
+
 def mesh(settings,path,skin=0,body=0,reader=None):
     assets=reader or source_assets.library(bpy.path.abspath(settings.game_dir))
-    data=studio_model.load(assets,path,skin,body)
+    from . import runtime_cache
+    identity,data=decoded(settings,path,skin,body,assets,reader)
     unit=profiles.unit_meters(settings)
-    key=hashlib.sha256((str(bpy.path.abspath(settings.game_dir))+path+str((skin,body,unit,data['checksum']))).encode()).hexdigest()
-    cached=next((m for m in bpy.data.meshes if m.get('wl_source_model_key')==key),None)
-    if cached:return cached,data
+    key=runtime_cache.key([identity or str(bpy.path.abspath(settings.game_dir))+path+str((skin,body,data['checksum'])),unit])
+    cached=_MESHES.get(key)
+    if cached is not None:
+        try:
+            if cached.name not in bpy.data.meshes:cached=None
+        except ReferenceError:cached=None
+    if cached is None:cached=next((m for m in bpy.data.meshes if m.get('wl_source_model_key')==key),None)
+    if cached and reader is None:
+        deps=json.loads(cached.get('wl_source_model_dependencies','{}'))
+        if deps and all(json.loads(json.dumps(assets.fingerprint(n)))==stamp for n,stamp in deps.items()):
+            _MESHES[key]=cached;return cached,data
+    dependencies={}
+
     result=bpy.data.meshes.new(Path(path).stem)
     try:
         result.from_pydata([tuple(c*unit for c in p) for p in data['vertices']],[],data['faces']);result.update()
@@ -59,21 +113,31 @@ def mesh(settings,path,skin=0,body=0,reader=None):
             for directory in [*data['directories'],'']:
                 candidate=(directory.replace('\\','/').rstrip('/')+'/'+name).strip('/').lower()
                 try:
-                    assets.material(candidate)
-                    material=source_assets.material(settings,candidate);break
+                    vmt='materials/'+candidate.removeprefix('materials/').removesuffix('.vmt')+'.vmt'
+                    if reader is None:dependencies[vmt]=assets.fingerprint(vmt)
+                    props=assets.material(candidate)
+                    material=source_assets.material(settings,candidate)
+                    if reader is None:
+                        dependencies.update(assets._vmt_cache[vmt][1])
+                        for field in ('$basetexture','$basetexture2','%tooltexture'):
+                            if props.get(field):
+                                texture='materials/'+source_assets.asset_path(props[field]).removeprefix('materials/').removesuffix('.vtf')+'.vtf'
+                                dependencies[texture]=assets.fingerprint(texture)
+                    break
                 except (ValueError,OSError) as exc:last=str(exc)
             if material is None:
                 material=bpy.data.materials.new(name+' (unresolved)');material.diffuse_color=(.8,.1,.8,1)
                 material['wl_model_material_error']=last;warnings.append(name+': '+last)
             result.materials.append(material)
         result['wl_source_model_key']=key;result['wl_model_warnings']=json.dumps(warnings)
+        result['wl_source_model_dependencies']=json.dumps(dependencies);_MESHES[key]=result
         return result,data
     except Exception:
         bpy.data.meshes.remove(result);raise
 
 
 def attach(context,entity,mesh,path):
-    child=bpy.data.objects.new(Path(path).stem+' · Model',mesh)
+    child=bpy.data.objects.new(Path(path).stem+' Ã‚Â· Model',mesh)
     (entity.users_collection[0] if entity.users_collection else context.collection).objects.link(child)
     child.parent=entity;child['wl_model_reference']=True;child['wl_exclude']=True;child['wl_role']='MODEL_REFERENCE'
     child['wl_source_model']=path;child.hide_select=False
@@ -89,26 +153,10 @@ class WL_OT_import_source_model(bpy.types.Operator,ImportHelper):
     @classmethod
     def poll(cls,context):return context.mode=='OBJECT' and profiles.is_source(context.scene.wavelength.engine)
     def execute(self,context):
-        try:
-            path=Path(self.filepath).resolve();game=source_assets.library(bpy.path.abspath(context.scene.wavelength.game_dir))
-            # Resolve peers beside the chosen file; materials still use the
-            # active game's ordered mounts and VPKs.
-            class Local:
-                def read(self,name):
-                    peer=path.with_name(Path(name).name)
-                    if peer.stat().st_size>source_assets.LIMIT:raise ValueError('Model companion exceeds size limit')
-                    return peer.read_bytes()
-                def material(self,name):return game.material(name)
-            marker='/models/';normalized=path.as_posix();at=normalized.lower().rfind(marker)
-            modelpath=normalized[at+1:] if at>=0 else 'models/'+path.name
-            data,_=mesh(context.scene.wavelength,modelpath,self.skin,self.body,Local())
-            obj=bpy.data.objects.new(path.stem,data);context.collection.objects.link(obj);obj.location=context.scene.cursor.location
-            obj['wl_source_model']=modelpath;obj['wl_exclude']=True;obj['wl_role']='MODEL_REFERENCE'
-            obj['wl_owner_profile']=context.scene.wavelength.engine;obj['wl_unit_meters']=profiles.unit_meters(context.scene.wavelength)
-            for selected in context.selected_objects:selected.select_set(False)
-            obj.select_set(True);context.view_layer.objects.active=obj
+        from . import model_io
+        try:model_io.import_asset(context,self.filepath,self.skin,self.body)
         except (ValueError,OSError,RuntimeError) as exc:self.report({'ERROR'},str(exc));return {'CANCELLED'}
-        self.report({'INFO'},'Imported reference-pose mesh; Source export still uses the original compiled model')
+        self.report({'INFO'},'Editable model imported; use Model Asset > Compile Model to Game')
         return {'FINISHED'}
 
 
@@ -123,10 +171,14 @@ def add_menu(self,context):
 def register():
     from . import custom_models
     custom_models.register()
-    bpy.utils.register_class(WL_OT_add_source_model);bpy.utils.register_class(WL_OT_import_source_model);bpy.types.TOPBAR_MT_file_import.append(menu);bpy.types.VIEW3D_MT_add.append(add_menu)
+    from . import model_io
+    model_io.register()
+    bpy.utils.register_class(WL_OT_add_source_model);bpy.utils.register_class(WL_OT_import_source_model);bpy.types.VIEW3D_MT_add.append(add_menu)
 
 
 def unregister():
-    bpy.types.VIEW3D_MT_add.remove(add_menu);bpy.types.TOPBAR_MT_file_import.remove(menu);bpy.utils.unregister_class(WL_OT_import_source_model);bpy.utils.unregister_class(WL_OT_add_source_model)
+    bpy.types.VIEW3D_MT_add.remove(add_menu);bpy.utils.unregister_class(WL_OT_import_source_model);bpy.utils.unregister_class(WL_OT_add_source_model)
     from . import custom_models
+    from . import model_io
+    model_io.unregister()
     custom_models.unregister()

@@ -6,11 +6,11 @@
   "windows_dependencies_commit": "60d6e96b917568278d400a4024c98da0fb777338",
   "original_sha256": "19e60200c51e981aa48a515ffc22c46d9192ea0538e249b2891394a425bd855b",
   "source_patch": "grid-5.2.3-candidate-msvc.patch",
-  "source_patch_sha256": "c2c0437576e5188f0d23128cb5e5ab77bfd551eb5f26365233003d30c7233eaa",
+  "source_patch_sha256": "82738bf37ca2fd3a008cc7f755190f9ddaabc87c4a4c56f7821e031e8e25513e",
   "compiler": "MSVC 14.51.36231",
   "build_configuration": "Release, Ninja, native Windows x64",
-  "unit_tests": 145,
-  "status": "installed; native RNA and OpenGL viewport verified",
+  "unit_tests": 241,
+  "status": "installed; standard Solid, Material Preview and Rendered engine selection restored; Eevee/Cycles renders verified",
   "viewport_checks": {
     "passed": true,
     "backend": "OPENGL",
@@ -49,5 +49,71 @@
     "outside-workspace restoration",
     "193 regressions",
     "installed normal startup"
+  ],
+  "native_entity_sprites": true,
+  "entity_sprite_checks": [
+    "shared cached prototypes",
+    "instanced GPU drawing",
+    "no Python per-frame handler",
+    "native duplication",
+    "workspace and clean-preview gates"
+  ],
+  "optimized_executable_sha256": "69422b1b258d0c4a6c6638c9997e7c7b33c07e7588b381b9b4b2acfe2ff00fce",
+  "native_source_assets": true,
+  "native_source_formats": [
+    "VPK1/2",
+    "VMT patch includes",
+    "VTF7 DXT1/3/5 and common uncompressed formats",
+    "MDL44-49/VVD4/VTX7"
+  ],
+  "native_source_checks": [
+    "original VPK model and VTF payload",
+    "2000 malformed-input rejections",
+    "zero Python mesh/image conversion bindings",
+    "native viewport textures and repeated props"
+  ],
+  "native_source_map_check": {
+    "scene_objects": 5729,
+    "converted_preview_images": 0,
+    "installed_smoke_test": "passed",
+    "converted_model_meshes": 0,
+    "ready_seconds": 16.582693,
+    "map": "d1_trainstation_01_d.vmf",
+    "native_models": 1036,
+    "asset_failures": 0
+  },
+  "native_material_preview": true,
+  "browser_performance_checks": [
+    "thumbnail ImBuf pixels without Image IDs",
+    "unlinked persistent entity/model templates",
+    "catalog reuse",
+    "no background model publication outside Models",
+    "96-item model pages and full-index search",
+    "unrelated shading skips brush face checks",
+    "80-second trainstation run stable after entity previews",
+    "coast Material Preview in Layout and wavelength"
+  ],
+  "source_shading_checks": [
+    "untextured Solid with native props",
+    "actual Material Preview engine",
+    "actual Rendered scene engine",
+    "shared Blender meshes and texture images on demand",
+    "Eevee final render",
+    "Cycles final render",
+    "trainstation hidden containers and legacy inactive cordon"
+  ],
+  "model_update_checks": [
+    "prepared-scene mesh replacement",
+    "active reference removal redirects selection",
+    "rapid updates coalesce",
+    "failed model load preserves preview",
+    "active entity property changes queue refresh",
+    "catalog class labels independent of unique ID",
+    "null layout on initial asset-browser banner draw guarded"
+  ],
+  "model_asset_checks": [
+    "Static editable MDL -> StudioMDL -> validated deployment",
+    "Weighted skeleton and named skeletal clips round trip",
+    "Native object-ID drop in Models browser, async build, no prop placement"
   ]
 }

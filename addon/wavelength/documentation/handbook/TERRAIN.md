@@ -31,35 +31,18 @@ Heightmap inputs remain future work.
 
 ## Displacement from an existing brush face
 
-Under the owning Source profile, select a wavelength world brush. If it still has
-live primitive generation, use **Finalize Geometry** first. Enter Edit Mode,
-switch to Face Select, and select the planar convex four-sided faces to retain.
-Choose **Face > Create Displacement from Face**, use the face context menu, or
-search for the command with F3.
+The current **Face > Create Displacement from Face** command creates native
+Source displacement grids and retains the backing brush. It supports selected
+quad faces on a finalized world brush. Use native vertex editing/sculpting, power
+resampling, displacement painting and full/half-edge sewing on those grids.
+See the [Source displacement guide](user/source-displacements.md).
 
-wavelength creates an independent terrain surface for each selected face, using its corners,
-orientation and material. Horizontal, sloped, vertical and tapered convex quads
-are supported. Each starts flat, with zero noise amplitude. Select a new
-surface to adjust Patch Power and use the normal terrain height/texture painting
-tools. Each selected brush face owns one Source displacement patch.
-
-The backing brush is removed automatically. Only selected faces become terrain,
-so select every face you want to retain before converting. Undo restores the
-complete brush and removes the generated surfaces. The new surfaces have no
-parent/source-object dependency and can be moved, painted and sewn independently.
-Their base quad, world placement, material and owning profile are preserved.
-
-For old brush-linked surfaces, **F3 > Detach Displacements** makes them independent
-and removes their backing brushes. Existing surfaces sharing a backing brush are
-detached together. Legacy orphaned surfaces recover from their saved base-face
-data when their original brush has already been deleted.
-
-VMF export generates the required displacement backing from each surface's own
-frame, including for legacy attachments. It does not reuse the old brush side's
-outward plane orientation: that can transpose displacement data if the original
-mesh has inward winding. Finalization bakes the surface while retaining its base
-domain. Brush entities, non-quad faces and unfinalized generators are not accepted
-as creation bases.
+The procedural terrain workflow described elsewhere on this page remains
+available. **Make Editable Displacements** in the Object context menu converts
+evaluated procedural patches to native grids, retaining the hidden procedural
+original. Existing older attached/detached procedural surfaces remain supported;
+**Detach Displacements** is a legacy migration command, not the current face
+creation workflow.
 
 ## Placement and painting
 

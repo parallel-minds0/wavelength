@@ -78,11 +78,24 @@ def apply(block,root,asset,image=None):
     if path.parent!=root or path.suffix!='.png' or not path.is_file():return False
     token=image+':'+str(path.stat().st_mtime_ns)
     if block.get('wl_library_preview')==token:return False
-    texture=bpy.data.images.load(str(path),check_existing=False)
+    # ImBuf is independent of Main. Creating/removing bpy Images for thumbnails
+    # invalidates the map's dependency graph and repeatedly rechecks every brush.
+    import imbuf,numpy as np
+    texture=imbuf.load(str(path))
     try:
-        preview=block.preview_ensure();preview.image_size=tuple(texture.size);preview.image_pixels_float=list(texture.pixels)
+        if hasattr(texture,'with_buffer'):
+            with texture.with_buffer() as data:
+                pixels=np.asarray(data)
+                if texture.buffer_type=='BYTE':pixels=pixels.astype(np.float32)*(1.0/255.0)
+                preview=block.preview_ensure();preview.image_size=tuple(texture.size);preview.image_pixels_float=pixels.ravel()
+        else:
+            # Compatibility for stock Blender releases before buffer access.
+            legacy=bpy.data.images.load(str(path),check_existing=False)
+            try:
+                preview=block.preview_ensure();preview.image_size=tuple(legacy.size);preview.image_pixels_float=list(legacy.pixels)
+            finally:bpy.data.images.remove(legacy)
         block['wl_library_preview']=token;block['wl_preview_ready']=True
-    finally:bpy.data.images.remove(texture)
+    finally:texture.free()
     return True
 
 def register_asset(block,row,settings=None):
@@ -185,6 +198,7 @@ def _tick_context():
     return .3
 
 def tick():
+    if any(scene.get('wl_importing') for scene in bpy.data.scenes):return .4
     if workspace.active(bpy.context,'preparation'):return _tick_context()
     for window in bpy.context.window_manager.windows:
         with bpy.context.temp_override(window=window):

@@ -4,9 +4,6 @@ import math
 import re
 from .geometry import BrushError, cross, sub, dot, length, from_planes, number
 
-MAX_BYTES = 16 * 1024 * 1024
-MAX_FACES = 64
-MAX_ENTITIES = 100000
 TOKEN = re.compile(r'\s+|//[^\n]*|"(?:\\.|[^"\\])*"|\{[^\s{}()\[\]"\\]+|[{}()\[\]]|[^\s{}()\[\]"]+')
 
 @dataclass
@@ -30,14 +27,13 @@ class Face:
 class Entity:
     pairs: list = field(default_factory=list)
     brushes: list = field(default_factory=list)
+    vmf_hidden: bool = False
 
 @dataclass
 class Map:
     entities: list = field(default_factory=list)
 
 def parse(text):
-    if len(text.encode('utf-8')) > MAX_BYTES:
-        raise BrushError('INPUT_LIMIT','MAP exceeds 16 MiB limit')
     tokens=[]; end=0
     for match in TOKEN.finditer(text):
         if match.start()!=end:
@@ -84,13 +80,11 @@ def parse(text):
                     else: projection=[num() for _ in range(5)]
                     if 0 in projection[3:]: raise BrushError('INVALID_PROJECTION','Zero texture scale')
                     face=Face(points,texture,projection,axes);face.plane();faces.append(face)
-                    if len(faces)>MAX_FACES: raise BrushError('INPUT_LIMIT','Brush exceeds 64-face safety limit')
                 take('}')
                 if len(faces)<4: raise BrushError('INVALID_SOLID','Brush has fewer than four planes')
                 entity.brushes.append(faces)
             else: entity.pairs.append((string(),string()))
         take('}');result.entities.append(entity)
-        if len(result.entities)>MAX_ENTITIES: raise BrushError('INPUT_LIMIT','Too many entities')
     if not result.entities: raise BrushError('EMPTY_MAP','No entities')
     return result
 

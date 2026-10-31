@@ -74,3 +74,23 @@ disabled in this preview; viewport OpenGL/Vulkan and Cycles CPU are included.
 X11 tablet support is enabled. Other Blender features and GPUs were not broadly
 regression-tested. The grid's physical plane can correctly appear in front of
 geometry below that plane; tests verify occlusion by geometry above it.
+
+
+## 2026-10-31 authoring and model pipeline wrap-up
+
+- Source validation/package: 241 Python unit tests passed; addon archive generated.
+- Standalone C++ Source asset readers: configured/built with MSVC; CTest passed.
+- Blender native build: compiled with the object-ID model publishing bridge.
+- Static model round trip: imported an installed MDL and peers into independent
+  editable geometry, compiled with the actual StudioMDL, validated its output,
+  and deployed inside the test workspace without altering original game assets.
+- Skeletal round trip: compared imported bone poses with decoded Source frames,
+  retained a named five-frame NLA clip, and recompiled an animated dynamic model.
+- Publishing bridge: native operator dispatched the asynchronous model job only
+  in the Models browser context; no map prop was instantiated.
+- Installed runtime: model registry, file-drop handler and native bridge registered.
+
+The Source animation adapter is not a lossless runtime graph decompiler. Blended,
+additive, IK/root-motion and included-sequence graphs are explicitly rejected;
+sequence events warn and are not exported. Facial flex, attachment and collision
+reconstruction remain outside this initial editable model importer.

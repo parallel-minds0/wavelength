@@ -3,8 +3,8 @@ import json
 import bpy
 from . import primitives, profiles, scene, workspace, diagnostics, procedural
 
-DEFAULTS=dict(sphere_type='ICO',subdivisions=1,radius=128.,thickness=32.,depth=64.,angle=180.,segments=8,rings=6,steps=8,rise=16.,run=32.,width=128.,landing=0.,curved=False,curve_angle=90.,inner_radius=64.,direction=0.)
-FIELDS={'ARCH':('radius','thickness','depth','angle','segments','direction'),'SPHERE':('sphere_type','radius','subdivisions','segments','rings','direction'),'STAIRS':('steps','rise','run','width','landing','curved','curve_angle','inner_radius','direction')}
+DEFAULTS=dict(sphere_type='ICO',subdivisions=1,radius=128.,thickness=32.,fill_center=False,depth=64.,angle=180.,segments=8,rings=6,steps=8,rise=16.,run=32.,width=128.,landing=0.,curved=False,curve_angle=90.,inner_radius=64.,direction=0.)
+FIELDS={'ARCH':('radius','thickness','fill_center','depth','angle','segments','direction'),'SPHERE':('sphere_type','radius','subdivisions','segments','rings','direction'),'STAIRS':('steps','rise','run','width','landing','curved','curve_angle','inner_radius','direction')}
 FIELDS.update(CUBE=('width','run','depth','direction'),CYLINDER=('radius','depth','segments','direction'),CONE=('radius','depth','segments','direction'))
 _SELECTED_ROOTS=set()
 _EDITING_ROOTS=set()
@@ -26,6 +26,7 @@ def fields_for(kind, values=None):
 
 
 def root_for(obj):
+    if obj and obj.get('wl_source_displacement'):return None
     while obj:
         if is_assembly_root(obj):return obj
         obj=obj.parent
@@ -79,7 +80,10 @@ def enter_assembly_edit_mode(root, context=None, preferred_part=None):
         context.view_layer.objects.active=active_part
     from . import editor
     for p in mesh_parts:
-        if p.get('wl_role')=='BRUSH':
+        if procedural.state(root)=='PROCEDURAL':
+            for modifier in p.modifiers:
+                if modifier.type=='NODES':modifier.show_in_editmode=True
+        elif p.get('wl_role')=='BRUSH':
             editor.note_edit_session(p)
     bpy.ops.object.mode_set(mode='EDIT')
     key=root.as_pointer()
@@ -110,12 +114,21 @@ def sync_assemblies(force=False):
         for scene_data,view_layer in targets:
             if not scene_data or not view_layer:continue
             active=view_layer.objects.active
+            if active and active.mode in {'OBJECT','EDIT'}:
+                root=root_for(active)
+                if root and root.get('wl_primitive')=='ARCH' and procedural.state(root)=='PROCEDURAL':
+                    with bpy.context.temp_override(scene=scene_data,view_layer=view_layer):
+                        try:sync_arch_inputs(root,bpy.context)
+                        except ValueError as exc:scene_data.wavelength.status=str(exc)
+                    active=view_layer.objects.active
             if active and active.mode!='OBJECT':
                 r=root_for(active)
                 if r and r.get('wl_assembly_locked',True):
                     _EDITING_ROOTS.add(r.as_pointer())
                 continue
-            for obj in scene_data.objects:
+            from . import object_index
+            roots=object_index.matching('assemblies',scene_data,is_assembly_root,force=force)
+            for obj in roots:
                 if not is_assembly_root(obj) or procedural.state(obj)=='FINALIZED':continue
                 if 'wl_assembly_locked' not in obj:obj['wl_assembly_locked']=True
                 apply_assembly_lock(obj)
@@ -170,6 +183,75 @@ def sync_assemblies(force=False):
     return .08
 
 
+def sync_arch_inputs(root,context):
+    """A segment's exposed GN controls edit the shared Arch definition."""
+    if root.get('wl_primitive')!='ARCH' or procedural.state(root)!='PROCEDURAL':return False
+    values=dict(DEFAULTS,**json.loads(root.get('wl_parameters','{}')))
+    names={'Radius':'radius','Thickness':'thickness','Fill Center':'fill_center','Depth':'depth','Angle':'angle','Segments':'segments','Direction':'direction'}
+    parts=parts_for(root)
+    active=context.view_layer.objects.active
+    ordered=([active] if active in parts else [])+[p for p in parts if p!=active]
+    for part in ordered:
+        for modifier in part.modifiers:
+            if modifier.type!='NODES' or not modifier.node_group or modifier.node_group.get('wl_generator')!='wavelength.geometry_nodes.primitives':continue
+            changed={}
+            for socket in modifier.node_group.interface.items_tree:
+                if socket.item_type!='SOCKET' or socket.in_out!='INPUT' or socket.name not in names:continue
+                key=names[socket.name]
+                value=getattr(modifier.properties.inputs,socket.identifier).value if hasattr(modifier,'properties') else modifier.get(socket.identifier)
+                if value is not None and abs(float(value)-float(values[key]))>max(1e-5,abs(float(values[key]))*1e-6):changed[key]=value
+            if changed:
+                values={**values,**changed}
+                from . import node_primitives
+                from dataclasses import replace
+                definition=replace(procedural.Definition.loads(root['wl_definition']),parameters=values)
+                node_primitives.parameters(definition)
+                # Numeric dragging owns the live modifier input RNA. Replacing
+                # that modifier cancels Blender's active button interaction.
+                for sibling in parts:
+                    for mod in sibling.modifiers:
+                        if mod.type!='NODES' or not mod.node_group or mod.node_group.get('wl_generator')!='wavelength.geometry_nodes.primitives':continue
+                        for label,key in names.items():
+                            if key in changed:node_primitives.set_input(mod,label,values[key])
+                    sibling.update_tag(refresh={'DATA'})
+                root['wl_parameters']=json.dumps(values)
+                root['wl_definition']=definition.dumps()
+                expected=int(values['segments']) if definition.convex_brushes else 1
+                if len(parts)!=expected:
+                    editing=context.mode=='EDIT_MESH'
+                    if editing:bpy.ops.object.mode_set(mode='OBJECT')
+                    rebuild(root,'ARCH',values,context)
+                    if editing:enter_assembly_edit_mode(root,context,active if active in parts_for(root) else None)
+                elif context.mode=='EDIT_MESH':
+                    # GN outputs change while the editable input cage otherwise
+                    # stays at the old dimensions. Refresh that cage in place;
+                    # preserve the live modifier and Blender's numeric control.
+                    import bmesh
+                    context.view_layer.update()
+                    graph=context.evaluated_depsgraph_get()
+                    for sibling in parts:
+                        if sibling.mode!='EDIT':continue
+                        evaluated=sibling.evaluated_get(graph);mesh=evaluated.to_mesh()
+                        try:
+                            bm=bmesh.from_edit_mesh(sibling.data)
+                            bm.clear();bm.from_mesh(mesh)
+                            for face in bm.faces:face.select_set(True)
+                            bmesh.update_edit_mesh(sibling.data,loop_triangles=True,destructive=True)
+                        finally:evaluated.to_mesh_clear()
+                current=parts_for(root)
+                if active not in current:
+                    context.view_layer.objects.active=current[0]
+                return True
+    # Saved arches retain their old node group. Upgrade through the normal
+    # transactional rebuild so their modifiers gain the new checkbox too.
+    if any(m.type=='NODES' and m.node_group and m.node_group.get('wl_generator')=='wavelength.geometry_nodes.primitives'
+           and not any(s.item_type=='SOCKET' and s.in_out=='INPUT' and s.name=='Fill Center' for s in m.node_group.interface.items_tree)
+           for part in parts for m in part.modifiers):
+        rebuild(root,'ARCH',values,context)
+        return True
+    return False
+
+
 def rebuild(root, kind, values, context):
     if procedural.state(root)=='FINALIZED' and root.get('wl_procedural_state'):raise ValueError('Finalized geometry cannot regenerate')
     settings = getattr(context.scene, 'wavelength', None)
@@ -190,6 +272,11 @@ def rebuild(root, kind, values, context):
             if any(abs(c / unit) > limit for v in verts for c in (root.matrix_world @ (Vector(v) * unit))):
                 raise ValueError(f'{engine}: primitive exceeds ±{limit} map units; move it or reduce dimensions')
     old = parts_for(root)
+    if kind=='ARCH' and len(parts)<len(old):
+        active=context.view_layer.objects.active
+        if active in old and old.index(active)>=len(parts):
+            # Retain the object/modifier owning a dragged Segment Count field.
+            index=old.index(active);old[0],old[index]=old[index],old[0]
     prepared = []
     try:
         for i, (verts, faces) in enumerate(parts):
@@ -225,8 +312,11 @@ def rebuild(root, kind, values, context):
         obj['wl_owner_profile']=definition.owner
         obj['wl_owner_profile_id']=definition.owner_profile_id
         obj['wl_procedural_state']='PROCEDURAL'
+        reusable=None
         for modifier in list(obj.modifiers):
-            if modifier.type=='NODES' and modifier.node_group and str(modifier.node_group.get('wl_generator','')).startswith('wavelength.geometry_nodes.'):obj.modifiers.remove(modifier)
+            if modifier.type=='NODES' and modifier.node_group and str(modifier.node_group.get('wl_generator','')).startswith('wavelength.geometry_nodes.'):
+                if kind=='ARCH' and modifier.node_group.get('wl_generator')=='wavelength.geometry_nodes.primitives':reusable=modifier
+                else:obj.modifiers.remove(modifier)
         if is_engine:
             scene.mark_brush(obj)
             from . import editor
@@ -234,13 +324,13 @@ def rebuild(root, kind, values, context):
         else:
             obj['wl_assembly_part'] = i
         for modifier in list(obj.modifiers):
-            if modifier.type=='NODES' and modifier.node_group and str(modifier.node_group.get('wl_generator','')).startswith('wavelength.geometry_nodes.'):obj.modifiers.remove(modifier)
+            if modifier!=reusable and modifier.type=='NODES' and modifier.node_group and str(modifier.node_group.get('wl_generator','')).startswith('wavelength.geometry_nodes.'):obj.modifiers.remove(modifier)
         if definition.generator=='wavelength.geometry_nodes.straight_stairs':
             from . import node_stairs
             node_stairs.attach(obj,definition,i)
         elif definition.generator=='wavelength.geometry_nodes.primitives':
             from . import node_primitives
-            node_primitives.attach(obj,definition,i)
+            node_primitives.attach(obj,definition,i,modifier=reusable)
     for obj in old[len(parts):]:
         mesh = obj.data
         bpy.data.objects.remove(obj, do_unlink=True)
@@ -260,6 +350,7 @@ def rebuild(root, kind, values, context):
 def finalize(root,context):
     if procedural.state(root)=='FINALIZED':raise ValueError('Geometry is already finalized')
     if context.mode!='OBJECT':raise ValueError('Finish vertex editing before finalizing')
+    sync_arch_inputs(root,context)
     parts=parts_for(root)
     if not parts:raise ValueError('Primitive has no mesh parts')
     definition=root.get('wl_definition')
@@ -293,9 +384,22 @@ def finalize(root,context):
             scene.mark_brush(obj)
             from . import editor
             editor.apply_uv(obj,root.get('wl_engine','blender'))
-    root['wl_definition']=definition
-    root['wl_procedural_state']='FINALIZED';root['wl_assembly_locked']=False
+    # The generator is an authoring container, not part of finalized geometry.
+    # Detach before removing it, preserving world transforms and brush metadata.
+    name=root.name
+    children=[(child,child.matrix_world.copy()) for child in root.children]
+    for child,world in children:
+        child.parent=None
+        child.matrix_world=world
+    for obj in parts:
+        for key in ('wl_primitive_part','wl_assembly_part'):
+            if key in obj:del obj[key]
     _SELECTED_ROOTS.discard(root.as_pointer());_EDITING_ROOTS.discard(root.as_pointer())
+    bpy.data.objects.remove(root,do_unlink=True)
+    if len(parts)==1:parts[0].name=name
+    for obj in parts:obj.select_set(True)
+    context.view_layer.objects.active=parts[0]
+    return parts
 
 
 class WL_OT_finalize_primitive(bpy.types.Operator):
@@ -350,9 +454,6 @@ class WL_OT_assembly_editmode_toggle(bpy.types.Operator):
         if root is None:
             return {'PASS_THROUGH'}
         if getattr(context,'mode','OBJECT')=='OBJECT':
-            if procedural.state(root)=='PROCEDURAL' and root.get('wl_definition') and procedural.Definition.loads(root['wl_definition']).generator.startswith('wavelength.geometry_nodes.'):
-                self.report({'INFO'},'Edit the generator parameters, or Finalize Geometry before editing generated vertices')
-                return {'CANCELLED'}
             preferred=active if (active and active!=root and active.type=='MESH') else None
             return {'FINISHED'} if enter_assembly_edit_mode(root,context,preferred) else {'PASS_THROUGH'}
         return {'FINISHED'} if exit_assembly_edit_mode(root,context) else {'PASS_THROUGH'}
@@ -407,6 +508,7 @@ class WL_OT_primitive(bpy.types.Operator):
     subdivisions:bpy.props.IntProperty(name='Sphere detail (0: 20 faces, 1: 80 faces)',default=1,min=0,max=1)
     radius:bpy.props.FloatProperty(name='Radius (units)',default=128,min=0.01)
     thickness:bpy.props.FloatProperty(name='Thickness (units)',default=32,min=0.01)
+    fill_center:bpy.props.BoolProperty(name='Fill Center',default=False,description='Fill the arch opening to the center, ignoring manual thickness until disabled')
     depth:bpy.props.FloatProperty(name='Depth (units)',default=64,min=0.01)
     angle:bpy.props.FloatProperty(name='Arc angle',default=180,min=1,max=360)
     segments:bpy.props.IntProperty(name='Segments',default=8,min=3,max=64)
@@ -589,4 +691,3 @@ def unregister():
     bpy.types.VIEW3D_MT_object.remove(object_menu)
     bpy.types.VIEW3D_MT_object_context_menu.remove(object_menu)
     for cls in (WL_PT_primitive,WL_OT_primitive,WL_OT_stair_curve_toggle,WL_OT_primitive_lock,WL_OT_assembly_editmode_toggle,WL_OT_finalize_primitive):bpy.utils.unregister_class(cls)
-

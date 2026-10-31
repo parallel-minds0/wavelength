@@ -54,7 +54,17 @@ payload(context)
 
 No callable docstring yet. Read the source and the Developer Guide before using this internal interface.
 
-{source}`addon/wavelength/source/asset_placement.py:56`
+{source}`addon/wavelength/source/asset_placement.py:57`
+
+### profile_payload
+
+```python
+profile_payload(settings, row)
+```
+
+Only assets belonging to the active profile may be placed.
+
+{source}`addon/wavelength/source/asset_placement.py:73`
 
 ### material
 
@@ -64,7 +74,7 @@ material(context, row)
 
 No callable docstring yet. Read the source and the Developer Guide before using this internal interface.
 
-{source}`addon/wavelength/source/asset_placement.py:72`
+{source}`addon/wavelength/source/asset_placement.py:79`
 
 ### paint
 
@@ -74,7 +84,7 @@ paint(context, obj, index, mat, scope='SURFACE')
 
 Assign material indices, never replace a shared material slot's contents.
 
-{source}`addon/wavelength/source/asset_placement.py:86`
+{source}`addon/wavelength/source/asset_placement.py:97`
 
 ### paint_drop
 
@@ -84,7 +94,7 @@ paint_drop(context, obj, index, mat, scope)
 
 Apply a drop to selected edit faces, or fall back to the hit/object scope.
 
-{source}`addon/wavelength/source/asset_placement.py:151`
+{source}`addon/wavelength/source/asset_placement.py:168`
 
 ### WL_OT_stamp
 
@@ -94,7 +104,7 @@ class WL_OT_stamp(bpy.types.Operator)
 
 No callable docstring yet. Read the source and the Developer Guide before using this internal interface.
 
-{source}`addon/wavelength/source/asset_placement.py:170`
+{source}`addon/wavelength/source/asset_placement.py:187`
 
 ```python
 poll(cls, context)
@@ -102,7 +112,7 @@ poll(cls, context)
 
 Implementation method; refer to its source for current behavior.
 
-{source}`addon/wavelength/source/asset_placement.py:176`
+{source}`addon/wavelength/source/asset_placement.py:193`
 
 ```python
 execute(self, context)
@@ -110,7 +120,7 @@ execute(self, context)
 
 Implementation method; refer to its source for current behavior.
 
-{source}`addon/wavelength/source/asset_placement.py:177`
+{source}`addon/wavelength/source/asset_placement.py:194`
 
 ### PlacementSession
 
@@ -120,7 +130,7 @@ class PlacementSession
 
 No callable docstring yet. Read the source and the Developer Guide before using this internal interface.
 
-{source}`addon/wavelength/source/asset_placement.py:195`
+{source}`addon/wavelength/source/asset_placement.py:212`
 
 ```python
 __init__(self)
@@ -128,7 +138,7 @@ __init__(self)
 
 Implementation method; refer to its source for current behavior.
 
-{source}`addon/wavelength/source/asset_placement.py:196`
+{source}`addon/wavelength/source/asset_placement.py:213`
 
 ```python
 poll(cls, context)
@@ -136,7 +146,7 @@ poll(cls, context)
 
 Implementation method; refer to its source for current behavior.
 
-{source}`addon/wavelength/source/asset_placement.py:199`
+{source}`addon/wavelength/source/asset_placement.py:216`
 
 ```python
 invoke(self, context, event, operator)
@@ -144,7 +154,7 @@ invoke(self, context, event, operator)
 
 Implementation method; refer to its source for current behavior.
 
-{source}`addon/wavelength/source/asset_placement.py:200`
+{source}`addon/wavelength/source/asset_placement.py:217`
 
 ```python
 status(self, context)
@@ -152,15 +162,15 @@ status(self, context)
 
 Implementation method; refer to its source for current behavior.
 
-{source}`addon/wavelength/source/asset_placement.py:217`
+{source}`addon/wavelength/source/asset_placement.py:234`
 
 ```python
-finish(self, context)
+finish(self, context, dismiss=False)
 ```
 
 Implementation method; refer to its source for current behavior.
 
-{source}`addon/wavelength/source/asset_placement.py:219`
+{source}`addon/wavelength/source/asset_placement.py:236`
 
 ```python
 draw_cursor(self)
@@ -168,7 +178,7 @@ draw_cursor(self)
 
 Implementation method; refer to its source for current behavior.
 
-{source}`addon/wavelength/source/asset_placement.py:237`
+{source}`addon/wavelength/source/asset_placement.py:254`
 
 ```python
 modal(self, context, event)
@@ -176,7 +186,33 @@ modal(self, context, event)
 
 Implementation method; refer to its source for current behavior.
 
-{source}`addon/wavelength/source/asset_placement.py:246`
+{source}`addon/wavelength/source/asset_placement.py:263`
+
+### WL_OT_arm_asset
+
+```python
+class WL_OT_arm_asset(bpy.types.Operator)
+```
+
+No callable docstring yet. Read the source and the Developer Guide before using this internal interface.
+
+{source}`addon/wavelength/source/asset_placement.py:313`
+
+```python
+poll(cls, context)
+```
+
+Implementation method; refer to its source for current behavior.
+
+{source}`addon/wavelength/source/asset_placement.py:317`
+
+```python
+invoke(self, context, event)
+```
+
+Implementation method; refer to its source for current behavior.
+
+{source}`addon/wavelength/source/asset_placement.py:319`
 
 ### WL_OT_click_place
 
@@ -186,7 +222,7 @@ class WL_OT_click_place(bpy.types.Operator)
 
 No callable docstring yet. Read the source and the Developer Guide before using this internal interface.
 
-{source}`addon/wavelength/source/asset_placement.py:288`
+{source}`addon/wavelength/source/asset_placement.py:326`
 
 ```python
 poll(cls, context)
@@ -194,7 +230,7 @@ poll(cls, context)
 
 Implementation method; refer to its source for current behavior.
 
-{source}`addon/wavelength/source/asset_placement.py:292`
+{source}`addon/wavelength/source/asset_placement.py:330`
 
 ```python
 invoke(self, context, event)
@@ -202,7 +238,7 @@ invoke(self, context, event)
 
 Implementation method; refer to its source for current behavior.
 
-{source}`addon/wavelength/source/asset_placement.py:293`
+{source}`addon/wavelength/source/asset_placement.py:331`
 
 ```python
 modal(self, context, event)
@@ -210,7 +246,7 @@ modal(self, context, event)
 
 Implementation method; refer to its source for current behavior.
 
-{source}`addon/wavelength/source/asset_placement.py:296`
+{source}`addon/wavelength/source/asset_placement.py:334`
 
 ```python
 cancel(self, context)
@@ -218,7 +254,7 @@ cancel(self, context)
 
 Implementation method; refer to its source for current behavior.
 
-{source}`addon/wavelength/source/asset_placement.py:297`
+{source}`addon/wavelength/source/asset_placement.py:335`
 
 ### WL_OT_drag_texture
 
@@ -228,7 +264,7 @@ class WL_OT_drag_texture(bpy.types.Operator)
 
 No callable docstring yet. Read the source and the Developer Guide before using this internal interface.
 
-{source}`addon/wavelength/source/asset_placement.py:300`
+{source}`addon/wavelength/source/asset_placement.py:338`
 
 ```python
 poll(cls, context)
@@ -236,7 +272,7 @@ poll(cls, context)
 
 Implementation method; refer to its source for current behavior.
 
-{source}`addon/wavelength/source/asset_placement.py:305`
+{source}`addon/wavelength/source/asset_placement.py:343`
 
 ```python
 invoke(self, context, event)
@@ -244,7 +280,7 @@ invoke(self, context, event)
 
 Implementation method; refer to its source for current behavior.
 
-{source}`addon/wavelength/source/asset_placement.py:309`
+{source}`addon/wavelength/source/asset_placement.py:347`
 
 ### register
 
@@ -254,7 +290,7 @@ register()
 
 No callable docstring yet. Read the source and the Developer Guide before using this internal interface.
 
-{source}`addon/wavelength/source/asset_placement.py:318`
+{source}`addon/wavelength/source/asset_placement.py:356`
 
 ### unregister
 
@@ -264,7 +300,7 @@ unregister()
 
 No callable docstring yet. Read the source and the Developer Guide before using this internal interface.
 
-{source}`addon/wavelength/source/asset_placement.py:332`
+{source}`addon/wavelength/source/asset_placement.py:372`
 
 ## addon/wavelength/source/build/pipeline.py
 
@@ -397,7 +433,7 @@ class Face
 
 No callable docstring yet. Read the source and the Developer Guide before using this internal interface.
 
-{source}`addon/wavelength/source/formats.py:13`
+{source}`addon/wavelength/source/formats.py:10`
 
 ```python
 plane(self)
@@ -405,7 +441,7 @@ plane(self)
 
 Implementation method; refer to its source for current behavior.
 
-{source}`addon/wavelength/source/formats.py:20`
+{source}`addon/wavelength/source/formats.py:17`
 
 ### Entity
 
@@ -415,7 +451,7 @@ class Entity
 
 No callable docstring yet. Read the source and the Developer Guide before using this internal interface.
 
-{source}`addon/wavelength/source/formats.py:30`
+{source}`addon/wavelength/source/formats.py:27`
 
 ### Map
 
@@ -425,7 +461,7 @@ class Map
 
 No callable docstring yet. Read the source and the Developer Guide before using this internal interface.
 
-{source}`addon/wavelength/source/formats.py:35`
+{source}`addon/wavelength/source/formats.py:33`
 
 ### parse
 
@@ -435,7 +471,7 @@ parse(text)
 
 No callable docstring yet. Read the source and the Developer Guide before using this internal interface.
 
-{source}`addon/wavelength/source/formats.py:38`
+{source}`addon/wavelength/source/formats.py:36`
 
 ### quoted
 
@@ -445,7 +481,7 @@ quoted(value)
 
 No callable docstring yet. Read the source and the Developer Guide before using this internal interface.
 
-{source}`addon/wavelength/source/formats.py:97`
+{source}`addon/wavelength/source/formats.py:91`
 
 ### write
 
@@ -455,7 +491,7 @@ write(document)
 
 No callable docstring yet. Read the source and the Developer Guide before using this internal interface.
 
-{source}`addon/wavelength/source/formats.py:102`
+{source}`addon/wavelength/source/formats.py:96`
 
 ### brush_mesh
 
@@ -465,7 +501,7 @@ brush_mesh(faces)
 
 No callable docstring yet. Read the source and the Developer Guide before using this internal interface.
 
-{source}`addon/wavelength/source/formats.py:123`
+{source}`addon/wavelength/source/formats.py:117`
 
 ### quake_axes
 
@@ -475,7 +511,7 @@ quake_axes(normal, projection)
 
 No callable docstring yet. Read the source and the Developer Guide before using this internal interface.
 
-{source}`addon/wavelength/source/formats.py:126`
+{source}`addon/wavelength/source/formats.py:120`
 
 ## addon/wavelength/source/node_pencil.py
 
@@ -539,7 +575,7 @@ finalize(obj)
 
 No callable docstring yet. Read the source and the Developer Guide before using this internal interface.
 
-{source}`addon/wavelength/source/node_pencil.py:105`
+{source}`addon/wavelength/source/node_pencil.py:106`
 
 ### volume
 
@@ -549,7 +585,7 @@ volume(context, points, normal, low, high)
 
 An input polygon is a curve; Fill/Extrude nodes create the cutter mesh.
 
-{source}`addon/wavelength/source/node_pencil.py:112`
+{source}`addon/wavelength/source/node_pencil.py:113`
 
 ### boolean
 
@@ -559,7 +595,7 @@ boolean(obj, cutter, operation)
 
 Use the node Boolean kernel; Python still validates and commits outputs.
 
-{source}`addon/wavelength/source/node_pencil.py:136`
+{source}`addon/wavelength/source/node_pencil.py:137`
 
 ## addon/wavelength/source/node_primitives.py
 
@@ -696,17 +732,17 @@ set_input(modifier, name, value)
 
 No callable docstring yet. Read the source and the Developer Guide before using this internal interface.
 
-{source}`addon/wavelength/source/node_primitives.py:167`
+{source}`addon/wavelength/source/node_primitives.py:177`
 
 ### attach
 
 ```python
-attach(obj, definition, index=0)
+attach(obj, definition, index=0, modifier=None)
 ```
 
 No callable docstring yet. Read the source and the Developer Guide before using this internal interface.
 
-{source}`addon/wavelength/source/node_primitives.py:175`
+{source}`addon/wavelength/source/node_primitives.py:185`
 
 ### sync_materials
 
@@ -716,7 +752,7 @@ sync_materials(obj)
 
 No callable docstring yet. Read the source and the Developer Guide before using this internal interface.
 
-{source}`addon/wavelength/source/node_primitives.py:186`
+{source}`addon/wavelength/source/node_primitives.py:200`
 
 ### evaluate
 
@@ -726,7 +762,7 @@ evaluate(definition)
 
 No callable docstring yet. Read the source and the Developer Guide before using this internal interface.
 
-{source}`addon/wavelength/source/node_primitives.py:197`
+{source}`addon/wavelength/source/node_primitives.py:211`
 
 ## addon/wavelength/source/pencil.py
 
@@ -762,6 +798,26 @@ No callable docstring yet. Read the source and the Developer Guide before using 
 
 {source}`addon/wavelength/source/pencil.py:30`
 
+### selected_target
+
+```python
+selected_target(context)
+```
+
+Bind one selected mesh; hovering never chooses a different cut target.
+
+{source}`addon/wavelength/source/pencil.py:33`
+
+### target_plane
+
+```python
+target_plane(context, event, target)
+```
+
+No callable docstring yet. Read the source and the Developer Guide before using this internal interface.
+
+{source}`addon/wavelength/source/pencil.py:41`
+
 ### guide
 
 ```python
@@ -770,7 +826,7 @@ guide(context)
 
 No callable docstring yet. Read the source and the Developer Guide before using this internal interface.
 
-{source}`addon/wavelength/source/pencil.py:33`
+{source}`addon/wavelength/source/pencil.py:54`
 
 ### WLCutterGuide
 
@@ -780,7 +836,7 @@ class WLCutterGuide(bpy.types.PropertyGroup)
 
 No callable docstring yet. Read the source and the Developer Guide before using this internal interface.
 
-{source}`addon/wavelength/source/pencil.py:39`
+{source}`addon/wavelength/source/pencil.py:60`
 
 ### WLDrawSettings
 
@@ -790,7 +846,7 @@ class WLDrawSettings(bpy.types.PropertyGroup)
 
 No callable docstring yet. Read the source and the Developer Guide before using this internal interface.
 
-{source}`addon/wavelength/source/pencil.py:52`
+{source}`addon/wavelength/source/pencil.py:73`
 
 ### records
 
@@ -800,7 +856,7 @@ records(obj)
 
 No callable docstring yet. Read the source and the Developer Guide before using this internal interface.
 
-{source}`addon/wavelength/source/pencil.py:64`
+{source}`addon/wavelength/source/pencil.py:85`
 
 ### sampled
 
@@ -810,7 +866,7 @@ sampled(obj)
 
 No callable docstring yet. Read the source and the Developer Guide before using this internal interface.
 
-{source}`addon/wavelength/source/pencil.py:72`
+{source}`addon/wavelength/source/pencil.py:93`
 
 ### cut_direction
 
@@ -820,7 +876,7 @@ cut_direction(obj)
 
 No callable docstring yet. Read the source and the Developer Guide before using this internal interface.
 
-{source}`addon/wavelength/source/pencil.py:88`
+{source}`addon/wavelength/source/pencil.py:109`
 
 ### normal
 
@@ -830,7 +886,7 @@ normal(obj)
 
 No callable docstring yet. Read the source and the Developer Guide before using this internal interface.
 
-{source}`addon/wavelength/source/pencil.py:93`
+{source}`addon/wavelength/source/pencil.py:114`
 
 ### create_guide
 
@@ -840,7 +896,7 @@ create_guide(context, points, plane_normal, closed=False, target=None)
 
 No callable docstring yet. Read the source and the Developer Guide before using this internal interface.
 
-{source}`addon/wavelength/source/pencil.py:97`
+{source}`addon/wavelength/source/pencil.py:118`
 
 ### create_geometry
 
@@ -850,7 +906,7 @@ create_geometry(context, obj, kind, height=None)
 
 No callable docstring yet. Read the source and the Developer Guide before using this internal interface.
 
-{source}`addon/wavelength/source/pencil.py:119`
+{source}`addon/wavelength/source/pencil.py:140`
 
 ### apply_cut
 
@@ -860,7 +916,7 @@ apply_cut(context, obj)
 
 Knife-project on a private mesh copy. Failure restores the original mesh.
 
-{source}`addon/wavelength/source/pencil.py:147`
+{source}`addon/wavelength/source/pencil.py:168`
 
 ### cut_result
 
@@ -870,7 +926,7 @@ cut_result(obj)
 
 No callable docstring yet. Read the source and the Developer Guide before using this internal interface.
 
-{source}`addon/wavelength/source/pencil.py:211`
+{source}`addon/wavelength/source/pencil.py:232`
 
 ### cycle_keep
 
@@ -880,7 +936,7 @@ cycle_keep(settings, step=1)
 
 No callable docstring yet. Read the source and the Developer Guide before using this internal interface.
 
-{source}`addon/wavelength/source/pencil.py:218`
+{source}`addon/wavelength/source/pencil.py:239`
 
 ### WL_OT_apply_cut
 
@@ -890,7 +946,7 @@ class WL_OT_apply_cut(bpy.types.Operator)
 
 No callable docstring yet. Read the source and the Developer Guide before using this internal interface.
 
-{source}`addon/wavelength/source/pencil.py:223`
+{source}`addon/wavelength/source/pencil.py:244`
 
 ```python
 poll(cls, context)
@@ -898,7 +954,7 @@ poll(cls, context)
 
 Implementation method; refer to its source for current behavior.
 
-{source}`addon/wavelength/source/pencil.py:226`
+{source}`addon/wavelength/source/pencil.py:247`
 
 ```python
 execute(self, context)
@@ -906,7 +962,7 @@ execute(self, context)
 
 Implementation method; refer to its source for current behavior.
 
-{source}`addon/wavelength/source/pencil.py:227`
+{source}`addon/wavelength/source/pencil.py:248`
 
 ### WL_OT_create_cut_geometry
 
@@ -916,7 +972,7 @@ class WL_OT_create_cut_geometry(bpy.types.Operator)
 
 No callable docstring yet. Read the source and the Developer Guide before using this internal interface.
 
-{source}`addon/wavelength/source/pencil.py:235`
+{source}`addon/wavelength/source/pencil.py:256`
 
 ```python
 poll(cls, context)
@@ -924,7 +980,7 @@ poll(cls, context)
 
 Implementation method; refer to its source for current behavior.
 
-{source}`addon/wavelength/source/pencil.py:238`
+{source}`addon/wavelength/source/pencil.py:259`
 
 ```python
 execute(self, context)
@@ -932,7 +988,7 @@ execute(self, context)
 
 Implementation method; refer to its source for current behavior.
 
-{source}`addon/wavelength/source/pencil.py:239`
+{source}`addon/wavelength/source/pencil.py:260`
 
 ### WL_OT_keep_cut_guide
 
@@ -942,7 +998,7 @@ class WL_OT_keep_cut_guide(bpy.types.Operator)
 
 No callable docstring yet. Read the source and the Developer Guide before using this internal interface.
 
-{source}`addon/wavelength/source/pencil.py:246`
+{source}`addon/wavelength/source/pencil.py:267`
 
 ```python
 poll(cls, context)
@@ -950,7 +1006,7 @@ poll(cls, context)
 
 Implementation method; refer to its source for current behavior.
 
-{source}`addon/wavelength/source/pencil.py:249`
+{source}`addon/wavelength/source/pencil.py:270`
 
 ```python
 execute(self, context)
@@ -958,7 +1014,7 @@ execute(self, context)
 
 Implementation method; refer to its source for current behavior.
 
-{source}`addon/wavelength/source/pencil.py:250`
+{source}`addon/wavelength/source/pencil.py:271`
 
 ### WL_OT_activate_cutter
 
@@ -968,7 +1024,7 @@ class WL_OT_activate_cutter(bpy.types.Operator)
 
 No callable docstring yet. Read the source and the Developer Guide before using this internal interface.
 
-{source}`addon/wavelength/source/pencil.py:257`
+{source}`addon/wavelength/source/pencil.py:278`
 
 ```python
 poll(cls, context)
@@ -976,7 +1032,7 @@ poll(cls, context)
 
 Implementation method; refer to its source for current behavior.
 
-{source}`addon/wavelength/source/pencil.py:261`
+{source}`addon/wavelength/source/pencil.py:282`
 
 ```python
 execute(self, context)
@@ -984,7 +1040,7 @@ execute(self, context)
 
 Implementation method; refer to its source for current behavior.
 
-{source}`addon/wavelength/source/pencil.py:262`
+{source}`addon/wavelength/source/pencil.py:283`
 
 ### WL_OT_draw_path
 
@@ -994,7 +1050,7 @@ class WL_OT_draw_path(bpy.types.Operator)
 
 No callable docstring yet. Read the source and the Developer Guide before using this internal interface.
 
-{source}`addon/wavelength/source/pencil.py:270`
+{source}`addon/wavelength/source/pencil.py:291`
 
 ```python
 poll(cls, context)
@@ -1002,7 +1058,7 @@ poll(cls, context)
 
 Implementation method; refer to its source for current behavior.
 
-{source}`addon/wavelength/source/pencil.py:273`
+{source}`addon/wavelength/source/pencil.py:294`
 
 ```python
 invoke(self, context, event)
@@ -1010,7 +1066,7 @@ invoke(self, context, event)
 
 Implementation method; refer to its source for current behavior.
 
-{source}`addon/wavelength/source/pencil.py:286`
+{source}`addon/wavelength/source/pencil.py:307`
 
 ```python
 modal(self, context, event)
@@ -1018,7 +1074,7 @@ modal(self, context, event)
 
 Implementation method; refer to its source for current behavior.
 
-{source}`addon/wavelength/source/pencil.py:424`
+{source}`addon/wavelength/source/pencil.py:442`
 
 ### WL_PT_drawing
 
@@ -1028,7 +1084,7 @@ class WL_PT_drawing(bpy.types.Panel)
 
 No callable docstring yet. Read the source and the Developer Guide before using this internal interface.
 
-{source}`addon/wavelength/source/pencil.py:491`
+{source}`addon/wavelength/source/pencil.py:509`
 
 ```python
 poll(cls, context)
@@ -1036,7 +1092,7 @@ poll(cls, context)
 
 Implementation method; refer to its source for current behavior.
 
-{source}`addon/wavelength/source/pencil.py:494`
+{source}`addon/wavelength/source/pencil.py:512`
 
 ```python
 draw(self, context)
@@ -1044,7 +1100,7 @@ draw(self, context)
 
 Implementation method; refer to its source for current behavior.
 
-{source}`addon/wavelength/source/pencil.py:495`
+{source}`addon/wavelength/source/pencil.py:513`
 
 ### WL_Tool_pencil
 
@@ -1054,7 +1110,7 @@ class WL_Tool_pencil(bpy.types.WorkSpaceTool)
 
 No callable docstring yet. Read the source and the Developer Guide before using this internal interface.
 
-{source}`addon/wavelength/source/pencil.py:509`
+{source}`addon/wavelength/source/pencil.py:527`
 
 ```python
 draw_settings(context, layout, tool)
@@ -1062,7 +1118,7 @@ draw_settings(context, layout, tool)
 
 Implementation method; refer to its source for current behavior.
 
-{source}`addon/wavelength/source/pencil.py:515`
+{source}`addon/wavelength/source/pencil.py:533`
 
 ### WL_Tool_pencil_edit
 
@@ -1072,7 +1128,7 @@ class WL_Tool_pencil_edit(bpy.types.WorkSpaceTool)
 
 No callable docstring yet. Read the source and the Developer Guide before using this internal interface.
 
-{source}`addon/wavelength/source/pencil.py:526`
+{source}`addon/wavelength/source/pencil.py:544`
 
 ```python
 draw_settings(context, layout, tool)
@@ -1080,7 +1136,7 @@ draw_settings(context, layout, tool)
 
 Implementation method; refer to its source for current behavior.
 
-{source}`addon/wavelength/source/pencil.py:532`
+{source}`addon/wavelength/source/pencil.py:550`
 
 ### register
 
@@ -1090,7 +1146,7 @@ register()
 
 No callable docstring yet. Read the source and the Developer Guide before using this internal interface.
 
-{source}`addon/wavelength/source/pencil.py:546`
+{source}`addon/wavelength/source/pencil.py:564`
 
 ### unregister
 
@@ -1100,7 +1156,7 @@ unregister()
 
 No callable docstring yet. Read the source and the Developer Guide before using this internal interface.
 
-{source}`addon/wavelength/source/pencil.py:556`
+{source}`addon/wavelength/source/pencil.py:574`
 
 ## addon/wavelength/source/procedural.py
 

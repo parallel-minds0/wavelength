@@ -19,7 +19,7 @@ def select_faces(obj,all_faces=False):
     if not all_faces:max(bm.faces,key=lambda f:f.normal.z).select_set(True)
     bmesh.update_edit_mesh(obj.data)
 source=brush('Consumed cube');name=source.name;original=[source.matrix_world@v.co for v in source.data.vertices];select_faces(source,True)
-assert bpy.ops.wavelength.displacement_from_face()=={'FINISHED'}
+assert bpy.ops.wavelength.displacement_from_face(native=False)=={'FINISHED'}
 assert name not in ctx.scene.objects
 surfaces=[o for o in ctx.scene.objects if o.get('wl_terrain')];assert len(surfaces)==6
 assert all(o.parent is None and o.wavelength_terrain.surface_source is None and o.get('wl_terrain_detached') for o in surfaces)

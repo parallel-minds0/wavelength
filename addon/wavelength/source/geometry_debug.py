@@ -27,9 +27,20 @@ class WLGeometryDebug(bpy.types.PropertyGroup):
 
 def inspect(obj,scene):
     if obj.get('wl_csg'):return None  # Convexity belongs to the pending conversion, not the live preview.
+    if obj.get('wl_source_displacement') and not obj.get('wl_exclude'):
+        from . import source_displacement
+        try:
+            source_displacement.source_face(obj);source_displacement.read_surface(obj)
+            return None
+        except (ValueError,KeyError,RuntimeError) as exc:
+            return {'code':'DISPLACEMENT_INVALID','message':str(exc),
+                'hint':'Undo the topology change or use Change Power; restore the backing brush if missing.',
+                'vertices':getattr(exc,'vertices',list(range(len(obj.data.vertices)))),'edges':[],'faces':[],
+                'positions':[list(v.co) for v in obj.data.vertices],
+                'polygons':[list(p.vertices) for p in obj.data.polygons],'evaluated':bool(obj.modifiers)}
     if obj.type!='MESH' or obj.get('wl_exclude') or obj.get('wl_role')!='BRUSH':return None
     if not profiles.requires_convex_brushes(scene.wavelength.engine):return None
-    evaluated=bool(obj.modifiers);owner=None;mesh=None
+    evaluated=any(not (m.type=='NODES' and m.node_group and m.node_group.get('wl_generator')=='wavelength.displacement.face_mask') for m in obj.modifiers);owner=None;mesh=None
     try:
         if obj.mode=='EDIT' and not evaluated:
             bm=bmesh.from_edit_mesh(obj.data);bm.verts.ensure_lookup_table();bm.verts.index_update()
@@ -39,7 +50,8 @@ def inspect(obj,scene):
             mesh=owner.to_mesh() if owner else obj.data
             local=[tuple(v.co) for v in mesh.vertices];faces=[list(f.vertices) for f in mesh.polygons]
         unit=obj.get('wl_unit_meters',profiles.unit_meters(scene.wavelength))
-        world=[tuple(c/unit for c in obj.matrix_world@Vector(v)) for v in local]
+        from .scene import world_point
+        world=[world_point(obj,v,unit) for v in local]
         result=geometry_diagnostics.problem(world,faces)
         if result:
             result['positions']=local;result['polygons']=faces;result['evaluated']=evaluated
@@ -105,7 +117,7 @@ def tick():
         state=scene.wavelength_geometry_debug
         if any(i.target is None for i in state.issues):scan(scene,[])
         targets={i.target for i in state.issues if i.target} if state.live and (scene.as_pointer() in _dirty or state.engine!=scene.wavelength.engine) else set()
-        targets.update(obj for obj in scene.objects if obj.name in pending)
+        if pending:targets.update(obj for obj in scene.objects if obj.name in pending)
         if targets:
             try:scan(scene,targets)
             except (ReferenceError,RuntimeError,ValueError):pass

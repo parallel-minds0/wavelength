@@ -1,7 +1,7 @@
-"""Editor-only SVG icon references for abstract Half-Life point entities.
+"""Editor-only, screen-facing SVG sprites for abstract point entities.
 
 The Wavelength HL1 icon pack is parsed directly.  Do not depend on Blender's
-optional SVG import extension: entity visualization must work in a stock build.
+optional SVG import extension: viewport icons are drawn as flat 2D artwork.
 """
 from pathlib import Path
 import json, math, re, xml.etree.ElementTree as ET
@@ -13,6 +13,7 @@ _CACHE = {}
 _MANIFEST_CACHE = None
 _MANIFEST_MTIME = None
 _NUM = re.compile(r'[A-Za-z]|[-+]?(?:\d*\.\d+|\d+\.?)(?:[eE][-+]?\d+)?')
+SPRITE_SIZE = 46  # Screen pixels at 100% UI scale; 15% above the original 40.
 
 
 def _manifest():
@@ -91,7 +92,8 @@ def _path_polylines(d):
         try:
             if C=='M':
                 x,y=num(),num();p=(cur[0]+x,cur[1]+y) if rel else (x,y)
-                if line:flush();cur=start=p;line=[p];last_ctrl=None;cmd='l' if rel else 'L'
+                if line:flush()
+                cur=start=p;line=[p];last_ctrl=None;cmd='l' if rel else 'L'
             elif C=='L':
                 x,y=num(),num();p=(cur[0]+x,cur[1]+y) if rel else (x,y);line.append(p);cur=p;last_ctrl=None
             elif C=='H':
@@ -187,40 +189,209 @@ def _icon_collection(path):
 
 def remove_reference(entity):
     if entity is None:return
+    if entity.get('_wl_reference_fresh'):return
     for child in list(entity.children):
         if child.get('wl_entity_icon_reference'):bpy.data.objects.remove(child,do_unlink=True)
 
 def attach_reference(entity,pairs=None):
-    """Attach parsed SVG curves directly to the entity's visible collection."""
+    """Attach a lightweight marker; SVG artwork is drawn flat per viewport."""
     if entity is None or entity.get('wl_role')!='ENTITY':return False
     if pairs is None:
         try:pairs=json.loads(entity.get('wl_pairs','[]'))
         except (TypeError,ValueError):pairs=[]
-    classname=dict(pairs).get('classname',entity.name);path=icon_path(classname);remove_reference(entity)
-    if path is None:
-        print(f'Wavelength: no mapped SVG icon for {classname} under {ICON_ROOT}')
-        return False
-    try:source=_icon_collection(path)
-    except Exception as exc:
-        print(f'Wavelength: SVG entity icon failed for {classname}: {exc}');return False
-    owners=list(entity.users_collection)
-    owner=owners[0] if owners else bpy.context.scene.collection
-    made=0
-    # Do not instance an unlinked cache collection.  Directly duplicate the
-    # lightweight Curve datablocks into the same collection as the entity so
-    # Blender always evaluates and draws them.
-    for src in source.objects:
-        if src.type!='CURVE':continue
-        obj=bpy.data.objects.new(f'{classname} icon {made+1}',src.data)
-        owner.objects.link(obj);obj.parent=entity;obj.location=(0,0,0)
-        obj.rotation_euler=(math.radians(90),0,0);size=32*float(entity.get('wl_unit_meters',.0254));obj.scale=(size,size,size)
-        obj['wl_exclude']=True;obj['wl_role']='ENTITY_ICON_REFERENCE';obj['wl_entity_icon_reference']=True
-        obj['wl_entity_icon_asset']=str(path);obj.hide_select=True;obj.show_in_front=True
-        made+=1
-    if not made:
-        print(f'Wavelength: SVG entity icon produced no drawable curves for {classname}: {path}')
-        return False
-    try:entity.empty_display_size=0.001
-    except Exception:pass
-    print(f'Wavelength: attached SVG icon for {classname}: {path.name} ({made} curve objects)')
+    classname=dict(pairs).get('classname',entity.name);path=icon_path(classname)
+    remove_reference(entity)
+    if path is None:return False
+    owner=entity.users_collection[0] if entity.users_collection else bpy.context.scene.collection
+    obj=bpy.data.objects.new(classname+' icon',None);owner.objects.link(obj)
+    obj.parent=entity;obj.location=(0,0,0)
+    obj.empty_display_type='PLAIN_AXES';obj.empty_display_size=.001
+    obj['wl_exclude']=True;obj['wl_role']='ENTITY_ICON_REFERENCE'
+    obj['wl_entity_icon_reference']=True;obj['wl_entity_icon_sprite']=True
+    obj['wl_entity_icon_asset']=str(path);obj.hide_select=True;obj.hide_render=True
+    obj['wl_native_sprite']=_native_shape(path)
+    entity.empty_display_size=.001
     return True
+
+
+_sprite_cache={}
+_draw_handle=None
+
+
+def _sprite(path):
+    path=Path(path);key=(str(path),path.stat().st_mtime_ns)
+    if key not in _sprite_cache:_sprite_cache[key]=_svg_geometry(path)
+    return _sprite_cache[key]
+
+
+def sprite_instances(context):
+    from .. import workspace,context_state
+    if not workspace.active(context,'gizmos') or context_state.viewport_hidden(context.scene):return
+    if not context.space_data.overlay.show_overlays:return
+    from .. import object_index
+    visible={o.as_pointer() for o in context.visible_objects}
+    for obj in object_index.matching('entity-sprites',context.scene,lambda o:bool(o.get('wl_entity_icon_sprite'))):
+        if obj.parent and obj.as_pointer() in visible and obj.parent.as_pointer() in visible:
+            yield obj
+
+
+def _color(value):
+    value=str(value).strip().lower()
+    if value in {'white','#fff','#ffffff'}:return (1,1,1,1)
+    if value.startswith('#') and len(value)==7:
+        return tuple(int(value[i:i+2],16)/255 for i in (1,3,5))+(1,)
+    return (.01,.01,.01,1)
+
+
+_sprite_batches={}
+_shaders=None
+_batch_checks={}
+
+
+def _batches(path):
+    """Tessellate SVGs once in icon-local coordinates, never per entity/frame."""
+    global _shaders
+    import gpu
+    from gpu_extras.batch import batch_for_shader
+    from mathutils import Vector
+    from mathutils.geometry import tessellate_polygon
+    import time
+    now=time.monotonic();raw=str(path);checked=_batch_checks.get(raw)
+    if checked and now-checked[0]<1:return checked[1]
+    path=Path(path);key=(str(path),path.stat().st_mtime_ns)
+    if _shaders is None:_shaders=(gpu.shader.from_builtin('UNIFORM_COLOR'),gpu.shader.from_builtin('POLYLINE_UNIFORM_COLOR'))
+    if key in _sprite_batches:
+        _batch_checks[raw]=(now,_sprite_batches[key]);return _sprite_batches[key]
+    vb,shapes=_sprite(path);scale=1/max(vb[2],vb[3],1)
+    def local(p):return ((p[0]-vb[0]-vb[2]/2)*scale,-(p[1]-vb[1]-vb[3]/2)*scale,0)
+    result=[]
+    for lines,stroke,fill,width in shapes:
+        if fill!='none':
+            polygons=[[Vector(local(p)) for p in pts] for pts,closed in lines if closed and len(pts)>2]
+            triangles=tessellate_polygon(polygons) if polygons else []
+            flat=[v for polygon in polygons for v in polygon]
+            if triangles:result.append((False,batch_for_shader(_shaders[0],'TRIS',{'pos':[flat[v] if isinstance(v,int) else v for tri in triangles for v in tri]}),_color(fill),0))
+        if stroke!='none':
+            segments=[]
+            for pts,closed in lines:
+                pairs=list(zip(pts,pts[1:]))
+                if closed and len(pts)>1:pairs.append((pts[-1],pts[0]))
+                segments.extend(local(p) for pair in pairs for p in pair)
+            if segments:result.append((True,batch_for_shader(_shaders[1],'LINES',{'pos':segments}),_color(stroke),width*scale))
+    _sprite_batches[key]=result;_batch_checks[raw]=(now,result)
+    return result
+
+
+def _native_shape(path):
+    """Serialize one immutable local-space glyph, shared by every instance.
+
+    Native overlay sync uploads this prototype once; per-frame projection and
+    all drawing use Blender's C++ renderer and GPU instance buffers.
+    """
+    import hashlib
+    from array import array
+    from mathutils import Vector
+    from mathutils.geometry import tessellate_polygon
+    path=Path(path);identity=hashlib.sha256((str(path)+str(path.stat().st_mtime_ns)+'glyph-v1').encode()).hexdigest()[:24]
+    label='.wavelength glyph '+identity
+    existing=bpy.data.meshes.get(label)
+    if existing is not None:return existing
+    vb,shapes=_sprite(path);scale=1/max(vb[2],vb[3],1);vertices=[]
+    def local(p):return Vector(((p[0]-vb[0]-vb[2]/2)*scale,-(p[1]-vb[1]-vb[3]/2)*scale,0))
+    def triangle(points,color):
+        for v in points:vertices.extend((*v,*color))
+    for lines,stroke,fill,width in shapes:
+        if fill!='none':
+            polygons=[[local(p) for p in pts] for pts,closed in lines if closed and len(pts)>2]
+            flat=[v for polygon in polygons for v in polygon]
+            for tri in tessellate_polygon(polygons) if polygons else []:triangle([flat[v] if isinstance(v,int) else v for v in tri],_color(fill))
+        if stroke!='none':
+            half=max(width*scale,1/SPRITE_SIZE)/2;color=_color(stroke)
+            for pts,closed in lines:
+                pairs=list(zip(pts,pts[1:]))
+                if closed and len(pts)>1:pairs.append((pts[-1],pts[0]))
+                for a,b in pairs:
+                    a,b=local(a),local(b);d=b-a
+                    if d.length<1e-9:continue
+                    offset=Vector((-d.y,d.x,0)).normalized()*half
+                    triangle((a-offset,b-offset,b+offset),color);triangle((a-offset,b+offset,a+offset),color)
+    data=bpy.data.meshes.new(label);data['wl_svg_triangles']=array('f',vertices)
+    data['wl_svg_source']=str(path)
+    return data
+
+
+def _native_sync():
+    from .. import workspace,context_state
+    for window in bpy.context.window_manager.windows:
+        with bpy.context.temp_override(window=window):
+            enabled=workspace.active(bpy.context,'gizmos') and not context_state.viewport_hidden(window.scene)
+            for area in window.screen.areas:
+                if area.type!='VIEW_3D':continue
+                overlay=area.spaces.active.overlay
+                if hasattr(overlay,'wavelength_entity_icons'):
+                    value=bool(enabled and overlay.show_overlays)
+                    if overlay.wavelength_entity_icons!=value:overlay.wavelength_entity_icons=value
+    return .25
+
+
+def draw_sprites():
+    import gpu
+    from bpy_extras.view3d_utils import location_3d_to_region_2d
+    context=bpy.context
+    if hasattr(context.space_data.overlay,'wavelength_entity_icons'):return
+    if not context.region_data:return
+    gpu.state.blend_set('ALPHA')
+    try:
+        size=SPRITE_SIZE*context.preferences.system.ui_scale
+        for obj in sprite_instances(context):
+            center=location_3d_to_region_2d(context.region,context.region_data,obj.matrix_world.translation)
+            if center is None or center.x < -size or center.y < -size or center.x>context.region.width+size or center.y>context.region.height+size:continue
+            try:batches=_batches(obj['wl_entity_icon_asset'])
+            except (OSError,ValueError,ET.ParseError):continue
+            with gpu.matrix.push_pop():
+                gpu.matrix.translate((center.x,center.y,0));gpu.matrix.scale((size,size,1))
+                for line,batch,color,width in batches:
+                    shader=_shaders[1 if line else 0];shader.bind();shader.uniform_float('color',color)
+                    if line:
+                        shader.uniform_float('viewportSize',(context.region.width,context.region.height))
+                        shader.uniform_float('lineWidth',max(1,width*size))
+                    batch.draw(shader)
+    finally:gpu.state.blend_set('NONE')
+
+
+@bpy.app.handlers.persistent
+def migrate_sprites(*_args):
+    # Existing .blend files retain entity transforms and properties; replace only
+    # legacy editor curve references, once, without touching actual model meshes.
+    parents={obj.parent for obj in tuple(bpy.data.objects)
+             if obj.get('wl_entity_icon_reference') and not obj.get('wl_entity_icon_sprite') and obj.parent}
+    for entity in parents:attach_reference(entity)
+    for obj in bpy.data.objects:
+        if obj.get('wl_entity_icon_sprite') and not obj.get('wl_native_sprite'):
+            try:obj['wl_native_sprite']=_native_shape(obj['wl_entity_icon_asset'])
+            except (OSError,ValueError,KeyError):pass
+
+
+def _startup_sprites():
+    migrate_sprites()
+
+
+def register():
+    global _draw_handle
+    if _draw_handle is None and 'wavelength_entity_icons' not in bpy.types.View3DOverlay.bl_rna.properties:
+        _draw_handle=bpy.types.SpaceView3D.draw_handler_add(draw_sprites,(),'WINDOW','POST_PIXEL')
+    if migrate_sprites not in bpy.app.handlers.load_post:bpy.app.handlers.load_post.append(migrate_sprites)
+    if not bpy.app.timers.is_registered(_startup_sprites):bpy.app.timers.register(_startup_sprites,first_interval=.1)
+    if not bpy.app.timers.is_registered(_native_sync):bpy.app.timers.register(_native_sync,first_interval=.1,persistent=True)
+
+
+def unregister():
+    global _draw_handle,_shaders
+    if _draw_handle is not None:bpy.types.SpaceView3D.draw_handler_remove(_draw_handle,'WINDOW');_draw_handle=None
+    if migrate_sprites in bpy.app.handlers.load_post:bpy.app.handlers.load_post.remove(migrate_sprites)
+    if bpy.app.timers.is_registered(_startup_sprites):bpy.app.timers.unregister(_startup_sprites)
+    if bpy.app.timers.is_registered(_native_sync):bpy.app.timers.unregister(_native_sync)
+    for screen in bpy.data.screens:
+        for area in screen.areas:
+            if area.type=='VIEW_3D' and hasattr(area.spaces.active.overlay,'wavelength_entity_icons'):area.spaces.active.overlay.wavelength_entity_icons=False
+    _sprite_cache.clear();_sprite_batches.clear();_batch_checks.clear();_shaders=None

@@ -45,6 +45,10 @@ def mask_group():
 
 
 def refresh(source):
+    if any(o.get('wl_source_displacement') for o in source.children):
+        from . import source_displacement
+        source_displacement.mask(source)
+        return
     attr=source.data.attributes.get('wl_displacement_surface') or source.data.attributes.new('wl_displacement_surface','BOOLEAN','FACE')
     ids=source.data.attributes.get('wl_face_id')
     attached={o.get('wl_terrain_face_id') for o in bpy.context.scene.objects if o.get('wl_terrain_face_corners') and not o.get('wl_exclude') and o.wavelength_terrain.surface_source==source}
@@ -162,6 +166,9 @@ def create(context,independent=True,world_domain=None):
     bpy.ops.object.mode_set(mode='OBJECT');obj=None
     try:
         scene.mark_brush(source);fid=source.data.attributes['wl_face_id'].data[index].value
+        # The Edit -> Object commit may have recentered the brush origin.
+        # Capture its new local coordinates, while preserving the same world face.
+        points=[source.data.vertices[i].co.copy() for i in source.data.polygons[index].vertices]
         if any(o.get('wl_terrain_face_id')==fid and o.get('wl_terrain_face_corners') and o.wavelength_terrain.surface_source==source for o in context.scene.objects):raise ValueError('This face already has a displacement')
         brush=scene.brush_from_object(source,settings.engine)
         face_ids=sorted(d.value for d in source.data.attributes['wl_face_id'].data)
@@ -210,12 +217,17 @@ def apply(source,brush,attachments):
 
 class WL_OT_displacement_from_face(bpy.types.Operator):
     bl_idname='wavelength.displacement_from_face';bl_label='Create Displacement from Face';bl_options={'REGISTER','UNDO'}
-    bl_description='Convert selected quad faces to independent paintable surfaces and remove the backing brush; undo restores it'
+    bl_description='Create editable Source displacement grids on selected quad faces, preserving their backing brush'
     independent:BoolProperty(default=True,options={'HIDDEN','SKIP_SAVE'})
+    native:BoolProperty(default=True,options={'HIDDEN','SKIP_SAVE'})
     @classmethod
     def poll(cls,context):return workspace.active(context) and context.mode=='EDIT_MESH' and context.object and context.object.get('wl_role')=='BRUSH' and profiles.is_source(context.scene.wavelength.engine)
     def execute(self,context):
         try:
+            if self.native and self.independent:
+                from . import source_displacement
+                source_displacement.create_faces(context)
+                return {'FINISHED'}
             if not self.independent:create(context,independent=False)
             else:
                 source=context.object;bm=bmesh.from_edit_mesh(source.data);bm.faces.index_update()

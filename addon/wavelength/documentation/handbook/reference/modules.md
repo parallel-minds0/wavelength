@@ -20,11 +20,23 @@ Local, incremental engine asset metadata. No game data enters releases.
 
 {source}`addon/wavelength/source/asset_index.py`
 
+## addon/wavelength/source/asset_loading.py
+
+Progressive map previews: pure decoding off-process, Blender data on the UI thread.
+
+{source}`addon/wavelength/source/asset_loading.py`
+
 ## addon/wavelength/source/asset_placement.py
 
 Click-to-paint surfaces and click-to-place entities from the native browser.
 
 {source}`addon/wavelength/source/asset_placement.py`
+
+## addon/wavelength/source/asset_runtime_worker.py
+
+Decode requested map assets in a separate Blender process, without scene edits.
+
+{source}`addon/wavelength/source/asset_runtime_worker.py`
 
 ## addon/wavelength/source/asset_search.py
 
@@ -134,6 +146,15 @@ Blender-only controls for inspecting and sharing add-on diagnostics.
 
 {source}`addon/wavelength/source/diagnostics_ui.py`
 
+## addon/wavelength/source/displacement.py
+
+Source displacement data and geometry, independent of Blender.
+
+Rows follow Valve's start-corner ordering: columns run along corner 0 -> 3,
+rows along 0 -> 1 in Source's clockwise winding (CCW in our mesh adapter).
+
+{source}`addon/wavelength/source/displacement.py`
+
 ## addon/wavelength/source/draw_displacement.py
 
 Export structured drawing grids as exact Source displacement brush faces.
@@ -199,12 +220,18 @@ stock HL1 fields so the UI remains useful out of the box.
 
 ## addon/wavelength/source/entity/icons.py
 
-Editor-only SVG icon references for abstract Half-Life point entities.
+Editor-only, screen-facing SVG sprites for abstract point entities.
 
 The Wavelength HL1 icon pack is parsed directly.  Do not depend on Blender's
-optional SVG import extension: entity visualization must work in a stock build.
+optional SVG import extension: viewport icons are drawn as flat 2D artwork.
 
 {source}`addon/wavelength/source/entity/icons.py`
+
+## addon/wavelength/source/entity/interaction.py
+
+Treat an entity and its editor representation as one selectable/movable unit.
+
+{source}`addon/wavelength/source/entity/interaction.py`
 
 ## addon/wavelength/source/entity/models.py
 
@@ -308,6 +335,33 @@ Isolated Blender process: build preview-only external material libraries.
 
 {source}`addon/wavelength/source/library_worker.py`
 
+## addon/wavelength/source/map_import.py
+
+Cancelable UI import: isolated parsing, validated records, staged scene batches.
+
+{source}`addon/wavelength/source/map_import.py`
+
+## addon/wavelength/source/map_import_worker.py
+
+Parse/validate map files off-process; stream bounded brush records to the UI.
+
+{source}`addon/wavelength/source/map_import_worker.py`
+
+## addon/wavelength/source/map_prepare.py
+
+Pure map validation and geometry preparation, safe in an isolated worker.
+
+{source}`addon/wavelength/source/map_prepare.py`
+
+## addon/wavelength/source/measurements.py
+
+Live Edit Mode edge dimensions in the active profile's display units.
+
+Read the edit BMesh, not the last committed mesh datablock. Draw only screen-space
+text; this never changes Blender's mesh, unit settings, or built-in overlays.
+
+{source}`addon/wavelength/source/measurements.py`
+
 ## addon/wavelength/source/mesh_assets.py
 
 Static mesh/texture handoff for mesh engines, isolated from BSP and entities.
@@ -317,6 +371,12 @@ units there. Never apply modifiers, rewrite shaders or change selection in the
 authoring scene. Completed bundles contain only meshes, materials and images.
 
 {source}`addon/wavelength/source/mesh_assets.py`
+
+## addon/wavelength/source/model_backend_source1.py
+
+Source 1 adapter for the common editable-model contract.
+
+{source}`addon/wavelength/source/model_backend_source1.py`
 
 ## addon/wavelength/source/model_browser.py
 
@@ -336,11 +396,29 @@ Source render meshes for imported models and engine prop previews.
 
 {source}`addon/wavelength/source/model_import.py`
 
+## addon/wavelength/source/model_io.py
+
+Common model asset lifecycle and UI; engines supply import/build adapters.
+
+{source}`addon/wavelength/source/model_io.py`
+
 ## addon/wavelength/source/model_materials.py
 
 Convert supported Blender model materials to owned VMT/VTF dependencies.
 
 {source}`addon/wavelength/source/model_materials.py`
+
+## addon/wavelength/source/model_pipeline.py
+
+Engine-neutral model backend registry. No Blender or engine dependencies.
+
+{source}`addon/wavelength/source/model_pipeline.py`
+
+## addon/wavelength/source/model_skeleton.py
+
+Materialize engine-decoded skeletons as ordinary Blender bones/actions.
+
+{source}`addon/wavelength/source/model_skeleton.py`
 
 ## addon/wavelength/source/model_smd.py
 
@@ -353,6 +431,15 @@ Evaluate editable Blender sources into reference SMD and scene-frame clips.
 Render a small batch of Source model thumbnails in a separate Blender process.
 
 {source}`addon/wavelength/source/model_thumbnail_worker.py`
+
+## addon/wavelength/source/native_source.py
+
+Source asset bindings; payload parsing and drawing belong to native C++.
+
+These properties name original mounted assets, never serialized mesh/pixel data.
+The ordinary Python importer remains available on stock Blender builds.
+
+{source}`addon/wavelength/source/native_source.py`
 
 ## addon/wavelength/source/native_ui.py
 
@@ -380,6 +467,12 @@ selects profile output parts and evaluates/attaches graphs at Blender boundaries
 Versioned straight-stair Geometry Nodes assets. Python builds graphs, not vertices.
 
 {source}`addon/wavelength/source/node_stairs.py`
+
+## addon/wavelength/source/object_index.py
+
+Small role indexes for timers; unchanged maps should not be walked at 10 Hz.
+
+{source}`addon/wavelength/source/object_index.py`
 
 ## addon/wavelength/source/paths.py
 
@@ -450,6 +543,24 @@ Engine authoring profiles.  Tools read units/behavior from the active profile.
 
 {source}`addon/wavelength/source/profiles.py`
 
+## addon/wavelength/source/render_bundle.py
+
+An isolated render-asset transaction; only the completed bundle reaches the map.
+
+{source}`addon/wavelength/source/render_bundle.py`
+
+## addon/wavelength/source/render_bundle_worker.py
+
+Prepare each unique render asset and write one shared Blender library.
+
+{source}`addon/wavelength/source/render_bundle_worker.py`
+
+## addon/wavelength/source/render_support.py
+
+Prepare renderer datablocks off-process and publish one coherent asset batch.
+
+{source}`addon/wavelength/source/render_support.py`
+
 ## addon/wavelength/source/resize_gizmo.py
 
 Engine-mode brush boundary resize gizmos.
@@ -459,6 +570,12 @@ boundary while the opposite boundary remains fixed.  The dragged boundary is
 quantized to Wavelength's engine grid during the interaction.
 
 {source}`addon/wavelength/source/resize_gizmo.py`
+
+## addon/wavelength/source/runtime_cache.py
+
+Bounded, disposable decoded-asset cache. Never stores executable pickle data.
+
+{source}`addon/wavelength/source/runtime_cache.py`
 
 ## addon/wavelength/source/scene.py
 
@@ -501,11 +618,35 @@ Read local Source VPK/VMT/VTF assets without extracting game archives.
 
 {source}`addon/wavelength/source/source_assets.py`
 
+## addon/wavelength/source/source_displacement.py
+
+Editable Source displacement surfaces attached to their original brush faces.
+
+The brush remains authoritative for the base quad; the surface owns only grid
+positions, blend values and triangle attributes. Neither is regenerated on edit.
+
+{source}`addon/wavelength/source/source_displacement.py`
+
+## addon/wavelength/source/source_pose.py
+
+Source QAngle poses: Rz(yaw) @ Ry(pitch) @ Rx(roll), in map axes.
+
+{source}`addon/wavelength/source/source_pose.py`
+
 ## addon/wavelength/source/source_tools.py
 
 Source 1 toolchain boundaries; runtime platform is separate from compiler host.
 
 {source}`addon/wavelength/source/source_tools.py`
+
+## addon/wavelength/source/studio_animation.py
+
+Source skeletal animation decoder based on Valve's public studio layout.
+
+No Blender dependency. Unsupported runtime blend/IK graphs fail explicitly;
+ordinary compressed bone tracks and external animation blocks are sampled.
+
+{source}`addon/wavelength/source/studio_animation.py`
 
 ## addon/wavelength/source/studio_model.py
 
@@ -536,6 +677,15 @@ Blender Collections remain artist-owned.  This module never moves or links objec
 it only derives engine-facing categories from existing Wavelength metadata.
 
 {source}`addon/wavelength/source/system_tree.py`
+
+## addon/wavelength/source/system_tree_view.py
+
+Engine-category inspector in the right-hand workspace stack.
+
+Uses a dedicated Properties space, with native panels suppressed only in that
+space. The regular Properties editor and artist-owned Collections stay intact.
+
+{source}`addon/wavelength/source/system_tree_view.py`
 
 ## addon/wavelength/source/terrain.py
 
@@ -618,7 +768,7 @@ Engine-facing scene validation for the pre-alpha.
 
 ## addon/wavelength/source/vmf.py
 
-Source 1 VMF brush/point/brush-entity interchange. No displacement conversion.
+Source 1 VMF interchange, including displacements and hidden containers.
 
 {source}`addon/wavelength/source/vmf.py`
 
@@ -630,6 +780,12 @@ Independent implementation using id's published WAD/miptex/PAK structures.
 No game assets or palettes are distributed with this module.
 
 {source}`addon/wavelength/source/wad.py`
+
+## addon/wavelength/source/worker_status.py
+
+Single-writer progress journal; readers never block a file replacement.
+
+{source}`addon/wavelength/source/worker_status.py`
 
 ## addon/wavelength/source/workspace.py
 

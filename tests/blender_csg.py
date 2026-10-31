@@ -104,18 +104,18 @@ try:
     roots=[]
     for i in range(2):
         assert bpy.ops.wavelength.primitive(kind='CUBE',width=32,run=32,depth=32)=={'FINISHED'}
-        root=primitive_ui.root_for(ctx.object);primitive_ui.finalize(root,ctx);roots.append(root)
+        root=primitive_ui.root_for(ctx.object);primitive_ui.finalize(root,ctx);roots.append(ctx.object)
     roots[0].location.x+=16*.0254;ctx.view_layer.update()
     bpy.ops.object.select_all(action='DESELECT')
-    primitive_ui.select_assembly(roots[0],ctx);primitive_ui.select_assembly(roots[1],ctx)
-    assert len(ctx.selected_objects)==4,len(ctx.selected_objects)
+    roots[0].select_set(True);roots[1].select_set(True);ctx.view_layer.objects.active=roots[1]
+    assert len(ctx.selected_objects)==2,len(ctx.selected_objects)
     target,cutter=csg.operands(ctx)
-    assert target.parent==roots[1] and cutter.parent==roots[0]
+    assert target==roots[1] and cutter==roots[0]
     assert bpy.ops.wavelength.csg(operation='DIFFERENCE')=={'FINISHED'}
     ctx.view_layer.objects.active=roots[1]
     assert csg._target(ctx)==target
     assert bpy.ops.wavelength.csg_finish()=={'FINISHED'}
-    print('PASS two finalized cube assemblies resolve four selected IDs to two mesh operands',flush=True)
+    print('PASS two finalized plain brushes resolve to two mesh operands',flush=True)
     addon_utils.disable('wavelength',default_set=False);addon_utils.enable('wavelength',default_set=False)
     assert hasattr(bpy.ops.wavelength,'csg')
     print('PASS CSG registration lifecycle',flush=True)

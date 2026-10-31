@@ -29,9 +29,9 @@ def attach(obj,axis):
     result=bpy.ops.wavelength.displacement_from_face(independent=False);assert result=={'FINISHED'},result
     return ctx.object
 
-source=brush('floor');data=[v.co.copy() for v in source.data.vertices];faces=[list(p.vertices) for p in source.data.polygons]
+source=brush('floor');data=[source.matrix_world@v.co for v in source.data.vertices];faces=[list(p.vertices) for p in source.data.polygons]
 obj=attach(source,(0,0,1));assert obj.get('wl_terrain') and obj.parent==source
-assert all((a-b.co).length<1e-8 for a,b in zip(data,source.data.vertices));assert faces==[list(p.vertices) for p in source.data.polygons]
+assert all((a-source.matrix_world@b.co).length<1e-6 for a,b in zip(data,source.data.vertices));assert faces==[list(p.vertices) for p in source.data.polygons]
 ctx.view_layer.update();evaluated=source.evaluated_get(ctx.evaluated_depsgraph_get());mesh=evaluated.to_mesh();assert len(mesh.polygons)==5;evaluated.to_mesh_clear()
 terrain_paint.stroke(obj,Vector((0,0,0)),'RAISE',2,.25,1)
 terrain_paint.stroke(obj,Vector((0,0,0)),'TEXTURE',2,.25,.8)

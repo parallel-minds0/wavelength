@@ -49,8 +49,12 @@ def read(mdl,vvd,vtx,skin=0,body=0):
         d.array(start+first*48,n,48);ids.extend(range(first,first+n))
     if not fixcount:ids=list(range(len(d.array(start,count,48))))
     if len(ids)!=count:raise ValueError('VVD fixup count does not match LOD zero')
-    vertices=[];normals=[];uvs=[]
+    vertices=[];normals=[];uvs=[];weights=[]
     for index in ids:
+        wp=start+index*48
+        values_w=d.get('3f3BB',wp);influences=values_w[-1]
+        if influences>3:raise ValueError('Invalid VVD bone influence count')
+        weights.append([(values_w[3+i],values_w[i]) for i in range(influences)])
         values=d.get('8f',start+index*48+16)
         if not all(math.isfinite(x) for x in values):raise ValueError('Non-finite model vertex')
         vertices.append(values[:3]);normals.append(values[3:6]);uvs.append((values[6],1-values[7]))
@@ -105,7 +109,7 @@ def read(mdl,vvd,vtx,skin=0,body=0):
                         if len(faces)>LIMIT:raise ValueError('Source model exceeds triangle limit')
     if not faces:raise ValueError('Selected model body has no renderable triangles')
     used=sorted({i for f in faces for i in f});remap={old:new for new,old in enumerate(used)}
-    return dict(vertices=[vertices[i] for i in used],normals=[normals[i] for i in used],uvs=[uvs[i] for i in used],faces=[tuple(remap[i] for i in f) for f in faces],slots=slots,materials=materials,directories=directories,static=bool(m.integer(152)&16),skins=max(1,numskins),checksum=checksum)
+    return dict(vertices=[vertices[i] for i in used],normals=[normals[i] for i in used],uvs=[uvs[i] for i in used],weights=[weights[i] for i in used],faces=[tuple(remap[i] for i in f) for f in faces],slots=slots,materials=materials,directories=directories,static=bool(m.integer(152)&16),skins=max(1,numskins),checksum=checksum)
 
 
 def load(assets,path,skin=0,body=0):

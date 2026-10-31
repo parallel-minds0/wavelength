@@ -33,28 +33,28 @@ def assign_brushes(context,material):
         if result!={'FINISHED'}:raise ValueError('Texture assignment did not finish')
 
 def assign_material(context,material):
-    from . import primitive_ui,asset_browser
+    """Browser Apply uses the same assignment path as viewport stamps/drops."""
+    from . import primitive_ui,asset_placement
     with viewport(context):
         ctx=bpy.context;edit=ctx.mode=='EDIT_MESH'
+        scope=asset_placement.resolved_scope(ctx)
         objects=list(ctx.objects_in_mode_unique_data) if edit else list(ctx.selected_objects)
-        if not objects:raise ValueError('Select mesh objects or faces in the viewport')
-        if any(o.get('wl_role')=='BRUSH' or primitive_ui.root_for(o) for o in objects):assign_brushes(ctx,material)
+        targets=[];seen=set()
         for obj in objects:
-            if obj.type!='MESH' or obj.get('wl_role')=='BRUSH' or primitive_ui.root_for(obj):continue
-            slot=next((i for i,m in enumerate(obj.data.materials) if m==material),None)
-            if slot is None:slot=len(obj.data.materials);obj.data.materials.append(material)
-            if edit:
-                import bmesh
-                bm=bmesh.from_edit_mesh(obj.data)
-                for face in bm.faces:
-                    if face.select:face.material_index=slot
-                bmesh.update_edit_mesh(obj.data)
-            else:
-                for face in obj.data.polygons:face.material_index=slot
-            if obj.get('wl_terrain'):
-                from . import terrain
-                terrain.sync_material(obj,force=True)
-            else:asset_browser._ensure_mesh_uv(obj)
+            root=primitive_ui.root_for(obj)
+            candidates=primitive_ui.parts_for(root) if root and root.get('wl_assembly_locked',True) and not edit else [obj]
+            for target in candidates:
+                if target.type=='MESH' and target.as_pointer() not in seen:
+                    seen.add(target.as_pointer());targets.append(target)
+        if not targets:raise ValueError('Select mesh objects or faces in the viewport')
+        if not edit and scope=='SURFACE':
+            raise ValueError('Enter Edit Mode and select faces, or click a surface in the viewport')
+        if edit and scope!='OBJECT':
+            import bmesh
+            targets=[o for o in targets if any(f.select and not f.hide for f in bmesh.from_edit_mesh(o.data).faces)]
+            if not targets:raise ValueError('Select at least one visible face')
+        for target in targets:
+            asset_placement.paint(ctx,target,-1,material,'SELECTED' if edit and scope!='OBJECT' else 'OBJECT')
 
 def sample(context,obj,index,kind='AUTO'):
     s=context.scene.wavelength;owner=obj
@@ -87,6 +87,8 @@ def sample(context,obj,index,kind='AUTO'):
     s.texture=name;s.shift_u=projection[0];s.shift_v=projection[1];s.texture_rotation=projection[2];s.texture_scale_u=projection[3];s.texture_scale_v=projection[4]
     context.scene['_wl_asset_clipboard']=json.dumps(dict(engine=s.engine,category='MATERIAL',path=name))
     s.asset_browser_section='TEXTURES';s.status='Holding texture: '+name
+    from . import asset_browser
+    asset_browser.reveal_texture(context,name,mat)
 
 class WL_OT_pick(bpy.types.Operator):
     bl_idname='wavelength.pick_asset';bl_label='Pick Texture or Entity';bl_description='Click a face or entity in the viewport to hold its texture or entity class; Esc cancels'

@@ -1,5 +1,25 @@
 # Visual geometry debugging
 
+## Edit Mode measurements
+
+In the wavelength workspace, selected mesh edges show their lengths next to the
+edges while in **Edit Mode**. Labels face the viewport and update during vertex
+editing and transforms, including scaled objects and multi-object editing.
+Profile grid mode displays engine units (`u`), using the active profile's meters
+per engine unit. Metric grid mode displays meters (`m`). Changing the grid step
+changes snapping increments, not the unit represented by a length label.
+
+Use **Map Grid & Snapping → Edge Measurements** to toggle the labels. They also
+hide when leaving Edit Mode/wavelength, disabling overlays, suspending editing,
+or entering Clean Preview. Small projected edges and overlapping labels are
+suppressed to keep the viewport readable. These labels measure selected edit-mesh
+edges, not evaluated modifier output.
+
+```{screenshot} edit-edge-measurements
+:alt: Selected brush edges labelled with lengths in engine units
+Capture a selected cube in Edit Mode with engine-unit dimensions beside its edges.
+```
+
 Open the viewport sidebar (**N**) → **wavelength** → **Geometry Problems**.
 Choose **Check Geometry** to scan exported brushes. **Validate Map**, **Map
 Problems**, and **Diagnostics → Show Geometry Problems** also populate the display.

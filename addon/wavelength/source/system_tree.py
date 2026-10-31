@@ -6,6 +6,7 @@ it only derives engine-facing categories from existing Wavelength metadata.
 import json
 
 import bpy
+from bpy.app.handlers import persistent
 
 from . import profiles
 
@@ -54,9 +55,11 @@ def is_sky(obj, engine):
 def category(obj, engine):
     role = obj.get('wl_role')
     if role == 'MODEL_REFERENCE':
+        if obj.parent and classname(obj.parent).casefold().startswith('prop_'):return None
         return 'MODEL_REFERENCES'
     if role == 'ENTITY':
-        return 'POINT_ENTITIES'
+        return 'PROPS' if classname(obj).casefold().startswith('prop_') else 'POINT_ENTITIES'
+    if role == 'DISPLACEMENT':return 'DISPLACEMENTS'
     if role != 'BRUSH':
         return None
     special=special_kind(obj,engine)
@@ -75,13 +78,29 @@ CATEGORIES = (
     ('DETAIL_BRUSHES', 'Detail Brushes', 'MODIFIER'),
     ('SKY', 'Sky', 'WORLD'),
     ('SPECIAL_GEOMETRY', 'Special / Utility Geometry', 'MOD_WIREFRAME'),
+    ('DISPLACEMENTS', 'Displacements', 'MOD_DISPLACE'),
+    ('PROPS', 'Props', 'OUTLINER_OB_MESH'),
     ('POINT_ENTITIES', 'Point Entities', 'EMPTY_ARROWS'),
     ('BRUSH_ENTITIES', 'Brush Entities', 'OUTLINER_OB_MESH'),
     ('MODEL_REFERENCES', 'Model References', 'OUTLINER_COLLECTION'),
 )
 
 
+_group_cache = {}
+_visibility_cache = {}
+
+
+@persistent
+def invalidate_groups(*_):
+    """Scene edits invalidate classification; viewport redraws do not."""
+    _group_cache.clear()
+    _visibility_cache.clear()
+
+
 def groups(scene):
+    stamp = (scene.as_pointer(), scene.wavelength.engine, len(scene.objects))
+    if stamp in _group_cache:
+        return _group_cache[stamp]
     result = {key: [] for key, _label, _icon in CATEGORIES}
     engine = scene.wavelength.engine
     for obj in scene.objects:
@@ -90,6 +109,7 @@ def groups(scene):
             result[key].append(obj)
     for objects in result.values():
         objects.sort(key=lambda obj: obj.name.casefold())
+    _group_cache[stamp] = result
     return result
 
 
@@ -121,7 +141,14 @@ def object_hidden(obj, view_layer=None):
 
 
 def set_object_hidden(obj, hidden, view_layer=None):
+    for child in obj.children:
+        if child.get('wl_model_reference') or child.get('wl_entity_icon_reference'):
+            set_object_hidden(child,hidden,view_layer)
     try:
+        # The visibility watcher also runs when nothing changed. Reapplying a
+        # hide flag tags Blender's dependency graph and invalidates the viewport.
+        if object_hidden(obj, view_layer) == bool(hidden):
+            return
         if view_layer:
             obj.hide_set(bool(hidden), view_layer=view_layer)
         else:
@@ -141,8 +168,11 @@ def set_category_hidden(scene, key, hidden, view_layer=None):
         set_object_hidden(obj, hidden, view_layer)
 
 
-def category_visibility(scene, key, view_layer=None):
-    objects = groups(scene).get(key, [])
+def category_visibility(scene, key, view_layer=None, *, objects=None):
+    # A tree redraw already classified the scene. Reuse that group instead of
+    # rescanning and sorting the entire map once for every category's eye icon.
+    if objects is None:
+        objects = groups(scene).get(key, [])
     if not objects:
         return 'EMPTY'
     states = [not object_hidden(obj, view_layer) for obj in objects]
@@ -151,6 +181,14 @@ def category_visibility(scene, key, view_layer=None):
     if any(states):
         return 'MIXED'
     return 'HIDDEN'
+
+
+def tree_visibility(scene, key, view_layer, objects):
+    """Reuse eye states until a dependency-graph edit changes visibility."""
+    stamp = (scene.as_pointer(), view_layer.as_pointer(), key)
+    if stamp not in _visibility_cache:
+        _visibility_cache[stamp] = category_visibility(scene, key, view_layer, objects=objects)
+    return _visibility_cache[stamp]
 
 
 def _visibility_tick():
@@ -175,6 +213,9 @@ def _visibility_tick():
                     for obj in objects:
                         set_object_hidden(obj, False)
                     hidden_keys.discard(key); changed = True
+                else:
+                    # A delayed model preview must inherit its hidden entity.
+                    for obj in objects:set_object_hidden(obj, True)
             if changed:
                 _set_hidden_categories(scene, hidden_keys)
     except (ReferenceError, RuntimeError, AttributeError):
@@ -183,11 +224,23 @@ def _visibility_tick():
 
 
 def register():
+    invalidate_groups()
+    for handlers in (bpy.app.handlers.depsgraph_update_post, bpy.app.handlers.load_post,
+                     bpy.app.handlers.undo_post, bpy.app.handlers.redo_post):
+        if invalidate_groups not in handlers:handlers.append(invalidate_groups)
+    from . import system_tree_view
+    system_tree_view.register()
     if not bpy.app.timers.is_registered(_visibility_tick):
         bpy.app.timers.register(_visibility_tick, first_interval=_VIS_POLL_SECONDS, persistent=True)
 
 
 def unregister():
+    for handlers in (bpy.app.handlers.depsgraph_update_post, bpy.app.handlers.load_post,
+                     bpy.app.handlers.undo_post, bpy.app.handlers.redo_post):
+        if invalidate_groups in handlers:handlers.remove(invalidate_groups)
+    invalidate_groups()
+    from . import system_tree_view
+    system_tree_view.unregister()
     if bpy.app.timers.is_registered(_visibility_tick):
         bpy.app.timers.unregister(_visibility_tick)
 
@@ -195,6 +248,10 @@ SPECIAL_TEXTURES_GOLDSRC={'sky':'SKY','clip':'CLIP','origin':'ORIGIN','aaatrigge
 SPECIAL_TEXTURES_QUAKE={'sky':'SKY','clip':'CLIP','trigger':'TRIGGER','hint':'HINT','skip':'SKIP','*water':'LIQUID','*lava':'LIQUID','*slime':'LIQUID'}
 
 def special_kind(obj,engine):
-    names=brush_textures(obj);table=SPECIAL_TEXTURES_GOLDSRC if profiles.is_goldsrc(engine) else SPECIAL_TEXTURES_QUAKE if engine=='quake' else {}
+    table=SPECIAL_TEXTURES_GOLDSRC if profiles.is_goldsrc(engine) else SPECIAL_TEXTURES_QUAKE if engine=='quake' else {}
+    # Source has no classification rules in these legacy texture tables. Do not
+    # decode every brush's face JSON merely to compare it against an empty table.
+    if not table:return ''
+    names=brush_textures(obj)
     kinds={kind for tex,kind in table.items() if any(name==tex or (tex.startswith('*') and name.startswith(tex)) for name in names)}
     return sorted(kinds)[0] if kinds else ''

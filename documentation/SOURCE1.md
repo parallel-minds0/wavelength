@@ -1,3 +1,13 @@
+# Current Source displacement workflow
+
+Source 1 displacement import, native editing, painting, sewing and metadata-preserving
+VMF export are supported. See the [Source displacement guide](user/source-displacements.md).
+An untouched coast map with 211 displacements has passed a complete scene/VMF round
+trip; a native-export fixture has also passed HL2 VBSP and compiled-vertex checks.
+
+The versioned milestone notes below are historical; their initial displacement
+import rejection and independent-surface creation behavior have been superseded.
+
 # v0.11.3 verified milestone
 
 A fresh sealed room containing stairs, an arch and an 80-face sphere compiles through Blender's Build Map operator and reaches visible gameplay in the installed Linux HL2. The fixture is `addon/wavelength/environment/maps/wavelength_playable.vmf`; regenerate the local textured .blend/BSP with `tests/blender_hl2_playable.py` using Blender in background mode. This opt-in test requires the installed game and Source compiler tools.
@@ -54,7 +64,7 @@ A self-authored sealed-room fixture is in
 
 ## Unsupported or unverified
 
-Displacements, hidden/unsupported geometry blocks and active cordons are rejected
+In the initial milestone, displacements, hidden/unsupported geometry blocks and active cordons were rejected
 rather than silently discarded. Model rendering, full FGD dialect support,
 instances/prefabs, overlays/side-ID remapping, Source I/O authoring UI, VPK/VTF
 asset rendering, automatic Proton prefixes and Source 2 are not provided.
@@ -107,11 +117,10 @@ suite does not need proprietary game files.
 ### Remaining scope, not full Hammer parity
 
 The new features supersede the previous VTF-preview, I/O-editor and side-ID-remap
-limitations above. Displacements, model mesh/animation previews, instance expansion,
+limitations above. The historical remaining scope included displacements, model mesh/animation previews, instance expansion,
 full FGD dialect coverage, visual overlay placement, advanced shader rendering
 (blends/proxies/reflections), volume/cubemap/unsupported VTF formats and automatic
-Proton-prefix provisioning remain incomplete. Unsupported displacement imports
-are still rejected, not flattened. The Windows profile's VMF/build argument paths
+Proton-prefix provisioning. Displacement import is now supported; see the current guide above. The Windows profile's VMF/build argument paths
 are tested; Windows/Proton game execution has not been certified by Linux tests.
 
 Format references: [Valve VTF structures](https://github.com/ValveSoftware/source-sdk-2013/blob/master/src/public/vtf/vtf.h),

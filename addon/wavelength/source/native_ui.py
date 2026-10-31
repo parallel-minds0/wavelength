@@ -16,6 +16,7 @@ class WL_PT_grid(bpy.types.Panel):
     bl_label = 'Map Grid & Snapping'
     bl_space_type = 'VIEW_3D'
     bl_region_type = 'HEADER'
+    bl_ui_units_x = 20
 
     @classmethod
     def poll(cls, context):
@@ -27,10 +28,15 @@ class WL_PT_grid(bpy.types.Panel):
         l.use_property_split = True
         l.prop(s, 'grid_mode', expand=True)
         row = l.row(align=True)
+        row.use_property_split = False
         row.operator('wavelength.grid_step', text='−').direction = -1
-        row.prop(s, 'grid_step' if grid.engine_enabled(s) else 'metric_grid_step', text='Spacing')
+        row.prop(s, 'grid_step' if grid.engine_enabled(s) else 'metric_grid_step',
+                 text='Spacing (units)' if grid.engine_enabled(s) else 'Spacing (m)')
         row.operator('wavelength.grid_step', text='+').direction = 1
-        l.prop(s, 'grid_subdivisions')
+        l.prop(s, 'effective_grid_subdivisions')
+        if s.grid_subdivisions == 0:
+            l.label(text='Subdivisions: profile default')
+        l.prop(s, 'show_edge_measurements')
         if s.engine == 'blender':
             l.prop(s, 'snap_to_grid')
         for feature, label in (('grid', 'Map Grid'), ('snapping', 'Map Snapping')):

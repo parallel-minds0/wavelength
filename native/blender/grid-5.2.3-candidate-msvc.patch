@@ -54,6 +54,154 @@ index eedb53cc..4d2d2bec 100644
    if (!MAIN_VERSION_FILE_ATLEAST(bmain, 502, 1)) {
      for (Scene &scene : bmain->scenes) {
        scene.r.mode |= R_SAVE_OUTPUT;
+diff --git a/source/blender/draw/CMakeLists.txt b/source/blender/draw/CMakeLists.txt
+index 305edd0a..dca99e7c 100644
+--- a/source/blender/draw/CMakeLists.txt
++++ b/source/blender/draw/CMakeLists.txt
+@@ -24,6 +24,9 @@ set(INC_SYS
+ 
+ set(SRC
+   intern/attribute_convert.cc
++  intern/draw_source_assets.cc
++  draw_source_assets.hh
++  source1_assets.hh
+   intern/draw_cache.cc
+   intern/draw_cache_extract_mesh.cc
+   intern/draw_cache_extract_mesh_render_data.cc
+@@ -685,6 +688,8 @@ set(GLSL_SRC
+   engines/overlay/shaders/overlay_extra_loose_point_frag.glsl
+   engines/overlay/shaders/overlay_extra_loose_point_vert.glsl
+   engines/overlay/shaders/overlay_extra_point_vert.glsl
++  engines/overlay/shaders/overlay_wavelength_sprite_vert.glsl
++  engines/overlay/shaders/overlay_wavelength_sprite_frag.glsl
+   engines/overlay/shaders/overlay_extra_vert.glsl
+   engines/overlay/shaders/overlay_extra_wire_frag.glsl
+   engines/overlay/shaders/overlay_extra_wire_vert.glsl
+diff --git a/source/blender/draw/engines/overlay/overlay_empty.hh b/source/blender/draw/engines/overlay/overlay_empty.hh
+index 4fa5ab40..bb141abd 100644
+--- a/source/blender/draw/engines/overlay/overlay_empty.hh
++++ b/source/blender/draw/engines/overlay/overlay_empty.hh
+@@ -9,6 +9,9 @@
+ #pragma once
+ 
+ #include "DRW_render.hh"
++#include "BKE_idprop.hh"
++#include "GPU_batch_utils.hh"
++#include <cmath>
+ #include "overlay_base.hh"
+ #include "overlay_image.hh"
+ 
+@@ -37,6 +40,59 @@ class Empties : Overlay {
+   PassSortable images_blend_ps_ = {"images_blend_ps_"};
+ 
+   PassSimple ps_ = {"Empties"};
++  PassSimple sprite_ps_ = {"wavelength Entity Glyphs"};
++  struct SpriteVertex {
++    float3 pos;
++    float4 color;
++    GPU_VERTEX_FORMAT_FUNC(SpriteVertex, pos, color);
++  };
++  struct SpriteBatch {
++    gpu::Batch *batch = nullptr;
++    ShapeInstanceBuf<ExtraInstanceData> instances;
++    explicit SpriteBatch(SelectionType type) : instances(type, "wavelength glyph instances") {}
++    ~SpriteBatch() { GPU_BATCH_DISCARD_SAFE(batch); }
++  };
++  Map<uint, std::unique_ptr<SpriteBatch>> sprite_cache_;
++
++  bool sprite_sync(const ObjectRef &ob_ref, const select::ID select_id, const State &state)
++  {
++    Object *ob = ob_ref.object;
++    IDProperty *ref = ob->id.properties ? IDP_GetPropertyFromGroup(ob->id.properties, "wl_native_sprite") : nullptr;
++    if (!ref || ref->type != IDP_ID) { return false; }
++    if (!state.v3d->_pad_wavelength) { return true; }
++    ID *shape = IDP_ID_get(ref);
++    if (!shape || !shape->properties) { return true; }
++    IDProperty *vertices = IDP_GetPropertyFromGroup(shape->properties, "wl_svg_triangles");
++    if (!vertices || vertices->type != IDP_ARRAY ||
++        !ELEM(vertices->subtype, IDP_FLOAT, IDP_DOUBLE) || vertices->len <= 0 ||
++        vertices->len % 7 || vertices->len > 3500000) { return true; }
++    auto &entry = sprite_cache_.lookup_or_add_cb(shape->session_uid, [&]() {
++      auto value = std::make_unique<SpriteBatch>(call_buffers_.selection_type_);
++      const int count = vertices->len / 7;
++      Vector<SpriteVertex> data;
++      data.reserve(count);
++      const auto component = [&](int i) {
++        return vertices->subtype == IDP_FLOAT ? IDP_array_float_get(vertices)[i] : float(IDP_array_double_get(vertices)[i]);
++      };
++      for (int i = 0; i < count; i++) {
++        SpriteVertex v;
++        v.pos = float3(component(i*7), component(i*7+1), component(i*7+2));
++        v.color = float4(component(i*7+3), component(i*7+4), component(i*7+5), component(i*7+6));
++        if (!std::isfinite(v.pos.x) || !std::isfinite(v.pos.y)) { return value; }
++        data.append(v);
++      }
++      gpu::VertBuf *vbo = GPU_vertbuf_create_with_format(SpriteVertex::format());
++      GPU_vertbuf_data_alloc(*vbo, data.size());
++      vbo->data<SpriteVertex>().copy_from(data);
++      value->batch = GPU_batch_create_ex(GPU_PRIM_TRIS, vbo, nullptr, GPU_BATCH_OWNS_VBO);
++      return value;
++    });
++    if (entry->batch) {
++      entry->instances.append(ExtraInstanceData(ob->object_to_world(), float4(1.0f), 46.0f), select_id);
++    }
++    return true;
++  }
++
+ 
+   struct CallBuffers {
+     const SelectionType selection_type_;
+@@ -96,6 +152,7 @@ class Empties : Overlay {
+     init_sortable(images_front_ps_, draw_state);
+ 
+     begin_sync(call_buffers_);
++    for (auto &entry : sprite_cache_.values()) { entry->instances.clear(); }
+   }
+ 
+   static void begin_sync(CallBuffers &call_buffers)
+@@ -121,6 +178,7 @@ class Empties : Overlay {
+ 
+     const float4 color = res.object_wire_color(ob_ref, state);
+     const select::ID select_id = res.select_id(ob_ref);
++    if (sprite_sync(ob_ref, select_id, state)) { return; }
+     if (ob_ref.object->empty_drawtype == OB_EMPTY_IMAGE) {
+       image_sync(ob_ref, select_id, manager, res, state, call_buffers_.image_buf);
+       return;
+@@ -184,6 +242,18 @@ class Empties : Overlay {
+     ps_.init();
+     res.select_bind(ps_);
+     end_sync(res, state, ps_, call_buffers_);
++    sprite_ps_.init();
++    sprite_ps_.state_set(DRW_STATE_WRITE_COLOR | DRW_STATE_BLEND_ALPHA, state.clipping_plane_count);
++    sprite_ps_.shader_set(res.shaders->wavelength_sprite.get());
++    sprite_ps_.bind_ubo(OVERLAY_GLOBALS_SLOT, &res.globals_buf);
++    sprite_ps_.bind_ubo(DRW_CLIPPING_UBO_SLOT, &res.clip_planes_buf);
++    res.select_bind(sprite_ps_);
++    for (auto &entry : sprite_cache_.values()) {
++      if (entry->batch) {
++        PassSimple::Sub &sub = sprite_ps_.sub("glyph");
++        entry->instances.end_sync(sub, entry->batch);
++      }
++    }
+   }
+ 
+   static void end_sync(Resources &res,
+@@ -229,6 +299,7 @@ class Empties : Overlay {
+ 
+     GPU_framebuffer_bind(framebuffer);
+     manager.submit(ps_, view);
++    if (call_buffers_.selection_type_ != SelectionType::DISABLED) { manager.submit(sprite_ps_, view); }
+   }
+ 
+   void draw_background_images(Framebuffer &framebuffer, Manager &manager, View &view)
+@@ -262,6 +333,7 @@ class Empties : Overlay {
+     GPU_framebuffer_bind(framebuffer);
+ 
+     manager.submit_only(images_front_ps_, view);
++    manager.submit(sprite_ps_, view);
+   }
+ 
+  private:
 diff --git a/source/blender/draw/engines/overlay/overlay_grid.hh b/source/blender/draw/engines/overlay/overlay_grid.hh
 index 4263e93c..6b951244 100644
 --- a/source/blender/draw/engines/overlay/overlay_grid.hh
@@ -96,6 +244,18 @@ index 4263e93c..6b951244 100644
  
      /* Set `grid_flag_` dependent on view configuration. */
      if (rv3d->is_persp || rv3d->view == RV3D_VIEW_USER) {
+diff --git a/source/blender/draw/engines/overlay/overlay_private.hh b/source/blender/draw/engines/overlay/overlay_private.hh
+index 0718a93d..e370127a 100644
+--- a/source/blender/draw/engines/overlay/overlay_private.hh
++++ b/source/blender/draw/engines/overlay/overlay_private.hh
+@@ -536,6 +536,7 @@ class ShaderModule {
+   StaticShader depth_mesh = shader_selectable("overlay_depth_mesh");
+   StaticShader depth_mesh_conservative = shader_selectable("overlay_depth_mesh_conservative");
+   StaticShader depth_pointcloud = shader_selectable("overlay_depth_pointcloud");
++  StaticShader wavelength_sprite = shader_selectable("overlay_wavelength_sprite");
+   StaticShader extra_shape = shader_selectable("overlay_extra");
+   StaticShader extra_point = shader_selectable("overlay_extra_point");
+   StaticShader extra_wire = shader_selectable("overlay_extra_wire");
 diff --git a/source/blender/draw/engines/overlay/overlay_shader_shared.hh b/source/blender/draw/engines/overlay/overlay_shader_shared.hh
 index ab775e57..bf4b05a4 100644
 --- a/source/blender/draw/engines/overlay/overlay_shader_shared.hh
@@ -109,6 +269,37 @@ index ab775e57..bf4b05a4 100644
  };
  
  #ifdef GPU_SHADER
+diff --git a/source/blender/draw/engines/overlay/shaders/infos/overlay_extra_infos.hh b/source/blender/draw/engines/overlay/shaders/infos/overlay_extra_infos.hh
+index d4605501..f1003377 100644
+--- a/source/blender/draw/engines/overlay/shaders/infos/overlay_extra_infos.hh
++++ b/source/blender/draw/engines/overlay/shaders/infos/overlay_extra_infos.hh
+@@ -428,3 +428,26 @@ CREATE_INFO_VARIANT(overlay_particle_hair_selectable_clipped, overlay_particle_h
+ /* clang-format on */
+ 
+ /** \} */
++
++/* Cached, instanced wavelength entity glyphs. Shape data is shared by all
++ * entities; camera-facing projection stays on the GPU during navigation. */
++GPU_SHADER_INTERFACE_INFO(overlay_wavelength_sprite_iface)
++SMOOTH(float4, final_color)
++GPU_SHADER_INTERFACE_END()
++GPU_SHADER_CREATE_INFO(overlay_wavelength_sprite)
++DO_STATIC_COMPILATION()
++TYPEDEF_SOURCE("overlay_shader_shared.hh")
++VERTEX_IN(0, float3, pos)
++VERTEX_IN(1, float4, color)
++VERTEX_OUT(overlay_wavelength_sprite_iface)
++FRAGMENT_OUT(0, float4, frag_color)
++FRAGMENT_OUT(1, float4, line_output)
++VERTEX_SOURCE("overlay_wavelength_sprite_vert.glsl")
++FRAGMENT_SOURCE("overlay_wavelength_sprite_frag.glsl")
++ADDITIONAL_INFO(draw_view)
++ADDITIONAL_INFO(draw_globals)
++STORAGE_BUF(0, read, ExtraInstanceData, data_buf[])
++GPU_SHADER_CREATE_END()
++CREATE_INFO_VARIANT(overlay_wavelength_sprite_selectable, overlay_wavelength_sprite, overlay_select)
++CREATE_INFO_VARIANT(overlay_wavelength_sprite_clipped, overlay_wavelength_sprite, drw_clipped)
++CREATE_INFO_VARIANT(overlay_wavelength_sprite_selectable_clipped, overlay_wavelength_sprite_selectable, drw_clipped)
 diff --git a/source/blender/draw/engines/overlay/shaders/infos/overlay_grid_infos.hh b/source/blender/draw/engines/overlay/shaders/infos/overlay_grid_infos.hh
 index 98e9b7e2..919ae679 100644
 --- a/source/blender/draw/engines/overlay/shaders/infos/overlay_grid_infos.hh
@@ -122,7 +313,7 @@ index 98e9b7e2..919ae679 100644
  VERTEX_IN(0, float3, pos)
  VERTEX_OUT(overlay_grid_iface)
 diff --git a/source/blender/draw/engines/overlay/shaders/overlay_grid_frag.glsl b/source/blender/draw/engines/overlay/shaders/overlay_grid_frag.glsl
-index 57dec2e2..7ea3c6a3 100644
+index 57dec2e2..9060e37e 100644
 --- a/source/blender/draw/engines/overlay/shaders/overlay_grid_frag.glsl
 +++ b/source/blender/draw/engines/overlay/shaders/overlay_grid_frag.glsl
 @@ -18,8 +18,57 @@ bool is_equal(float2 a, float2 b, float epsilon)
@@ -156,14 +347,14 @@ index 57dec2e2..7ea3c6a3 100644
 +  float minor = parent / grid_buf.wavelength.z;
 +  float selected = wavelength_coverage(p, footprint, parent) * smoothstep(2.0f, 6.0f, parent / pixel_world);
 +  float grey = wavelength_coverage(p, footprint, minor) * smoothstep(2.0f, 6.0f, minor / pixel_world);
-+  float alpha = max(selected * 0.65f, grey * 0.28f);
++  float alpha = max(selected * 0.26f, grey * 0.10f);
 +  float2 axes = axis == 2 ? float2(flag_test(grid_flag, AXIS_Y),flag_test(grid_flag, AXIS_X)) :
 +                (axis == 1 ? float2(flag_test(grid_flag, AXIS_Z),flag_test(grid_flag, AXIS_X)) :
 +                             float2(flag_test(grid_flag, AXIS_Z),flag_test(grid_flag, AXIS_Y)));
 +  float2 axis_coverage = 1.0f - smoothstep(float2(0.25f),float2(1.25f),abs(p)/footprint);
 +  alpha *= 1.0f - max(axis_coverage.x*axes.x,axis_coverage.y*axes.y);
 +  if (alpha < 0.005f) { gpu_discard_fragment(); return; }
-+  out_color = float4(mix(float3(0.43f),float3(1.0f,0.85f,0.10f),selected),alpha);
++  out_color = float4(mix(float3(0.22f,0.43f,0.46f),float3(0.35f,0.75f,0.82f),selected),alpha);
 +  line_output = float4(0.0f);
 +  float4 clip = drw_view().winmat * (drw_view().viewmat * float4(world,1.0f));
 +  /* Match Blender's native aligned-view grid ordering. Perspective uses actual
@@ -206,6 +397,189 @@ index ddcc4d96..7b28860f 100644
    gl_Position = float4(NAN_FLT); /* Discard by default. */
    LineData line = flag_test(grid_flag, SHOW_GRID) ? decode_grid_data(gl_VertexID) :
                                                      decode_axis_data(gl_VertexID);
+diff --git a/source/blender/draw/engines/workbench/shaders/workbench_image.bsl.hh b/source/blender/draw/engines/workbench/shaders/workbench_image.bsl.hh
+index e661d742..2ceb3ede 100644
+--- a/source/blender/draw/engines/workbench/shaders/workbench_image.bsl.hh
++++ b/source/blender/draw/engines/workbench/shaders/workbench_image.bsl.hh
+@@ -14,6 +14,7 @@ struct Texture {
+   [[sampler(WB_TILE_DATA_SLOT) /*, frequency(batch)*/]] sampler1DArray imageTileData;
+   [[push_constant]] bool is_image_tile;
+   [[push_constant]] bool image_premult;
++  [[push_constant]] bool image_invert_y;
+   [[push_constant]] float image_transparency_cutoff;
+ };
+ 
+@@ -45,6 +46,7 @@ bool tile_lookup(float3 &co, sampler1DArray map)
+ 
+ float3 image_color([[resource_table]] Texture &srt, float2 uvs)
+ {
++  if (srt.image_invert_y) { uvs.y = 1.0f - uvs.y; }
+   float4 color;
+ 
+   float3 co = float3(uvs, 0.0f);
+diff --git a/source/blender/draw/engines/workbench/workbench_engine.cc b/source/blender/draw/engines/workbench/workbench_engine.cc
+index 9c3786e0..f12a24ec 100644
+--- a/source/blender/draw/engines/workbench/workbench_engine.cc
++++ b/source/blender/draw/engines/workbench/workbench_engine.cc
+@@ -3,6 +3,8 @@
+  * SPDX-License-Identifier: GPL-2.0-or-later */
+ 
+ #include "BLI_rect.h"
++#include "BKE_idprop.hh"
++#include "draw_source_assets.hh"
+ #include "BLI_string.h"
+ 
+ #include "DNA_fluid_types.h"
+@@ -69,6 +71,7 @@ class Instance : public DrawEngine {
+ 
+   /* Used to detect any scene data update. */
+   uint64_t depsgraph_last_update_ = 0;
++  int source_asset_revision_ = -1;
+ 
+   const char *hair_buffer_overflow_error_ = nullptr;
+ 
+@@ -100,6 +103,8 @@ class Instance : public DrawEngine {
+     bool scene_updated = assign_if_different(depsgraph_last_update_,
+                                              DEG_get_update_count(depsgraph));
+ 
++    scene_updated |= assign_if_different(source_asset_revision_, draw::source_assets::revision());
++    scene_updated |= draw::source_assets::pending() != 0;
+     scene_state_.init(this->draw_ctx, scene_updated, camera_ob);
+     shadow_ps_.init(scene_state_, resources_);
+     resources_.init(scene_state_, this->draw_ctx);
+@@ -161,6 +166,35 @@ class Instance : public DrawEngine {
+     }
+ 
+     Object *ob = ob_ref.object;
++    if (ob->type == OB_EMPTY && ob->id.properties &&
++        IDP_GetPropertyFromGroup(ob->id.properties, "wl_source_native_model")) {
++      if (const auto *source = draw::source_assets::model_draw(&ob->id)) {
++        const auto *scale_property = IDP_GetPropertyFromGroup(ob->id.properties, "wl_source_unit");
++        float unit = scale_property && scale_property->type == IDP_DOUBLE ? float(IDP_double_get(scale_property)) : 0.0254f;
++        if (!std::isfinite(unit) || unit <= 0.0f) { return; }
++        float4x4 matrix = ob->object_to_world();
++        for (int i = 0; i < 3; i++) { matrix[i] *= unit; }
++        float3 center(source->center.data()), half(source->half.data());
++        ResourceHandleRange handle = manager.resource_handle(ob_ref, &matrix, &center, &half);
++        for (int i = 0; i < int(source->batches.size()); i++) {
++          if (!source->batches[i]) { continue; }
++          auto native = draw::source_assets::material(source->mounts, source->materials[i], source->directories);
++          MaterialTexture texture;
++          texture.gpu.texture = native.texture;
++          texture.name = source->materials[i].c_str();
++          texture.alpha_cutoff = native.alpha_test;
++          texture.invert_y = true;
++          texture.sampler_state.set_filtering_flag_from_test(GPU_SAMPLER_FILTERING_LINEAR, true);
++          texture.sampler_state.extend_x = GPU_SAMPLER_EXTEND_MODE_REPEAT;
++          texture.sampler_state.extend_yz = GPU_SAMPLER_EXTEND_MODE_REPEAT;
++          Material material(*BKE_material_default_empty());
++          material.base_color = float3(1.0f);
++          const bool textured = scene_state_.shading.color_type == V3D_SHADING_TEXTURE_COLOR;
++          this->draw_mesh(ob_ref, material, source->batches[i], handle, textured ? &texture : nullptr, false);
++        }
++      }
++      return;
++    }
+     if (!DRW_object_is_renderable(ob)) {
+       return;
+     }
+@@ -451,6 +485,7 @@ class Instance : public DrawEngine {
+             gpu::Texture *depth_in_front_tx,
+             gpu::Texture *color_tx)
+   {
++    if (draw::source_assets::pending() || source_asset_revision_ != draw::source_assets::revision()) { DRW_viewport_request_redraw(); }
+     int2 resolution = scene_state_.resolution;
+ 
+     /** Always setup in-front depth, since Overlays can be updated without causing a Workbench
+diff --git a/source/blender/draw/engines/workbench/workbench_materials.cc b/source/blender/draw/engines/workbench/workbench_materials.cc
+index 680c15ae..50cc2a67 100644
+--- a/source/blender/draw/engines/workbench/workbench_materials.cc
++++ b/source/blender/draw/engines/workbench/workbench_materials.cc
+@@ -3,6 +3,8 @@
+  * SPDX-License-Identifier: GPL-2.0-or-later */
+ 
+ #include "workbench_private.hh"
++#include "draw_source_assets.hh"
++#include "BKE_material.hh"
+ 
+ #include "BLI_ghash.h"
+ #include "BLI_hash.h"
+@@ -38,6 +40,19 @@ Material::Material(blender::Object &ob, bool random)
+ 
+ MaterialTexture::MaterialTexture(Object *ob, int material_index)
+ {
++  if (auto *mat = BKE_object_material_get_eval(ob, material_index + 1)) {
++    auto source = draw::source_assets::material(&mat->id);
++    if (source.texture) {
++      gpu.texture = source.texture;
++      sampler_state.set_filtering_flag_from_test(GPU_SAMPLER_FILTERING_LINEAR, true);
++      sampler_state.extend_x = GPU_SAMPLER_EXTEND_MODE_REPEAT;
++      sampler_state.extend_yz = GPU_SAMPLER_EXTEND_MODE_REPEAT;
++      alpha_cutoff = source.alpha_test;
++      invert_y = true;
++      name = mat->id.name;
++      return;
++    }
++  }
+   const blender::bNode *node = nullptr;
+ 
+   blender::Image *image = nullptr;
+diff --git a/source/blender/draw/engines/workbench/workbench_mesh_passes.cc b/source/blender/draw/engines/workbench/workbench_mesh_passes.cc
+index 01199c2e..f189a7f0 100644
+--- a/source/blender/draw/engines/workbench/workbench_mesh_passes.cc
++++ b/source/blender/draw/engines/workbench/workbench_mesh_passes.cc
+@@ -84,6 +84,7 @@ PassMain::Sub &MeshPass::get_subpass(eGeometryType geometry_type,
+       }
+       sub_pass->push_constant("is_image_tile", texture->gpu.tile_mapping != nullptr);
+       sub_pass->push_constant("image_premult", texture->premultiplied);
++      sub_pass->push_constant("image_invert_y", texture->invert_y);
+       /* TODO(@pragma37): This setting should be exposed on the user side,
+        * either as a global parameter (and set it here)
+        * or by reading the Material Clipping Threshold (and set it per material) */
+diff --git a/source/blender/draw/engines/workbench/workbench_private.hh b/source/blender/draw/engines/workbench/workbench_private.hh
+index e59399ee..1f700eed 100644
+--- a/source/blender/draw/engines/workbench/workbench_private.hh
++++ b/source/blender/draw/engines/workbench/workbench_private.hh
+@@ -191,6 +191,7 @@ struct MaterialTexture {
+   ImageGPUTextures gpu = {};
+   GPUSamplerState sampler_state = GPUSamplerState::default_sampler();
+   bool premultiplied = false;
++  bool invert_y = false;
+   bool alpha_cutoff = false;
+ 
+   MaterialTexture() = default;
+diff --git a/source/blender/draw/engines/workbench/workbench_state.cc b/source/blender/draw/engines/workbench/workbench_state.cc
+index bec31ff6..6b485f46 100644
+--- a/source/blender/draw/engines/workbench/workbench_state.cc
++++ b/source/blender/draw/engines/workbench/workbench_state.cc
+@@ -3,6 +3,7 @@
+  * SPDX-License-Identifier: GPL-2.0-or-later */
+ 
+ #include "workbench_private.hh"
++#include "draw_source_assets.hh"
+ 
+ #include "DNA_userdef_types.h"
+ 
+diff --git a/source/blender/draw/intern/draw_context.cc b/source/blender/draw/intern/draw_context.cc
+index 91cf8bae..f8bbc297 100644
+--- a/source/blender/draw/intern/draw_context.cc
++++ b/source/blender/draw/intern/draw_context.cc
+@@ -83,6 +83,7 @@
+ #include "draw_color_management.hh"
+ #include "draw_common_c.hh"
+ #include "draw_context_private.hh"
++#include "draw_source_assets.hh"
+ #include "draw_handle.hh"
+ #include "draw_manager_text.hh"
+ #include "draw_shader.hh"
+@@ -2291,6 +2292,7 @@ void DRW_engines_register()
+ 
+ void DRW_engines_free()
+ {
++  blender::draw::source_assets::clear();
+   eevee::Engine::free_static();
+   workbench::Engine::free_static();
+   draw::gpencil::Engine::free_static();
 diff --git a/source/blender/editors/space_view3d/space_view3d.cc b/source/blender/editors/space_view3d/space_view3d.cc
 index 56f71ab6..958bb1db 100644
 --- a/source/blender/editors/space_view3d/space_view3d.cc
@@ -384,13 +758,34 @@ index 5a1c5ee4..c0ad8eca 100644
    /** Actually only used to define the opacity of the grease pencil vertex in edit mode. */
    float vertex_opacity = 1.0f;
 diff --git a/source/blender/makesrna/intern/rna_space.cc b/source/blender/makesrna/intern/rna_space.cc
-index 5cc13e71..907d32ef 100644
+index 5cc13e71..215e00aa 100644
 --- a/source/blender/makesrna/intern/rna_space.cc
 +++ b/source/blender/makesrna/intern/rna_space.cc
-@@ -5048,6 +5048,23 @@ static void rna_def_space_view3d_overlay(BlenderRNA *brna)
+@@ -680,6 +680,9 @@ static const EnumPropertyItem spreadsheet_table_id_type_items[] = {
+ 
+ #ifdef RNA_RUNTIME
+ 
++#include "draw_source_assets.hh"
++static int rna_source_assets_pending_get(blender::PointerRNA *) { return blender::draw::source_assets::pending(); }
++static int rna_source_assets_failures_get(blender::PointerRNA *) { return blender::draw::source_assets::failures(); }
+ #  include <algorithm>
+ #  include <fmt/format.h>
+ 
+@@ -5048,6 +5051,34 @@ static void rna_def_space_view3d_overlay(BlenderRNA *brna)
    RNA_def_property_range(prop, 1, 1024);
    RNA_def_property_update(prop, NC_SPACE | ND_SPACE_VIEW3D, nullptr);
  
++  prop = RNA_def_property(srna, "wavelength_source_assets_pending", PROP_INT, PROP_NONE);
++  RNA_def_property_int_funcs(prop, "rna_source_assets_pending_get", nullptr, nullptr);
++  RNA_def_property_clear_flag(prop, PROP_EDITABLE);
++  prop = RNA_def_property(srna, "wavelength_source_assets_failures", PROP_INT, PROP_NONE);
++  RNA_def_property_int_funcs(prop, "rna_source_assets_failures_get", nullptr, nullptr);
++  RNA_def_property_clear_flag(prop, PROP_EDITABLE);
++  prop = RNA_def_property(srna, "wavelength_entity_icons", PROP_BOOLEAN, PROP_NONE);
++  RNA_def_property_boolean_sdna(prop, nullptr, "_pad_wavelength", 1);
++  RNA_def_property_ui_text(prop, "wavelength Entity Icons", "Native cached instanced screen-facing entity glyphs");
++  RNA_def_property_update(prop, NC_SPACE | ND_SPACE_VIEW3D, nullptr);
++
 +  prop = RNA_def_property(srna, "wavelength_grid_enabled", PROP_BOOLEAN, PROP_NONE);
 +  RNA_def_property_boolean_sdna(prop, nullptr, "wavelength_grid_enabled", 1);
 +  RNA_def_property_ui_text(prop, "wavelength Grid", "Use the native wavelength grid pass for this viewport");
@@ -411,6 +806,11 @@ index 5cc13e71..907d32ef 100644
    prop = RNA_def_property(srna, "grid_scale_unit", PROP_FLOAT, PROP_NONE);
    RNA_def_property_clear_flag(prop, PROP_EDITABLE);
    RNA_def_property_float_funcs(prop, "rna_View3DOverlay_GridScaleUnit_get", nullptr, nullptr);
+@@ -9561,3 +9592,4 @@ void RNA_def_space(BlenderRNA *brna)
+ }  // namespace blender
+ 
+ #endif
++
 diff --git a/source/blender/windowmanager/intern/wm_event_system.cc b/source/blender/windowmanager/intern/wm_event_system.cc
 index 9f6a0be3..9e3464b5 100644
 --- a/source/blender/windowmanager/intern/wm_event_system.cc
@@ -448,3 +848,779 @@ index 9f6a0be3..9e3464b5 100644
            wmEventHandler_KeymapPost keymap_post = handler->post;
  
            action |= wm_handler_operator_call(
+diff --git a/source/blender/draw/draw_source_assets.hh b/source/blender/draw/draw_source_assets.hh
+new file mode 100644
+--- /dev/null
++++ b/source/blender/draw/draw_source_assets.hh
+@@ -0,0 +1,33 @@
++/* SPDX-License-Identifier: GPL-2.0-or-later */
++#pragma once
++#include "source1_assets.hh"
++#include <atomic>
++struct ID;
++namespace blender::gpu {class Texture;}
++namespace blender::gpu {class Batch;}
++namespace blender::draw::source_assets {
++struct Material {
++  gpu::Texture **texture=nullptr;
++  bool alpha_test=false,translucent=false;
++};
++struct ModelRequest {
++  std::atomic<int> state{0}; // 0 queued/loading, 1 ready, -1 failed.
++  std::shared_ptr<const wavelength::source1::Model> data;
++  std::string error;
++};
++struct ModelDraw {
++  std::vector<gpu::Batch *> batches;
++  std::vector<std::string> materials,directories;
++  std::string mounts;
++  std::array<float,3> center{},half{};
++};
++const ModelDraw *model_draw(const ID *id);
++std::shared_ptr<ModelRequest> model(const std::string &mounts,const std::string &path,int skin,int body,const std::string &revision={});
++Material material(const std::string &mounts,const std::string &path,const std::vector<std::string> &directories={},const std::string &revision={});
++Material material(const ID *id);
++int pending();
++int failures();
++int revision();
++bool scene_enabled(const ID *id);
++void clear();
++} // namespace blender::draw::source_assets
+diff --git a/source/blender/draw/engines/overlay/shaders/overlay_wavelength_sprite_frag.glsl b/source/blender/draw/engines/overlay/shaders/overlay_wavelength_sprite_frag.glsl
+new file mode 100644
+--- /dev/null
++++ b/source/blender/draw/engines/overlay/shaders/overlay_wavelength_sprite_frag.glsl
+@@ -0,0 +1,10 @@
++/* SPDX-License-Identifier: GPL-2.0-or-later */
++#include "infos/overlay_extra_infos.hh"
++FRAGMENT_SHADER_CREATE_INFO(overlay_wavelength_sprite)
++#include "select_lib.glsl"
++void main()
++{
++  frag_color = final_color;
++  line_output = float4(0.0f);
++  select_id_output(select_id);
++}
+diff --git a/source/blender/draw/engines/overlay/shaders/overlay_wavelength_sprite_vert.glsl b/source/blender/draw/engines/overlay/shaders/overlay_wavelength_sprite_vert.glsl
+new file mode 100644
+--- /dev/null
++++ b/source/blender/draw/engines/overlay/shaders/overlay_wavelength_sprite_vert.glsl
+@@ -0,0 +1,17 @@
++/* SPDX-License-Identifier: GPL-2.0-or-later */
++#include "infos/overlay_extra_infos.hh"
++VERTEX_SHADER_CREATE_INFO(overlay_wavelength_sprite)
++#include "draw_view_clipping_lib.glsl"
++#include "draw_view_lib.glsl"
++#include "select_lib.glsl"
++void main()
++{
++  select_id_set(in_select_buf[gl_InstanceID]);
++  float4x4 data = data_buf[gl_InstanceID].object_to_world;
++  float3 center = data[3].xyz;
++  float4 clip = drw_point_world_to_homogenous(center);
++  clip.xy += pos.xy * (2.0f * data[3][3] * theme.sizes.pixel) * uniform_buf.size_viewport_inv * clip.w;
++  gl_Position = clip.w > 0.0f ? clip : float4(2.0f, 2.0f, 2.0f, 1.0f);
++  final_color = color;
++  view_clipping_distances(center);
++}
+diff --git a/source/blender/draw/intern/draw_source_assets.cc b/source/blender/draw/intern/draw_source_assets.cc
+new file mode 100644
+--- /dev/null
++++ b/source/blender/draw/intern/draw_source_assets.cc
+@@ -0,0 +1,188 @@
++/* SPDX-License-Identifier: GPL-2.0-or-later */
++#include "draw_source_assets.hh"
++#include "BKE_idprop.hh"
++#include "DNA_ID.h"
++#include "GPU_texture.hh"
++#include "GPU_batch.hh"
++#include "GPU_batch_utils.hh"
++#include "GPU_index_buffer.hh"
++#include "GPU_vertex_buffer.hh"
++#include <condition_variable>
++#include <deque>
++#include <functional>
++#include <thread>
++
++namespace blender::draw::source_assets {
++namespace src=wavelength::source1;
++namespace {
++struct MaterialRequest {
++  std::atomic<int> state{0};std::shared_ptr<const src::Texture> data;src::Material properties;std::string error;
++};
++struct Cache {
++  std::mutex mutex;std::condition_variable wake;bool stop=false;
++  std::deque<std::function<void()>> jobs;
++  std::map<std::string,std::shared_ptr<ModelRequest>> models;
++  std::map<std::string,std::shared_ptr<MaterialRequest>> materials;
++  std::map<std::string,std::shared_ptr<src::Library>> libraries; // Worker thread only.
++  std::map<std::string,std::shared_ptr<const src::Texture>> texture_data; // Worker thread only.
++  std::map<std::string,Material> gpu_materials; // Draw thread only.
++  std::map<const src::Texture *,gpu::Texture *> gpu_textures;
++  std::map<const src::Model *,std::unique_ptr<ModelDraw>> gpu_models;
++  std::atomic<int> loading{0},errors{0},completed{0};
++  size_t resident_bytes=0;
++  std::thread worker;
++  Cache():worker([this](){run();}){}
++  ~Cache()
++  {
++    {std::lock_guard<std::mutex> lock(mutex);stop=true;jobs.clear();}wake.notify_one();worker.join();
++    for(auto &entry:gpu_textures)GPU_texture_free(entry.second);
++    for(auto &entry:gpu_models)for(auto *batch:entry.second->batches)if(batch)GPU_batch_discard(batch);
++  }
++  void run()
++  {
++    while(true) {
++      std::function<void()> job;
++      {std::unique_lock<std::mutex> lock(mutex);wake.wait(lock,[this](){return stop || !jobs.empty();});if(stop)return;job=std::move(jobs.front());jobs.pop_front();}
++      job();completed++;loading--;
++    }
++  }
++  src::Library &library(const std::string &mounts)
++  {
++    auto &entry=libraries[mounts];if(!entry)entry=std::make_shared<src::Library>(mounts);return *entry;
++  }
++  void reserve(size_t bytes)
++  {
++    /* Predictable bounded cache; an explicit Reload releases the generation.
++     * Failed/missing assets stay negative-cached instead of retrying per frame. */
++    constexpr size_t budget=512ull*1024*1024;
++    if(bytes>budget-resident_bytes)throw std::runtime_error("Native Source asset cache budget exceeded; reload or reduce loaded assets");resident_bytes+=bytes;
++  }
++  template<typename Request> void enqueue(std::shared_ptr<Request> request,std::function<void()> job)
++  {
++    loading++;
++    jobs.emplace_back([this,request,job=std::move(job)](){
++      try{job();request->state.store(1,std::memory_order_release);}
++      catch(const std::exception &e){request->error=e.what();std::fprintf(stderr,"wavelength native Source: %s\n",request->error.c_str());errors++;request->state.store(-1,std::memory_order_release);}
++    });wake.notify_one();
++  }
++};
++std::unique_ptr<Cache> cache;
++Cache &get(){if(!cache)cache=std::make_unique<Cache>();return *cache;}
++std::string property(const ID *id,const char *name)
++{
++  auto *p=id && id->properties?IDP_GetPropertyFromGroup(id->properties,name):nullptr;
++  return p && p->type==IDP_STRING?IDP_string_get(p):"";
++}
++gpu::Texture *upload(const src::Texture &texture)
++{
++  using gpu::TextureFormat;
++  auto format=TextureFormat::SRGB_DXT1;
++  if(texture.format==14)format=TextureFormat::SRGB_DXT3;
++  else if(texture.format==15)format=TextureFormat::SRGB_DXT5;
++  if(texture.format==13 || texture.format==14 || texture.format==15 || texture.format==20)
++    return GPU_texture_create_compressed_2d("Source VTF",texture.width,texture.height,1,format,GPU_TEXTURE_USAGE_SHADER_READ,texture.payload.data());
++  /* Original uncompressed VTFs need channel swizzles, never Blender Images. */
++  std::vector<uint8_t> rgba(size_t(texture.width)*texture.height*4,255);
++  size_t stride=texture.format==2 || texture.format==3?3:(texture.format==5 || texture.format==8?1:4);
++  for(size_t i=0;i<rgba.size()/4;i++) {
++    auto *p=texture.payload.data()+i*stride;auto *out=rgba.data()+i*4;
++    if(texture.format==5){out[0]=out[1]=out[2]=p[0];}
++    else if(texture.format==8){out[0]=out[1]=out[2]=255;out[3]=p[0];}
++    else if(texture.format==1){out[0]=p[3];out[1]=p[2];out[2]=p[1];out[3]=p[0];}
++    else if(texture.format==12){out[0]=p[1];out[1]=p[2];out[2]=p[3];out[3]=p[0];}
++    else {bool bgr=texture.format==3 || texture.format==11 || texture.format==16;out[0]=p[bgr?2:0];out[1]=p[1];out[2]=p[bgr?0:2];if(stride==4 && texture.format!=16)out[3]=p[3];}
++  }
++  auto *result=GPU_texture_create_2d("Source VTF",texture.width,texture.height,1,TextureFormat::SRGBA_8_8_8_8,GPU_TEXTURE_USAGE_SHADER_READ,nullptr);
++  if(result)GPU_texture_update(result,GPU_DATA_UBYTE,rgba.data());return result;
++}
++} // namespace
++
++std::shared_ptr<ModelRequest> model(const std::string &mounts,const std::string &path,int skin,int body,const std::string &revision)
++{
++  auto &c=get();auto key=mounts+"\nMODEL "+path+" "+std::to_string(skin)+" "+std::to_string(body)+"\n"+revision;
++  std::lock_guard<std::mutex> lock(c.mutex);auto found=c.models.find(key);if(found!=c.models.end())return found->second;
++  auto request=std::make_shared<ModelRequest>();
++  if(c.models.size()+c.materials.size()>=4096){request->error="Native Source request limit";request->state=-1;return request;}
++  c.models[key]=request;
++  c.enqueue<ModelRequest>(request,[&c,request,mounts,path,skin,body](){
++    auto data=std::make_shared<src::Model>(src::load_model(c.library(mounts),path,skin,body));
++    size_t bytes=data->vertices.size()*sizeof(src::Vertex);for(auto &s:data->surfaces)bytes+=s.indices.size()*sizeof(uint32_t);c.reserve(bytes);request->data=std::move(data);
++  });return request;
++}
++Material material(const std::string &mounts,const std::string &path,const std::vector<std::string> &directories,const std::string &revision)
++{
++  auto &c=get();auto key=mounts+"\nMATERIAL "+path+"\n"+revision;for(auto &dir:directories)key+="\n"+dir;
++  auto gpu=c.gpu_materials.find(key);if(gpu!=c.gpu_materials.end())return gpu->second;
++  std::shared_ptr<MaterialRequest> request;
++  {
++    std::lock_guard<std::mutex> lock(c.mutex);auto found=c.materials.find(key);
++    if(found!=c.materials.end())request=found->second;
++    else {
++      if(c.models.size()+c.materials.size()>=4096)return {};
++      request=std::make_shared<MaterialRequest>();c.materials[key]=request;
++      c.enqueue<MaterialRequest>(request,[&c,request,mounts,path,directories](){
++        auto &library=c.library(mounts);auto dirs=directories;dirs.push_back("");std::string error;
++        bool resolved=false;
++        for(auto &dir:dirs)try {
++          auto candidate=dir;std::replace(candidate.begin(),candidate.end(),'\\','/');
++          while(!candidate.empty() && candidate.back()=='/')candidate.pop_back();
++          while(!candidate.empty() && candidate.front()=='/')candidate.erase(candidate.begin());
++          if(!candidate.empty())candidate+='/';
++          request->properties=src::load_material(library,candidate+path);resolved=true;break;
++        }catch(const std::exception &e){error=e.what();}
++        if(!resolved)throw std::runtime_error(error);
++        auto texture_path=src::asset_path(request->properties.base);if(texture_path.rfind("materials/",0)!=0)texture_path="materials/"+texture_path;if(texture_path.size()<4 || texture_path.substr(texture_path.size()-4)!=".vtf")texture_path+=".vtf";
++        auto texture_key=mounts+"\n"+library.fingerprint(texture_path);
++        auto &texture=c.texture_data[texture_key];
++        if(!texture){auto data=std::make_shared<src::Texture>(src::load_texture(library,request->properties.base));c.reserve(data->payload.size());texture=std::move(data);}
++        request->data=texture;
++      });return {};
++    }
++  }
++  if(request->state.load(std::memory_order_acquire)!=1)return {};
++  auto &texture=c.gpu_textures[request->data.get()];if(!texture)texture=upload(*request->data);
++  Material result{&texture,request->properties.alpha_test,request->properties.translucent};c.gpu_materials[key]=result;return result;
++}
++Material material(const ID *id)
++{
++  auto mounts=property(id,"wl_source_mounts"),path=property(id,"wl_source_native_material");
++  if(mounts.empty() || path.empty())return {};return material(mounts,path,{},property(id,"wl_source_revision"));
++}
++const ModelDraw *model_draw(const ID *id)
++{
++  auto mounts=property(id,"wl_source_mounts"),path=property(id,"wl_source_native_model");
++  if(mounts.empty() || path.empty())return nullptr;
++  auto integer=[&](const char *name){auto *p=IDP_GetPropertyFromGroup(id->properties,name);return p && p->type==IDP_INT?IDP_int_get(p):0;};
++  auto request=model(mounts,path,integer("wl_source_skin"),integer("wl_source_body"),property(id,"wl_source_revision"));
++  if(request->state.load(std::memory_order_acquire)!=1)return nullptr;
++  auto &c=get();auto found=c.gpu_models.find(request->data.get());if(found!=c.gpu_models.end())return found->second.get();
++  const auto &data=*request->data;auto draw=std::make_unique<ModelDraw>();draw->materials=data.materials;draw->directories=data.directories;draw->mounts=mounts;
++  std::array<float,3> low=data.vertices[0].position,high=low;
++  struct Vertex {float pos[3],nor[3],ac[4],au[2];};std::vector<Vertex> vertices;vertices.reserve(data.vertices.size());
++  for(auto &v:data.vertices) {
++    Vertex out{};for(int i=0;i<3;i++){out.pos[i]=v.position[i];out.nor[i]=v.normal[i];low[i]=std::min(low[i],v.position[i]);high[i]=std::max(high[i],v.position[i]);}
++    for(int i=0;i<4;i++)out.ac[i]=1;out.au[0]=v.uv[0];out.au[1]=1.0f-v.uv[1];vertices.push_back(out);
++  }
++  for(int i=0;i<3;i++){draw->center[i]=(low[i]+high[i])*.5f;draw->half[i]=std::max((high[i]-low[i])*.5f,.001f);}
++  GPUVertFormat format{};GPU_vertformat_attr_add_legacy(&format,"pos",GPU_COMP_F32,3,GPU_FETCH_FLOAT);GPU_vertformat_attr_add_legacy(&format,"nor",GPU_COMP_F32,3,GPU_FETCH_FLOAT);GPU_vertformat_attr_add_legacy(&format,"ac",GPU_COMP_F32,4,GPU_FETCH_FLOAT);GPU_vertformat_attr_add_legacy(&format,"au",GPU_COMP_F32,2,GPU_FETCH_FLOAT);
++  auto *vbo=GPU_vertbuf_create_with_format(format);GPU_vertbuf_data_alloc(*vbo,vertices.size());vbo->data<Vertex>().copy_from(Span<Vertex>(vertices.data(),vertices.size()));
++  bool first=true;
++  for(auto &surface:data.surfaces) {
++    if(surface.indices.empty()){draw->batches.push_back(nullptr);continue;}
++    GPUIndexBufBuilder builder;GPU_indexbuf_init(&builder,GPU_PRIM_TRIS,surface.indices.size()/3,vertices.size());
++    for(size_t i=0;i<surface.indices.size();i+=3)GPU_indexbuf_add_tri_verts(&builder,surface.indices[i],surface.indices[i+1],surface.indices[i+2]);
++    auto *ibo=GPU_indexbuf_build(&builder);auto *batch=GPU_batch_create_ex(GPU_PRIM_TRIS,vbo,ibo,first?GPU_BATCH_OWNS_VBO|GPU_BATCH_OWNS_INDEX:GPU_BATCH_OWNS_INDEX);first=false;draw->batches.push_back(batch);
++  }
++  auto *result=draw.get();c.gpu_models[data.vertices.empty()?nullptr:request->data.get()]=std::move(draw);return result;
++}
++int pending(){return cache?cache->loading.load():0;}
++int failures(){return cache?cache->errors.load():0;}
++int revision(){return cache?cache->completed.load():0;}
++bool scene_enabled(const ID *id)
++{
++  auto *p=id && id->properties?IDP_GetPropertyFromGroup(id->properties,"wl_native_source_scene"):nullptr;
++  return p && ELEM(p->type,IDP_BOOLEAN,IDP_INT) && p->data.val!=0;
++}
++void clear(){cache.reset();}
++} // namespace blender::draw::source_assets
++
+diff --git a/source/blender/draw/source1_assets.hh b/source/blender/draw/source1_assets.hh
+new file mode 100644
+--- /dev/null
++++ b/source/blender/draw/source1_assets.hh
+@@ -0,0 +1,370 @@
++/* SPDX-License-Identifier: GPL-2.0-or-later */
++#pragma once
++#include <algorithm>
++#include <array>
++#include <cmath>
++#include <cctype>
++#include <cstdio>
++#include <cstdint>
++#include <cstring>
++#include <filesystem>
++#include <fstream>
++#include <map>
++#include <memory>
++#include <mutex>
++#include <stdexcept>
++#include <string>
++#include <vector>
++#include <unordered_map>
++
++namespace wavelength::source1 {
++using Bytes = std::vector<uint8_t>;
++constexpr size_t byte_limit = 128 * 1024 * 1024;
++constexpr size_t element_limit = 2000000;
++
++/* All disk offsets are checked before dereferencing. No packed structure casts,
++ * platform alignment assumptions, or executable material proxies are used. */
++struct Reader {
++  const Bytes &bytes;
++  void bounds(size_t at, size_t length) const
++  {
++    if (at > bytes.size() || length > bytes.size() - at) throw std::runtime_error("Truncated Source asset");
++  }
++  template<typename T> T get(size_t at) const
++  {
++    bounds(at, sizeof(T)); T value; std::memcpy(&value, bytes.data() + at, sizeof(T)); return value;
++  }
++  int i(size_t at) const { return get<int32_t>(at); }
++  size_t table(size_t at, int count, size_t stride) const
++  {
++    if (count < 0 || size_t(count) > element_limit) throw std::runtime_error("Source table exceeds limit");
++    bounds(at, size_t(count) * stride); return at;
++  }
++  size_t relative(size_t base, int offset) const
++  {
++    if (offset < 0 || size_t(offset) > bytes.size() || base > bytes.size() - size_t(offset)) throw std::runtime_error("Invalid Source offset");
++    return base + size_t(offset);
++  }
++  std::string string(size_t at) const
++  {
++    bounds(at, 1); size_t end=at;
++    while (end < bytes.size() && end-at < 4096 && bytes[end]) end++;
++    if (end == bytes.size() || end-at == 4096) throw std::runtime_error("Unterminated Source string");
++    return std::string(reinterpret_cast<const char *>(bytes.data()+at), end-at);
++  }
++};
++
++inline std::string asset_path(std::string path)
++{
++  std::replace(path.begin(), path.end(), '\\', '/');
++  std::transform(path.begin(), path.end(), path.begin(), [](unsigned char c){return char(std::tolower(c));});
++  if (path.empty() || path[0]=='/' || path.find(':')!=std::string::npos) throw std::runtime_error("Invalid Source asset path");
++  for (size_t start=0; start<path.size();) {
++    size_t end=path.find('/',start); if(end==std::string::npos)end=path.size();
++    auto part=path.substr(start,end-start);
++    if(part==".." || part==".")throw std::runtime_error("Invalid Source asset path");
++    start=end+1;
++  }
++  return path;
++}
++
++inline Bytes file_range(const std::filesystem::path &path, size_t at, size_t size)
++{
++  if(size>byte_limit)throw std::runtime_error("Source asset exceeds byte limit");
++  std::ifstream stream(path,std::ios::binary);
++  if(!stream)throw std::runtime_error("Source file not found: "+path.string());
++  stream.seekg(0,std::ios::end);auto total=stream.tellg();
++  if(total<0 || at>size_t(total) || size>size_t(total)-at)throw std::runtime_error("Truncated Source file");
++  stream.seekg(at);Bytes result(size);
++  if(size && !stream.read(reinterpret_cast<char *>(result.data()),size))throw std::runtime_error("Cannot read Source asset");
++  return result;
++}
++inline Bytes file(const std::filesystem::path &path)
++{
++  return file_range(path,0,std::filesystem::file_size(path));
++}
++inline uint32_t crc32(const Bytes &bytes)
++{
++  static const auto table=[](){std::array<uint32_t,256> result{};for(uint32_t n=0;n<256;n++){uint32_t c=n;for(int i=0;i<8;i++)c=(c>>1)^(0xedb88320u&uint32_t(-int(c&1)));result[n]=c;}return result;}();
++  uint32_t crc=~0u;
++  for(uint8_t v:bytes)crc=table[(crc^v)&255]^(crc>>8);
++  return ~crc;
++}
++
++struct Archive {
++  struct Entry { uint32_t crc, offset, length; uint16_t index; Bytes preload; };
++  std::filesystem::path path;
++  size_t base=0;
++  std::unordered_map<std::string,Entry> entries;
++  explicit Archive(std::filesystem::path source):path(std::move(source))
++  {
++    auto header=file_range(path,0,12);Reader h{header};
++  int version=h.i(4);if(h.get<uint32_t>(0)!=0x55aa1234 || (version!=1 && version!=2))throw std::runtime_error("Unsupported VPK");
++    size_t start=version==1?12:28;auto tree=file_range(path,start,h.get<uint32_t>(8));base=start+tree.size();Reader r{tree};size_t at=0;
++    auto next=[&](){auto s=r.string(at);at+=s.size()+1;return s;};
++    for(std::string ext=next();!ext.empty();ext=next())
++      for(std::string dir=next();!dir.empty();dir=next())
++        for(std::string name=next();!name.empty();name=next()) {
++          r.bounds(at,18);Entry e{r.get<uint32_t>(at),r.get<uint32_t>(at+8),r.get<uint32_t>(at+12),r.get<uint16_t>(at+6),{}};
++          size_t preload=r.get<uint16_t>(at+4);
++          if(r.get<uint16_t>(at+16)!=65535 || size_t(e.length)+preload>byte_limit)throw std::runtime_error("Invalid VPK entry");
++          at+=18;r.bounds(at,preload);e.preload.assign(tree.begin()+at,tree.begin()+at+preload);at+=preload;
++          if(entries.size()>=element_limit)throw std::runtime_error("VPK entry limit");
++          entries.emplace(asset_path((dir==" "?"":dir+"/")+name+(ext==" "?"":"."+ext)),std::move(e));
++        }
++  }
++  Bytes read(const Entry &e) const
++  {
++    auto archive=path;size_t offset=e.offset;
++    if(e.index==0x7fff)offset+=base;
++    else {
++      auto stem=path.stem().string();if(stem.size()<4 || stem.substr(stem.size()-4)!="_dir")throw std::runtime_error("Invalid split VPK name");
++      char suffix[16];std::snprintf(suffix,sizeof(suffix),"_%03u.vpk",unsigned(e.index));
++      archive=path.parent_path()/(stem.substr(0,stem.size()-4)+suffix);
++    }
++    auto result=e.preload;auto data=file_range(archive,offset,e.length);result.insert(result.end(),data.begin(),data.end());
++    if(crc32(result)!=e.crc)throw std::runtime_error("VPK CRC mismatch");return result;
++  }
++};
++
++/* Mount order is the profile's resolved gameinfo order, never a second guessed
++ * search path. Archives are indexed once per asset-library generation. */
++class Library {
++  struct Mount {std::filesystem::path path;std::unique_ptr<Archive> archive;};
++  std::vector<Mount> mounts_;
++public:
++  explicit Library(const std::string &mounts)
++  {
++    size_t at=0;
++    while(at<mounts.size()) {
++      auto end=mounts.find('\n',at);if(end==std::string::npos)end=mounts.size();
++      auto path=std::filesystem::u8path(mounts.substr(at,end-at));at=end+1;
++      if(path.empty() || path.string()[0]=='#')continue;
++      Mount mount{path,nullptr};if(path.extension()==".vpk")mount.archive=std::make_unique<Archive>(path);
++      mounts_.push_back(std::move(mount));
++    }
++  }
++  Bytes read(const std::string &raw) const
++  {
++    auto name=asset_path(raw);
++    for(const auto &mount:mounts_) {
++      if(mount.archive) {auto i=mount.archive->entries.find(name);if(i!=mount.archive->entries.end())return mount.archive->read(i->second);}
++      else {
++        auto path=mount.path/std::filesystem::u8path(name);
++        if(std::filesystem::is_regular_file(path)) {
++          auto root=std::filesystem::weakly_canonical(mount.path);auto real=std::filesystem::weakly_canonical(path);
++          auto relative=real.lexically_relative(root);
++          if(relative.empty() || *relative.begin()=="..")throw std::runtime_error("Source loose asset escapes mount");
++          return file(path);
++        }
++      }
++    }
++    throw std::runtime_error("Source asset not found: "+name);
++  }
++  std::string fingerprint(const std::string &raw) const
++  {
++    auto name=asset_path(raw);
++    for(const auto &mount:mounts_) {
++      if(mount.archive) {auto i=mount.archive->entries.find(name);if(i!=mount.archive->entries.end())return mount.path.string()+":"+std::to_string(i->second.crc);}
++      else {auto path=mount.path/std::filesystem::u8path(name);if(std::filesystem::is_regular_file(path))return path.string()+":"+std::to_string(std::filesystem::last_write_time(path).time_since_epoch().count())+":"+std::to_string(std::filesystem::file_size(path));}
++    }
++    return name+":missing";
++  }
++};
++
++struct Texture {
++  int width=0,height=0,format=0;
++  Bytes payload; // Original DXT blocks, or original uncompressed VTF texels.
++};
++inline size_t image_bytes(int width,int height,int format)
++{
++  if(width<1 || height<1 || width>32768 || height>32768)throw std::runtime_error("Invalid VTF dimensions");
++  size_t result=0;
++  if(format==13 || format==20)result=size_t((width+3)/4)*((height+3)/4)*8;
++  else if(format==14 || format==15)result=size_t((width+3)/4)*((height+3)/4)*16;
++  else if(format==0 || format==1 || format==11 || format==12 || format==16)result=size_t(width)*height*4;
++  else if(format==2 || format==3)result=size_t(width)*height*3;
++  else if(format==5 || format==8)result=size_t(width)*height;
++  else throw std::runtime_error("Unsupported native VTF pixel format: "+std::to_string(format));
++  if(result>byte_limit)throw std::runtime_error("VTF image exceeds limit");return result;
++}
++inline Texture read_vtf(const Bytes &bytes)
++{
++  Reader r{bytes};r.bounds(0,64);
++  if(std::memcmp(bytes.data(),"VTF\0",4) || r.i(4)!=7 || r.i(8)>5 || r.i(8)<0)throw std::runtime_error("Unsupported VTF version");
++  Texture result;result.width=r.get<uint16_t>(16);result.height=r.get<uint16_t>(18);result.format=r.i(52);
++  int mipmaps=r.get<uint8_t>(56),frames=r.get<uint16_t>(24),depth=r.i(8)>=2?r.get<uint16_t>(63):1;
++  if(mipmaps<1 || mipmaps>16 || frames<1 || depth!=1)throw std::runtime_error("Unsupported VTF image layout");
++  size_t at=r.get<uint32_t>(12);r.bounds(0,at);
++  if(r.i(8)>=3) {
++    r.bounds(0,80);int count=r.i(68);r.table(80,count,8);bool found=false;
++    for(int i=0;i<count;i++) {size_t p=80+i*8;
++      if(r.get<uint8_t>(p)==0x30 && r.get<uint8_t>(p+1)==0 && r.get<uint8_t>(p+2)==0) {
++        if(r.get<uint8_t>(p+3)&2)throw std::runtime_error("Inline VTF image resource unsupported");at=r.get<uint32_t>(p+4);found=true;
++      }
++    }
++    if(!found)throw std::runtime_error("VTF high-resolution resource missing");
++  }
++  else if(r.get<uint8_t>(61) && r.get<uint8_t>(62))at+=image_bytes(r.get<uint8_t>(61),r.get<uint8_t>(62),r.i(57));
++  int faces=(r.get<uint32_t>(20)&0x4000)?(r.i(8)<5 && r.get<uint16_t>(26)!=65535?7:6):1;
++  for(int level=mipmaps-1;level>0;level--) {
++    size_t size=image_bytes(std::max(1,result.width>>level),std::max(1,result.height>>level),result.format);
++    if(size>byte_limit/size_t(frames*faces))throw std::runtime_error("VTF mip chain exceeds limit");
++    at+=size*frames*faces;r.bounds(at,0);
++  }
++  auto size=image_bytes(result.width,result.height,result.format);r.bounds(at,size);
++  result.payload.assign(bytes.begin()+at,bytes.begin()+at+size);return result;
++}
++
++struct Vertex {std::array<float,3> position,normal;std::array<float,2> uv;};
++struct Surface {int material=0;std::vector<uint32_t> indices;};
++struct Model {std::vector<Vertex> vertices;std::vector<Surface> surfaces;std::vector<std::string> materials,directories;};
++inline Model read_model(const Bytes &mdl,const Bytes &vvd,const Bytes &vtx,int skin=0,int body=0)
++{
++  Reader m{mdl},d{vvd},t{vtx};m.bounds(0,240);d.bounds(0,64);t.bounds(0,36);
++  if(std::memcmp(mdl.data(),"IDST",4) || m.i(4)<44 || m.i(4)>49 || m.i(76)!=int(mdl.size()) ||
++     std::memcmp(vvd.data(),"IDSV",4) || d.i(4)!=4 || t.i(0)!=7 || m.i(8)!=d.i(8) || m.i(8)!=t.i(16))throw std::runtime_error("Invalid or mismatched MDL/VVD/VTX");
++  if(skin<0 || body<0 || d.i(12)<1 || d.i(12)>8 || t.i(20)<1)throw std::runtime_error("Invalid Source model variant");
++  Model result;int count=d.i(16),start=d.i(56),fixcount=d.i(48),fixstart=d.i(52);d.table(start,count,48);d.table(fixstart,fixcount,12);
++  std::vector<int> ids;
++  for(int f=0;f<fixcount;f++) {
++    size_t p=fixstart+f*12;int first=d.i(p+4),n=d.i(p+8);if(d.i(p)<0 || first<0 || n<0 || size_t(n)+ids.size()>element_limit)throw std::runtime_error("Invalid VVD fixup");
++    d.table(size_t(start)+size_t(first)*48,n,48);for(int i=0;i<n;i++)ids.push_back(first+i);
++  }
++  if(!fixcount)for(int i=0;i<count;i++)ids.push_back(i);
++  if(ids.size()!=size_t(count))throw std::runtime_error("VVD fixup count mismatch");
++  result.vertices.reserve(ids.size());
++  for(int i:ids) {
++    size_t p=size_t(start)+size_t(i)*48+16;Vertex v;
++    for(int k=0;k<3;k++){v.position[k]=d.get<float>(p+k*4);v.normal[k]=d.get<float>(p+12+k*4);if(!std::isfinite(v.position[k]) || !std::isfinite(v.normal[k]))throw std::runtime_error("Non-finite Source vertex");}
++    for(int k=0;k<2;k++){v.uv[k]=d.get<float>(p+24+k*4);if(!std::isfinite(v.uv[k]))throw std::runtime_error("Non-finite Source UV");}
++    result.vertices.push_back(v);
++  }
++  int numtex=m.i(204),texstart=m.i(208),numdirs=m.i(212),dirstart=m.i(216),numrefs=m.i(220),numskins=m.i(224),skinstart=m.i(228),numbodies=m.i(232),bodystart=m.i(236);
++  m.table(texstart,numtex,64);m.table(dirstart,numdirs,4);m.table(bodystart,numbodies,16);
++  if(numrefs<0 || numskins<0 || int64_t(numrefs)*numskins>int64_t(element_limit) || skin>=std::max(1,numskins))throw std::runtime_error("Invalid Source skin");
++  m.table(skinstart,numrefs*numskins,2);
++  for(int i=0;i<numtex;i++){size_t p=texstart+i*64;result.materials.push_back(m.string(m.relative(p,m.i(p))));result.surfaces.push_back({i,{}});}
++  for(int i=0;i<numdirs;i++)result.directories.push_back(m.string(m.i(dirstart+i*4)));
++  if(t.i(28)!=numbodies)throw std::runtime_error("Model body tables disagree");t.table(t.i(32),numbodies,8);
++  size_t triangles=0;
++  for(int bi=0;bi<numbodies;bi++) {
++    size_t bp=bodystart+bi*16,vp=t.i(32)+bi*8;int models=m.i(bp+4),base=m.i(bp+8);
++    if(models<1 || base<1 || t.i(vp)!=models)throw std::runtime_error("Invalid model bodypart");
++    m.table(m.relative(bp,m.i(bp+12)),models,148);t.table(t.relative(vp,t.i(vp+4)),models,8);
++    int mi=(body/base)%models;size_t mp=m.relative(bp,m.i(bp+12))+mi*148,vm=t.relative(vp,t.i(vp+4))+mi*8;
++    int meshes=m.i(mp+72),nverts=m.i(mp+80),vertexoff=m.i(mp+84);
++    if(vertexoff<0 || vertexoff%48 || nverts<0 || size_t(vertexoff/48)+nverts>result.vertices.size() || t.i(vm)<1)throw std::runtime_error("Invalid model vertex range");
++    size_t modelbase=vertexoff/48,lp=t.relative(vm,t.i(vm+4));t.bounds(lp,12);
++    if(t.i(lp)!=meshes)throw std::runtime_error("Model mesh tables disagree");
++    m.table(m.relative(mp,m.i(mp+76)),meshes,116);t.table(t.relative(lp,t.i(lp+4)),meshes,9);
++    for(int meshindex=0;meshindex<meshes;meshindex++) {
++      size_t mesh=m.relative(mp,m.i(mp+76))+meshindex*116,vmsh=t.relative(lp,t.i(lp+4))+meshindex*9;
++      int mat=m.i(mesh),meshverts=m.i(mesh+8),meshbase=m.i(mesh+12);
++      if(mat<0 || mat>=(numrefs && numskins?numrefs:numtex) || meshverts<0 || meshbase<0 || int64_t(meshbase)+meshverts>nverts)throw std::runtime_error("Invalid Source mesh");
++      int slot=numrefs && numskins?m.get<uint16_t>(skinstart+(skin*numrefs+mat)*2):mat;
++      if(slot<0 || slot>=numtex)throw std::runtime_error("Invalid Source material index");
++      int groups=t.i(vmsh);size_t firstgroup=t.relative(vmsh,t.i(vmsh+4));t.table(firstgroup,groups,25);
++      for(int gi=0;gi<groups;gi++) {
++        size_t gp=firstgroup+gi*25;int nv=t.i(gp),ni=t.i(gp+8),ns=t.i(gp+16);
++        size_t vo=t.relative(gp,t.i(gp+4)),io=t.relative(gp,t.i(gp+12)),so=t.relative(gp,t.i(gp+20));t.table(vo,nv,9);t.table(io,ni,2);t.table(so,ns,27);
++        std::vector<uint32_t> remap;remap.reserve(nv);
++        for(int i=0;i<nv;i++){int original=t.get<uint16_t>(vo+i*9+4);if(original>=meshverts)throw std::runtime_error("Invalid VTX vertex");remap.push_back(uint32_t(modelbase+meshbase+original));}
++        auto index=[&](int i){int v=t.get<uint16_t>(io+size_t(i)*2);if(v>=nv)throw std::runtime_error("Invalid VTX index");return remap[v];};
++        auto emit=[&](uint32_t a,uint32_t b,uint32_t c){if(a==b || b==c || a==c)return;if(++triangles>element_limit)throw std::runtime_error("Source triangle limit");auto &out=result.surfaces[slot].indices;out.insert(out.end(),{a,c,b});};
++        for(int si=0;si<ns;si++) {
++          size_t sp=so+si*27;int n=t.i(sp),first=t.i(sp+4);uint8_t flags=t.get<uint8_t>(sp+18);
++          if(first<0 || n<0 || int64_t(first)+n>ni)throw std::runtime_error("Invalid VTX strip");
++          if(flags&1){if(n%3)throw std::runtime_error("Incomplete VTX triangles");for(int i=0;i<n;i+=3)emit(index(first+i),index(first+i+1),index(first+i+2));}
++          else if(flags&2){for(int i=0;i<n-2;i++)if(i%2)emit(index(first+i+1),index(first+i),index(first+i+2));else emit(index(first+i),index(first+i+1),index(first+i+2));}
++          else throw std::runtime_error("Unsupported VTX topology");
++        }
++      }
++    }
++  }
++  if(!triangles)throw std::runtime_error("Source model has no triangles");return result;
++}
++inline Model load_model(const Library &library,const std::string &raw,int skin=0,int body=0)
++{
++  auto path=asset_path(raw);if(path.size()<4 || path.substr(path.size()-4)!=".mdl")throw std::runtime_error("Expected Source MDL");
++  auto stem=path.substr(0,path.size()-4);auto mdl=library.read(path),vvd=library.read(stem+".vvd");Bytes vtx;
++  for(auto suffix:{".dx90.vtx",".dx80.vtx",".sw.vtx",".vtx"})try{vtx=library.read(stem+suffix);break;}catch(const std::exception &){}
++  if(vtx.empty())throw std::runtime_error("Source VTX companion missing");
++  try{return read_model(mdl,vvd,vtx,skin,body);}catch(const std::exception &){if(!skin && !body)throw;return read_model(mdl,vvd,vtx,0,0);}
++}
++
++struct Material {
++  std::string shader,base,second;
++  bool alpha_test=false,translucent=false,nocull=false;
++};
++struct KV {
++  std::string key,value;std::vector<KV> children;
++};
++inline std::vector<KV> keyvalues(const Bytes &bytes)
++{
++  size_t at=0,tokens=0;bool eof=false;
++  auto token=[&]()->std::string {
++    while(at<bytes.size()) {
++      if(std::isspace(bytes[at])){at++;continue;}
++      if(bytes[at]=='/' && at+1<bytes.size() && bytes[at+1]=='/') {while(at<bytes.size() && bytes[at]!='\n')at++;continue;}
++      break;
++    }
++    if(++tokens>element_limit)throw std::runtime_error("VMT token limit");
++    if(at==bytes.size()){eof=true;return {};}
++    if(bytes[at]=='{' || bytes[at]=='}')return std::string(1,char(bytes[at++]));
++    std::string out;
++    if(bytes[at]=='"') {
++      at++;while(at<bytes.size() && bytes[at]!='"') {
++        if(bytes[at]=='\\' && at+1<bytes.size() && bytes[at+1]=='"')at++;
++        out+=char(bytes[at++]);
++      }
++      if(at==bytes.size())throw std::runtime_error("Unterminated VMT token");at++;
++    }
++    else while(at<bytes.size() && !std::isspace(bytes[at]) && bytes[at]!='{' && bytes[at]!='}')out+=char(bytes[at++]);
++    return out;
++  };
++  auto parse=[&](auto &self,int depth,bool nested)->std::vector<KV> {
++    if(depth>32)throw std::runtime_error("VMT nesting limit");std::vector<KV> result;
++    while(true) {
++      auto key=token();if(eof){if(nested)throw std::runtime_error("Unclosed VMT block");break;}
++      if(key=="}"){if(!nested)throw std::runtime_error("Unexpected VMT brace");break;}
++      auto value=token();std::transform(key.begin(),key.end(),key.begin(),[](unsigned char c){return char(std::tolower(c));});
++      KV item{key,value,{}};if(value=="{")item.children=self(self,depth+1,true);else if(value=="}" || eof)throw std::runtime_error("Invalid VMT pair");
++      result.push_back(std::move(item));
++    }
++    return result;
++  };
++  return parse(parse,0,false);
++}
++inline std::map<std::string,std::string> material_properties(const Library &library,std::string name,std::vector<std::string> seen={})
++{
++  name=asset_path(name);if(name.rfind("materials/",0)!=0)name="materials/"+name;
++  if(name.size()<4 || name.substr(name.size()-4)!=".vmt")name+=".vmt";
++  if(seen.size()>=16 || std::find(seen.begin(),seen.end(),name)!=seen.end())throw std::runtime_error("VMT include cycle");seen.push_back(name);
++  auto document=keyvalues(library.read(name));if(document.empty() || document[0].value!="{")throw std::runtime_error("Invalid VMT shader");
++  auto &root=document[0];std::map<std::string,std::string> result;
++  if(root.key=="patch") {
++    std::string include;for(auto &p:root.children)if(p.key=="include")include=p.value;
++    if(include.empty())throw std::runtime_error("VMT patch missing include");result=material_properties(library,include,seen);
++    for(auto &p:root.children)if(p.key=="insert" || p.key=="replace")for(auto &v:p.children) {
++      if(p.key=="replace" || !result.count(v.key))result[v.key]=v.value;
++    }
++  }
++  else {result["_shader"]=root.key;for(auto &p:root.children)if(p.children.empty())result[p.key]=p.value;}
++  return result;
++}
++inline Material load_material(const Library &library,const std::string &name)
++{
++  auto props=material_properties(library,name);Material result;
++  result.shader=props["_shader"];result.base=props["$basetexture"];if(result.base.empty())result.base=props["%tooltexture"];
++  if(result.base.empty() && (result.shader=="eyes" || result.shader=="eyerefract"))result.base=props["$iris"];
++  result.second=props["$basetexture2"];result.alpha_test=props["$alphatest"]=="1";result.translucent=props["$translucent"]=="1";result.nocull=props["$nocull"]=="1";
++  if(result.base.empty())throw std::runtime_error("VMT has no base/tool texture");return result;
++}
++inline Texture load_texture(const Library &library,std::string name)
++{
++  name=asset_path(name);if(name.rfind("materials/",0)!=0)name="materials/"+name;
++  if(name.size()<4 || name.substr(name.size()-4)!=".vtf")name+=".vtf";
++  return read_vtf(library.read(name));
++}
++} // namespace wavelength::source1
+diff --git a/source/blender/asset_system/intern/asset_representation.cc b/source/blender/asset_system/intern/asset_representation.cc
+index 38dbe808..66be68e5 100644
+--- a/source/blender/asset_system/intern/asset_representation.cc
++++ b/source/blender/asset_system/intern/asset_representation.cc
+@@ -13,6 +13,7 @@
+ #include "BKE_blendfile.hh"
+ #include "BKE_icons.hh"
+ #include "BKE_idtype.hh"
++#include "BKE_idprop.hh"
+ #include "BKE_lib_id.hh"
+ #include "BKE_preview_image.hh"
+ 
+@@ -134,6 +135,15 @@ PreviewImage *AssetRepresentation::get_preview() const
+ StringRefNull AssetRepresentation::get_name() const
+ {
+   if (const ID *id = this->local_id()) {
++    /* Entity catalog labels are type names, independent of placed objects and
++     * Blender's unique ID suffixes. Keep the actual ID/path unchanged. */
++    if (const IDProperty *label = IDP_GetPropertyFromGroup_null(
++            id->properties, "wl_entity_browser_template"))
++    {
++      if (label->type == IDP_STRING && IDP_string_get(label)[0] != '\0') {
++        return IDP_string_get(label);
++      }
++    }
+     return id->name + 2;
+   }
+   return std::get<ExternalAsset>(asset_).name;
+diff --git a/source/blender/editors/space_file/file_banner.cc b/source/blender/editors/space_file/file_banner.cc
+index a546d533..14eb5f39 100644
+--- a/source/blender/editors/space_file/file_banner.cc
++++ b/source/blender/editors/space_file/file_banner.cc
+@@ -30,7 +30,12 @@ void file_banners_update(const SpaceFile &sfile)
+   const bool any_visible = file_banners_any_visible(sfile);
+ 
+   if (sfile.runtime->banners_state.any_visible != any_visible) {
+-    sfile.layout->dirty = true;
++    /* First draw updates banners before ED_fileselect_init_layout(). A newly
++     * opened/switched Asset Browser has no layout yet; initialization below
++     * already computes the correct layout for the new banner state. */
++    if (sfile.layout != nullptr) {
++      sfile.layout->dirty = true;
++    }
+     sfile.runtime->banners_state.any_visible = any_visible;
+   }
+ }
+diff --git a/source/blender/editors/space_file/space_file.cc b/source/blender/editors/space_file/space_file.cc
+index 1508ca0d..59587133 100644
+--- a/source/blender/editors/space_file/space_file.cc
++++ b/source/blender/editors/space_file/space_file.cc
+@@ -20,6 +20,7 @@
+ #include "BKE_appdir.hh"
+ #include "BKE_context.hh"
+ #include "BKE_global.hh"
++#include "BKE_idprop.hh"
+ #include "BKE_lib_query.hh"
+ #include "BKE_main.hh"
+ #include "BKE_report.hh"
+@@ -673,8 +674,35 @@ static void file_main_region_draw(const bContext *C, ARegion *region)
+   ED_region_draw_overflow_indication(CTX_wm_area(C), region, &view_rect);
+ }
+ 
++static wmOperatorStatus model_asset_publish_exec(bContext *C, wmOperator *op)
++{
++  wmOperatorType *backend = WM_operatortype_find("WAVELENGTH_OT_publish_model_drop", true);
++  if (!backend || !WM_operator_poll(C, backend)) {
++    return OPERATOR_CANCELLED;
++  }
++  char name[MAX_ID_NAME];
++  RNA_string_get(op->ptr, "source_name", name);
++  PointerRNA props = WM_operator_properties_create_ptr(backend);
++  RNA_string_set(&props, "source_name", name);
++  const wmOperatorStatus result = WM_operator_name_call(
++      C, backend->idname, wm::OpCallContext::ExecDefault, &props, nullptr);
++  WM_operator_properties_free(&props);
++  return (result & (OPERATOR_FINISHED | OPERATOR_RUNNING_MODAL)) ? OPERATOR_FINISHED :
++                                                                 OPERATOR_CANCELLED;
++}
++
++static void FILE_OT_publish_model_asset(wmOperatorType *ot)
++{
++  ot->name = "Publish Edited Model to Game";
++  ot->idname = "FILE_OT_publish_model_asset";
++  ot->description = "Publish an editable model through its registered engine backend";
++  ot->exec = model_asset_publish_exec;
++  RNA_def_string(ot->srna, "source_name", nullptr, MAX_ID_NAME, "Source", "Editable model object");
++}
++
+ static void file_operatortypes()
+ {
++  WM_operatortype_append(FILE_OT_publish_model_asset);
+   WM_operatortype_append(FILE_OT_select);
+   WM_operatortype_append(FILE_OT_select_walk);
+   WM_operatortype_append(FILE_OT_select_all);
+@@ -878,11 +906,38 @@ static void filepath_drop_copy(bContext * /*C*/, wmDrag *drag, wmDropBox *drop)
+   RNA_string_set(drop->ptr, "filepath", WM_drag_get_single_path(drag));
+ }
+ 
++/* Engine-neutral editable model assets publish only into the Models browser.
++ * Prop assignment in the viewport keeps its existing, separate drop path. */
++static bool model_asset_drop_poll(bContext *C, wmDrag *drag, const wmEvent * /*event*/)
++{
++  ID *id = WM_drag_get_local_ID(drag, ID_OB);
++  if (!id || !id->properties ||
++      !IDP_GetPropertyFromGroup(id->properties, "wl_model_asset"))
++  {
++    return false;
++  }
++  wmOperatorType *ot = WM_operatortype_find("WAVELENGTH_OT_publish_model_drop", true);
++  return ot && WM_operator_poll(C, ot);
++}
++
++static void model_asset_drop_copy(bContext * /*C*/, wmDrag *drag, wmDropBox *drop)
++{
++  ID *id = WM_drag_get_local_ID(drag, ID_OB);
++  RNA_string_set(drop->ptr, "source_name", id->name + 2);
++}
++
+ /* region dropbox definition */
+ static void file_dropboxes()
+ {
+   ListBaseT<wmDropBox> *lb = WM_dropboxmap_find("Window", SPACE_EMPTY, RGN_TYPE_WINDOW);
+ 
++  WM_dropbox_add(lb,
++                 "FILE_OT_publish_model_asset",
++                 model_asset_drop_poll,
++                 model_asset_drop_copy,
++                 nullptr,
++                 nullptr);
++
+   WM_dropbox_add(
+       lb, "FILE_OT_filepath_drop", filepath_drop_poll, filepath_drop_copy, nullptr, nullptr);
+ }

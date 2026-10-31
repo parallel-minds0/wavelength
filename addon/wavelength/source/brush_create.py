@@ -17,6 +17,11 @@ def _snap(value, step):
     return round(value / step) * step if step and step > 0.0 else value
 
 
+def _creation_step(operator):
+    """A geometry target must not be rounded back onto the grid by a generator."""
+    return 0.0 if getattr(operator,'_footprint_geometry_snap',False) else operator._step_value
+
+
 def _neutral_size(settings):
     """Neutral starting size in world meters, independent of the active grid step."""
     if getattr(settings, 'engine', 'blender') == 'blender':
@@ -330,6 +335,7 @@ _HOVER_POINT = None
 _HOVER_STEP = 1.0
 _HOVER_AREA_PTR = None
 _HOVER_HANDLE = None
+_HOVER_RESULT = None
 
 
 def _draw_idle_hover():
@@ -342,6 +348,10 @@ def _draw_idle_hover():
         if area is None or area.type != 'VIEW_3D' or area.as_pointer() != _HOVER_AREA_PTR:
             return
     except Exception:
+        return
+    if _HOVER_RESULT is not None:
+        from . import cutter_snap
+        cutter_snap.draw(bpy.context,_HOVER_RESULT)
         return
     shader = gpu.shader.from_builtin('UNIFORM_COLOR')
     gpu.state.depth_test_set('NONE')
@@ -368,12 +378,14 @@ class WL_OT_brush_hover(bpy.types.Operator):
                 context.mode == 'OBJECT' and hasattr(context.scene, 'wavelength'))
 
     def invoke(self, context, event):
-        global _HOVER_POINT, _HOVER_STEP, _HOVER_AREA_PTR
+        global _HOVER_POINT, _HOVER_STEP, _HOVER_AREA_PTR, _HOVER_RESULT
         step = _step(context)
         if step is None or not _event_in_window_region(context, event):
             return {'PASS_THROUGH'}
         plane_point, u, v, n = _plane_from_mouse(context, event)
-        point = _snapped_point(context, event, plane_point, u, v, n, step)
+        from . import cutter_snap
+        _HOVER_RESULT=cutter_snap.creation_targets(context).resolve(context,event,plane_point,n,plane_point)
+        point = _HOVER_RESULT[0] if _HOVER_RESULT else None
         if point is not None:
             _HOVER_POINT = point.copy()
             _HOVER_STEP = _neutral_size(context.scene.wavelength)
@@ -432,7 +444,7 @@ class WL_OT_cube_brush_create(bpy.types.Operator):
         shader.bind(); shader.uniform_float('color', (1.0, 1.0, 1.0, 1.0)); batch.draw(shader)
 
         if self._creating and self._start is not None and self._drag is not None:
-            verts, _faces = _preview_geometry(context.scene.wavelength, self._start, self._drag, self._u, self._v, self._n, self._step_value, self._height_m)
+            verts, _faces = _preview_geometry(context.scene.wavelength, self._start, self._drag, self._u, self._v, self._n, _creation_step(self), self._height_m)
             edge_set = set()
             for face in _faces:
                 for i, a in enumerate(face):
@@ -445,11 +457,20 @@ class WL_OT_cube_brush_create(bpy.types.Operator):
             shader.bind(); shader.uniform_float('color', (1.0, 1.0, 1.0, 0.9)); batch.draw(shader)
         gpu.state.line_width_set(1.0)
         gpu.state.depth_test_set('LESS_EQUAL')
+        if getattr(self,'_snap_result',None):
+            from . import cutter_snap
+            cutter_snap.draw(context,self._snap_result)
 
     def _update_hover(self, context, event, choose_plane=False):
         if choose_plane or self._plane_point is None:
             self._plane_point, self._u, self._v, self._n = _plane_from_mouse(context, event)
-        self._hover = _snapped_point(context, event, self._plane_point, self._u, self._v, self._n, self._step_value)
+        from . import cutter_snap
+        targets=getattr(self,'_targets',None) or cutter_snap.creation_targets(context)
+        self._snap_result=targets.resolve(context,event,self._plane_point,self._n,self._plane_point,lock_plane=not choose_plane)
+        self._hover=self._snap_result[0] if self._snap_result else None
+        if choose_plane and self._snap_result:
+            self._plane_point=self._hover.copy()
+            self._u,self._v,self._n=_axis_basis(self._snap_result[1])
         return self._hover
 
     def _accumulate_mouse(self, context, event):
@@ -485,6 +506,13 @@ class WL_OT_cube_brush_create(bpy.types.Operator):
             denom = -0.25 if denom <= 0 else 0.25
         delta_plane = delta_view - d0 * (delta_view.dot(self._n) / denom)
         raw_point = self._initial_drag + delta_plane
+        self._footprint_geometry_snap=False
+        from . import cutter_snap
+        result=cutter_snap.creation_point(context,raw_point,self._plane_point,self._n,getattr(self,'_targets',None) or cutter_snap.creation_targets(context))
+        self._snap_result=result
+        if result and result[2] in {'VERTEX','EDGE'}:
+            self._footprint_geometry_snap=True
+            return result[0].copy()
         plane_d = self._plane_point.dot(self._n)
         su = _snap(raw_point.dot(self._u), self._step_value)
         sv = _snap(raw_point.dot(self._v), self._step_value)
@@ -512,6 +540,9 @@ class WL_OT_cube_brush_create(bpy.types.Operator):
         self._sphere_axis = None
         self._start = self._drag = self._initial_drag = None
         self._plane_point = None
+        self._footprint_geometry_snap=False
+        from . import cutter_snap
+        self._targets=cutter_snap.Targets(context,None,scene_targets=True,always_geometry=True)
         self._update_hover(context, event, choose_plane=True)
         if self._hover is None:
             return {'PASS_THROUGH'}
@@ -550,6 +581,22 @@ class WL_OT_cube_brush_create(bpy.types.Operator):
             self._height_m = max(min_h, _snap(raw_h, step))
         else:
             self._height_m = max(min_h, raw_h)
+
+        # Resolve geometry near the proposed top, never the offset hardware cursor.
+        # A screen-radius height tolerance prevents distant/background faces from
+        # making the brush jump while retaining exact nearby vertex/surface levels.
+        from . import cutter_snap
+        from types import SimpleNamespace
+        top=self._start+self._n*max(min_h,raw_h)
+        xy=view3d_utils.location_3d_to_region_2d(context.region,context.region_data,top)
+        if xy is not None and pixels>=4:
+            event=SimpleNamespace(mouse_region_x=xy.x,mouse_region_y=xy.y,ctrl=False)
+            targets=getattr(self,'_targets',None) or cutter_snap.creation_targets(context)
+            result=targets.resolve(context,event,self._plane_point,self._n,self._start)
+            if result and result[2] in {'FACE','VERTEX','EDGE','GRID'}:
+                height=(result[0]-self._start).dot(self._n)
+                if height>=min_h and abs(height-raw_h)<=14*context.preferences.system.ui_scale/pixels:
+                    self._height_m=height;self._snap_result=result
 
     def _reset_prototype(self, context, event=None):
         self._creating = False
@@ -672,7 +719,7 @@ class WL_OT_cube_brush_create(bpy.types.Operator):
                 self._drag = self._footprint_drag_from_mouse(context)
                 if context.scene.wavelength.brush_type=='TERRAIN':
                     from . import terrain
-                    verts,_=_primitive_parts(context.scene.wavelength,self._start,self._drag,self._u,self._v,self._n,self._step_value)[0]
+                    verts,_=_primitive_parts(context.scene.wavelength,self._start,self._drag,self._u,self._v,self._n,_creation_step(self))[0]
                     terrain.create_footprint(context,verts[0],verts[2],self._u,self._v,self._n)
                     self._remove_draw();self._reset_prototype(context,event);return {'FINISHED'}
                 if st := getattr(context.scene, 'wavelength', None):
@@ -686,6 +733,7 @@ class WL_OT_cube_brush_create(bpy.types.Operator):
 
             if self._stage == 'HEIGHT':
                 st=context.scene.wavelength
+                geometry_step=_creation_step(self)
                 is_engine_brush=profiles.get(st.engine).get('brush_semantics',False)
                 name=_primitive_name(st,is_engine_brush)
                 created=[]
@@ -695,27 +743,27 @@ class WL_OT_cube_brush_create(bpy.types.Operator):
                     root=bpy.data.objects.new(name,None);context.collection.objects.link(root)
                     root.empty_display_size=0.2;root['wl_exclude']=True;root['wl_assembly_locked']=True
                     if st.brush_type=='CUBE':
-                        vertices,_=_box_geometry(st,self._start,self._drag,self._n,self._step_value,self._height_m)
+                        vertices,_=_box_geometry(st,self._start,self._drag,self._n,geometry_step,self._height_m)
                         u_dir,v_dir,_=_axis_basis(self._n);unit=profiles.unit_meters(st)
                         values=dict(primitive_ui.DEFAULTS,width=(vertices[1]-vertices[0]).length/unit,run=(vertices[3]-vertices[0]).length/unit,depth=self._height_m/unit)
                         basis=Matrix((u_dir,v_dir,self._n)).transposed().to_4x4();basis.translation=sum(vertices,Vector())/8;root.matrix_world=basis
                     elif st.brush_type in {'CYLINDER','CONE'}:
                         unit=profiles.unit_meters(st);delta=self._drag-self._start
                         raw=(delta-self._n*delta.dot(self._n)).length
-                        minimum=min(_neutral_size(st)*.5,self._step_value) if self._step_value and self._step_value>0 else .001
-                        radius=max(minimum,_snap(raw,self._step_value) if self._step_value and self._step_value>0 and raw>=self._step_value else raw)
+                        minimum=min(_neutral_size(st)*.5,geometry_step) if geometry_step and geometry_step>0 else .001
+                        radius=max(minimum,_snap(raw,geometry_step) if geometry_step and geometry_step>0 and raw>=geometry_step else raw)
                         values=dict(primitive_ui.DEFAULTS,radius=radius/unit,depth=self._height_m/unit,segments=st.brush_sides)
                         basis=Matrix((self._u,self._v,self._n)).transposed().to_4x4();basis.translation=self._start+self._n*self._height_m*.5;root.matrix_world=basis
                     elif st.brush_type=='STAIRS':
-                        values,origin,u_dir,v_dir,_unit=_stairs_values_and_basis(st,self._start,self._drag,self._u,self._v,self._n,self._step_value,self._height_m)
+                        values,origin,u_dir,v_dir,_unit=_stairs_values_and_basis(st,self._start,self._drag,self._u,self._v,self._n,geometry_step,self._height_m)
                         basis=Matrix((u_dir,v_dir,self._n)).transposed().to_4x4()
                         basis.translation=origin;root.matrix_world=basis
                     else:
                         unit=profiles.unit_meters(st)
                         neutral_u=_neutral_size(st)/unit
                         raw_r=(self._drag-self._start).length
-                        snapped_r=_snap(raw_r,self._step_value) if (self._step_value and self._step_value>0.0 and raw_r>=self._step_value) else raw_r
-                        min_r=min(neutral_u*0.5,(self._step_value/unit) if (self._step_value and self._step_value>0.0) else 1e-2)
+                        snapped_r=_snap(raw_r,geometry_step) if (geometry_step and geometry_step>0.0 and raw_r>=geometry_step) else raw_r
+                        min_r=min(neutral_u*0.5,(geometry_step/unit) if (geometry_step and geometry_step>0.0) else 1e-2)
                         radius=max(min_r,snapped_r/unit)
                         max_thick=radius*0.85
                         thickness=max(1e-3,min(max_thick,st.arch_thickness_steps*(neutral_u*0.5)))
@@ -743,7 +791,7 @@ class WL_OT_cube_brush_create(bpy.types.Operator):
                     self._remove_draw()
                     self._reset_prototype(context, event)
                     return {'FINISHED'}
-                parts=_primitive_parts(st,self._start,self._drag,self._u,self._v,self._n,self._step_value,self._height_m)
+                parts=_primitive_parts(st,self._start,self._drag,self._u,self._v,self._n,geometry_step,self._height_m)
                 for index,(verts,faces) in enumerate(parts):
                     part_name=name if len(parts)==1 else f'{name} {index+1:02d}'
                     mesh=bpy.data.meshes.new(part_name); mesh.from_pydata(verts,[],faces); mesh.update()
@@ -854,14 +902,14 @@ def register_tool():
 def sync_tool_for_engine(settings): return None
 
 def unregister_tool():
-    global _TOOL_REGISTERED, _HOVER_HANDLE, _HOVER_POINT
+    global _TOOL_REGISTERED, _HOVER_HANDLE, _HOVER_POINT, _HOVER_RESULT
     if _HOVER_HANDLE is not None:
         try: bpy.types.SpaceView3D.draw_handler_remove(_HOVER_HANDLE, 'WINDOW')
         except Exception: pass
         _HOVER_HANDLE = None
     _HOVER_POINT = None
+    _HOVER_RESULT = None
     for tool in reversed(TOOLS):
         try:bpy.utils.unregister_tool(tool)
         except Exception:pass
     _TOOL_REGISTERED=False
-

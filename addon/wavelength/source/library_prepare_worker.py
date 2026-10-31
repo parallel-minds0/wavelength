@@ -3,7 +3,7 @@ import hashlib,json,sys,time,traceback,os
 from pathlib import Path
 from types import SimpleNamespace
 
-VERSION=3
+VERSION=4
 
 def parent_alive(pid):
     if not pid:return True
@@ -55,6 +55,18 @@ def run(request):
             except (OSError,ValueError):dependencies[name]=None;raise
             dependencies[name]=hashlib.sha256(data).hexdigest();return data
         assets.read=read
+        if source:
+            original_fingerprint=assets.fingerprint
+            dependency_hashes={}
+            def fingerprint(name):
+                stamp=original_fingerprint(name)
+                cachekey=(name,repr(stamp))
+                if cachekey not in dependency_hashes:
+                    try:dependency_hashes[cachekey]=hashlib.sha256(original_read(name)).hexdigest()
+                    except (OSError,ValueError):dependency_hashes[cachekey]=None
+                dependencies[name]=dependency_hashes[cachekey]
+                return stamp
+            assets.fingerprint=fingerprint
         if source:source_assets.library=lambda game:assets
         classes=source_schema.definitions(settings) if source else fgd.load(settings.fgd_path) if settings.fgd_path else {}
         names=set();watch_files=set()

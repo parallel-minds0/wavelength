@@ -94,6 +94,25 @@ def validate(vertices, faces):
 
 def from_planes(planes):
     """Intersect halfspaces, then reconstruct planar polygons."""
+    planes=list(planes)
+    # Authoring validation tolerates small editing errors. Reusing that epsilon
+    # here merged distinct thin-edge vertices and assigned them to neighboring
+    # planes, producing a nonmanifold mesh from valid Hammer brush planes.
+    # Construction instead uses a floating-point error allowance at this scale;
+    # it neither snaps nor changes the input planes.
+    scale=max((abs(distance) for _normal,distance in planes),default=1.0)
+    construction_tolerance=max(1.0,scale)*64*math.ulp(1.0)
+    while True:
+        try:return _from_planes(planes,construction_tolerance)
+        except BrushError as exc:
+            # Many planes meeting at a cone apex amplify intersection roundoff.
+            # Retry only reconstruction failures, with the finest successful
+            # allowance, never exceeding normal authoring validation tolerance.
+            if exc.code not in {'NONMANIFOLD','LOOSE_VERTEX','EMPTY_OR_DEGENERATE','REDUNDANT_PLANE','DEGENERATE_FACE'} or construction_tolerance>=TOLERANCE:raise
+            construction_tolerance=min(TOLERANCE,construction_tolerance*8)
+
+
+def _from_planes(planes,construction_tolerance):
     vertices = []
     for (a, da), (b, db), (c, dc) in combinations(planes, 3):
         bc, ca, ab = cross(b, c), cross(c, a), cross(a, b)
@@ -101,12 +120,12 @@ def from_planes(planes):
         if abs(determinant) < 1e-10:
             continue
         point = tuple((da*bc[i]+db*ca[i]+dc*ab[i])/determinant for i in range(3))
-        if all(dot(n, point)-d <= TOLERANCE for n, d in planes):
-            if not any(length(sub(point, existing)) < TOLERANCE for existing in vertices):
+        if all(dot(n, point)-d <= construction_tolerance for n, d in planes):
+            if not any(length(sub(point, existing)) < construction_tolerance for existing in vertices):
                 vertices.append(point)
     faces = []
     for normal, distance in planes:
-        ids = [i for i, v in enumerate(vertices) if abs(dot(normal, v)-distance) <= TOLERANCE]
+        ids = [i for i, v in enumerate(vertices) if abs(dot(normal, v)-distance) <= construction_tolerance]
         if len(ids) < 3:
             raise BrushError("REDUNDANT_PLANE", "Plane does not bound a polygon")
         center = tuple(sum(vertices[i][j] for i in ids)/len(ids) for j in range(3))

@@ -85,6 +85,27 @@ def cached_names(settings, search=''):
     return [name for name in names if needle in name.casefold()]
 
 
+def texture_entry(settings, name):
+    """Locate a preview without appending its library or decoding its texture."""
+    _, root = cache_root(snapshot(settings))
+    try:
+        manifest = json.loads((root / 'manifest.json').read_text(encoding='utf-8'))
+        names = json.loads((root / 'index.json').read_text(encoding='utf-8'))['names']
+        errors = manifest.get('errors', {})
+        successful = [n for n in names if n not in errors]
+        index = next(i for i,n in enumerate(successful) if n.casefold()==name.casefold())
+        size = 8 if settings.engine=='source2_cs2_windows' else 128
+        shard = manifest['files'][index // size]
+        # Reading the ID name list does not load materials/images into the map.
+        with bpy.data.libraries.load(str(root / shard)) as (source, target):
+            material = next((n for n in source.materials if n.casefold()==name.casefold()), None)
+            if material is None and name.casefold()=='null':
+                material = next((n for n in source.materials if n=='NULL (nodraw)'), None)
+        return os.path.join(shard, 'Material', material) if material else None
+    except (OSError, ValueError, KeyError, IndexError, StopIteration):
+        return None
+
+
 def schedule(context=None, settings=None, force=False):
     global _job, _key, _root, _owner, _status, _last_shards, _refresh_at, _display_name
     scene = getattr(context, 'scene', None) or bpy.context.scene
