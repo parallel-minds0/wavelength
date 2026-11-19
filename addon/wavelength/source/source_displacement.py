@@ -19,7 +19,7 @@ _RUNNING=[]
 
 def info(obj):return json.loads(obj[KEY])
 
-def surfaces(source):return [o for o in source.children if o.get(KEY)]
+def surfaces(source):return [o for o in source.children if o.get(KEY) and not o.get('wl_custom_model_owner')]
 
 
 def surface_material(obj):
@@ -453,7 +453,7 @@ def connected(obj):
     return list(found)
 
 
-def sew(items,smooth=False):
+def sew(items,smooth=False,*,geometry=True):
     if any(o.modifiers for o in items):raise ValueError('Apply surface modifiers to a copy before sewing')
     pairs=connections(items)
     if not pairs:raise ValueError('No matching displacement edges were found')
@@ -502,17 +502,18 @@ def sew(items,smooth=False):
                 masks[obj,index]=masks[lower[1]]*(1-amount)+masks[upper[1]]*amount
     for (obj,index),target in targets.items():
         actual=next(v.index for v,d in zip(obj.data.vertices,obj.data.attributes[INDEX].data) if d.value==index)
-        obj.data.vertices[actual].co=obj.matrix_world.inverted()@target
+        if geometry:obj.data.vertices[actual].co=obj.matrix_world.inverted()@target
         obj.data.attributes[BLEND].data[actual].value=masks[obj,index]/255
     for obj in items:obj.data.update();obj['wl_source_sewn']=True
     return len(pairs)
 
 
-def paint_stroke(items,point,mode,radius,strength,opacity,invert=False):
+def paint_stroke(items,point,mode,radius,strength,opacity,invert=False,normal=None):
     """A spherical brush affects native grids across arbitrary surface planes."""
+    if any(obj.modifiers for obj in items):
+        raise ValueError('Use native editing or apply surface modifiers before painting')
     count=0;snapshots={o:[o.matrix_world@v.co for v in o.data.vertices] for o in items}
     for obj in items:
-        if obj.modifiers:raise ValueError('Use native editing or apply surface modifiers before painting')
         points=snapshots[obj];inverse=obj.matrix_world.inverted();normals=obj.matrix_world.to_3x3().inverted().transposed()
         neighbors={i:[] for i in range(len(points))}
         if mode=='SMOOTH':
@@ -530,7 +531,8 @@ def paint_stroke(items,point,mode,radius,strength,opacity,invert=False):
                     target=sum((points[i] for i in adjacent),Vector())/len(adjacent)
                     v.co=inverse@p.lerp(target,min(1,opacity*falloff))
             else:
-                normal=(normals@v.normal).normalized();v.co=inverse@(p+normal*strength*falloff*(-1 if invert else 1))
+                direction=normal if normal is not None else (normals@v.normal).normalized()
+                v.co=inverse@(p+direction*strength*falloff*(-1 if invert else 1))
         obj.data.update()
     return count
 
@@ -555,7 +557,12 @@ class WL_OT_source_displacement(bpy.types.Operator):
     def execute(self,context):
         obj=context.object
         try:
-            if self.action=='POWER':change_power(obj,int(self.power))
+            if self.action=='POWER':
+                items=connected(obj) if obj.get('wl_source_sewn') else [obj]
+                if len(items)>1 and any(item.modifiers for item in items):
+                    raise ValueError('Apply connected surface modifiers before changing power')
+                change_power(obj,int(self.power))
+                if len(items)>1:sew(items)
             elif self.action in {'SEW','SMOOTH'}:
                 items=[o for o in context.selected_objects if o.get(KEY)]
                 if context.mode!='OBJECT':raise ValueError('Sew displacements in Object Mode')
@@ -582,7 +589,13 @@ class WL_OT_source_displacement(bpy.types.Operator):
                 if not selected:raise ValueError('Select procedural terrain to convert')
                 sources={o.wavelength_terrain.surface_source for o in selected if o.wavelength_terrain.surface_source}
                 selected=list(dict.fromkeys([*selected,*(o for o in context.scene.objects if o.get('wl_terrain') and o.wavelength_terrain.surface_source in sources and not o.get('wl_exclude'))]))
-                prepared=[(original,terrain.brushes(original)) for original in selected]
+                settings=context.scene.wavelength
+                prepared=[
+                    (original,terrain.brushes(original,unit=(
+                        None if profiles.is_source(original.get('wl_owner_profile',''))
+                        else profiles.unit_meters(settings))))
+                    for original in selected
+                ]
                 old_world=context.scene.get('wl_world_pairs')
                 collections=[];states=[(o,o.get('wl_exclude'),o.hide_get()) for o in [*selected,*sources]]
                 try:
@@ -698,8 +711,8 @@ class WL_OT_source_displacement_paint(bpy.types.Operator):
             if event.type=='TIMER' or self.last is None or (best[1]-self.last).length>radius*.08:
                 mode='SMOOTH' if event.shift else settings.paint_mode;rate=.2 if event.type=='TIMER' else 1
                 try:
-                    count=paint_stroke(self.members,best[1],mode,radius,settings.paint_strength*unit*rate,settings.paint_opacity*rate,event.ctrl)
-                    if count and len(self.members)>1:sew(self.members)
+                    count=paint_stroke(self.members,best[1],mode,radius,settings.paint_strength*unit*rate,settings.paint_opacity*rate,event.ctrl,normal=best[2])
+                    if count and len(self.members)>1:sew(self.members,geometry=mode!='TEXTURE')
                     self.changed=bool(count) or self.changed;self.last=best[1].copy()
                 except (ValueError,RuntimeError) as exc:self.report({'ERROR'},str(exc));return self.finish(context)
         self.area.tag_redraw();return {'RUNNING_MODAL'}
@@ -745,7 +758,6 @@ def register():
     bpy.types.Object.wavelength_displacement_no_physics=BoolProperty(name='No Physics Collision',get=lambda o:bool(_flags(o)&2),set=lambda o,v:_flag(o,v,2))
     bpy.types.Object.wavelength_displacement_no_hull=BoolProperty(name='No Player / NPC Collision',get=lambda o:bool(_flags(o)&4),set=lambda o,v:_flag(o,v,4))
     bpy.types.Object.wavelength_displacement_no_ray=BoolProperty(name='No Ray / Bullet Collision',get=lambda o:bool(_flags(o)&8),set=lambda o,v:_flag(o,v,8))
-    bpy.types.VIEW3D_MT_object_context_menu.append(context_menu)
 
 
 def unregister():
@@ -753,7 +765,6 @@ def unregister():
         try:operator.finish(bpy.context)
         except (ReferenceError,RuntimeError):pass
     _RUNNING.clear()
-    bpy.types.VIEW3D_MT_object_context_menu.remove(context_menu)
     for field in ('connected','no_physics','no_hull','no_ray'):
         if hasattr(bpy.types.Object,'wavelength_displacement_'+field):delattr(bpy.types.Object,'wavelength_displacement_'+field)
     for cls in (WL_PT_source_displacement,WL_OT_source_displacement_paint,WL_OT_source_displacement):bpy.utils.unregister_class(cls)

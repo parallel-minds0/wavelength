@@ -40,7 +40,7 @@ def inspect(obj,scene):
                 'polygons':[list(p.vertices) for p in obj.data.polygons],'evaluated':bool(obj.modifiers)}
     if obj.type!='MESH' or obj.get('wl_exclude') or obj.get('wl_role')!='BRUSH':return None
     if not profiles.requires_convex_brushes(scene.wavelength.engine):return None
-    evaluated=any(not (m.type=='NODES' and m.node_group and m.node_group.get('wl_generator')=='wavelength.displacement.face_mask') for m in obj.modifiers);owner=None;mesh=None
+    evaluated=any(not (m.type=='NODES' and m.node_group and m.node_group.get('wl_generator') in {'wavelength.displacement.face_mask','wavelength.displacement.face_mapping'}) for m in obj.modifiers);owner=None;mesh=None
     try:
         if obj.mode=='EDIT' and not evaluated:
             bm=bmesh.from_edit_mesh(obj.data);bm.verts.ensure_lookup_table();bm.verts.index_update()
@@ -111,6 +111,8 @@ def reset(_unused=None):
 
 
 def tick():
+    from .edit_safety import topology_modal_active
+    if topology_modal_active(bpy.context):return .4
     pending=set(_pending);_pending.difference_update(pending)
     for scene in bpy.data.scenes:
         if not hasattr(scene,'wavelength_geometry_debug') or not hasattr(scene,'wavelength'):continue

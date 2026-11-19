@@ -27,6 +27,11 @@ source2-maps
 registered-profiles
 source-displacements
 troubleshooting
+system-tree
+asset-loading
+model-assets
+civ5
+cross-compiling
 ```
 
 [System Tree and prop visibility](system-tree.md)
@@ -34,3 +39,7 @@ troubleshooting
 [Map asset loading and caching](asset-loading.md)
 
 [Editable model assets](model-assets.md)
+
+[Civilization V cell editing](civ5.md)
+
+[Cross-profile level compilation](cross-compiling.md)

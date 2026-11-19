@@ -16,13 +16,26 @@ for i in range(3):
     entity['wl_role']='ENTITY';entity['wl_pairs']=json.dumps([['classname','prop_static'],['model','models/props_c17/oildrum001.mdl']])
     native_source.attach(entity,'models/props_c17/oildrum001.mdl')
 def counts():return len(bpy.data.images),len(bpy.data.meshes),len(bpy.data.materials),len(bpy.data.objects)
+old_names={obj.name for obj in c.scene.objects if obj.get('wl_source_native_model')}
 initial=counts();request=render_bundle.Request(c.scene);start=time.monotonic()
 while not request.poll():
     assert counts()==initial,'Polling prepared assets changed live Blender datablocks'
     assert time.monotonic()-start<60,'Preload worker did not complete'
     time.sleep(.02)
 assert counts()==initial
-request.publish();assert request.library_loads==1
+from unittest.mock import patch
+# Force a yield after every step to exercise the interactive path deterministically.
+slices=0
+while not request.published:
+    clock=iter(i*.01 for i in range(1000))
+    with patch.object(render_bundle.time,'monotonic',side_effect=lambda:next(clock)):
+        request.publish(blocking=False)
+    slices+=1
+    assert slices<30
+    if not request.published:
+        assert not any(o.type=='MESH' and o.get('wl_model_reference') for o in c.scene.objects)
+assert slices>1 and request.library_loads==1
+assert not any(name in bpy.data.objects for name in old_names), 'Retired native previews leaked'
 references=[o for o in c.scene.objects if o.type=='MESH' and o.get('wl_model_reference')]
 assert len(references)==3 and len({o.data.as_pointer() for o in references})==1
 loaded=counts()

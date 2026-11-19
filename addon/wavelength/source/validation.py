@@ -8,11 +8,13 @@ def _diag(sev,code,msg,obj=None):
     return d
 
 def validate(scene):
+    from .export_scope import Scope
+    scope=Scope(scene)
     out=[];s=scene.wavelength;step=profiles.active_grid_step_meters(s);eps=1e-5
     names={};targets=[];entity_groups={};ids={};counts={'brushes':0,'faces':0,'entities':0}
     for obj in scene.objects:
         role=obj.get('wl_role')
-        if obj.get('wl_exclude'):continue
+        if not scope.includes(obj) or obj.get('wl_exclude'):continue
         oid=obj.get('wl_id')
         if oid:
             if oid in ids:out.append(_diag('error','DUPLICATE_ID',f'Duplicate Wavelength object ID also used by {ids[oid].name}',obj))

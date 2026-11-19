@@ -292,11 +292,11 @@ def sync_inspector():
 
 
 def draw_import(self, context):
-    self.layout.operator('wavelength.import_map', text='wavelength IO (.map, .vmf, .vmap)')
+    self.layout.operator('wavelength.import_map', text='wavelength IO (.map, .vmf, .vmap, .Civ5Map)')
 
 
 def draw_export(self, context):
-    self.layout.operator('wavelength.export_map',text='wavelength IO (.map, .vmf, .vmap, .glb, .vmdl)')
+    self.layout.operator('wavelength.export_map',text='wavelength IO (.map, .vmf, .vmap, .Civ5Map, .glb, .vmdl)')
 
 
 def draw_status(self, context):

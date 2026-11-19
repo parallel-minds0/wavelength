@@ -329,34 +329,42 @@ class WL_OT_draw_path(bpy.types.Operator):
     # Placement method is shared with the previously verified surface drawing controls.
     def _update(self,context,event):
         anchor=Vector(self._points[-1]['co']) if self._points else self._plane
-        # A profile-grid stroke stays on the surface/grid plane selected at its
-        # first point. Native free drawing keeps its existing surface following.
-        self._snap_result=self._targets.resolve(context,event,self._plane,self._normal,anchor,lock_plane=bool(self._points or self._pending) and tool_snap.profile_grid_active(context))
-        if self._snap_result is None:return
+        locked = bool(self._points or self._pending)
+        self._snap_result = self._targets.resolve(
+            context, event, self._plane, self._normal, anchor, lock_plane=locked)
+        self._closing = False
+        if self._snap_result is None:
+            self._hover = None
+            return
         value=self._snap_result[0].copy()
         if not self._points and self._pending is None:
             self._plane=value.copy();self._u,self._v,self._normal=brush_create._axis_basis(self._snap_result[1])
         if self._points and self._value:
             try:
                 distance=profiles.engine_to_world(context.scene.wavelength,float(self._value));delta=value-anchor
-                if delta.length>1e-8:value=anchor+delta.normalized()*distance
+                if delta.length>1e-8:
+                    value=anchor+delta.normalized()*distance
+                    self._snap_result=None
             except ValueError:pass
-        self._snap_result=(value,self._snap_result[1],self._snap_result[2],self._snap_result[3])
         self._hover=value;self._closing=False
         if len(self._points)>=3:
             screen=view3d_utils.location_3d_to_region_2d(context.region,context.region_data,Vector(self._points[0]['co']))
-            if screen is not None and (screen-Vector((event.mouse_region_x,event.mouse_region_y))).length<14:self._closing=True;self._hover=Vector(self._points[0]['co'])
+            if screen is not None and (screen-Vector((event.mouse_region_x,event.mouse_region_y))).length<14:
+                self._closing=True
+                self._hover=Vector(self._points[0]['co'])
+                self._snap_result=None
 
     def _draw(self):
         context=bpy.context
-        if not context.area or context.area.as_pointer()!=self._area:return
-        cutter_snap.draw(context,self._snap_result)
+        if not context.area or context.area.as_pointer()!=self._area or not context.region_data:return
+        brush_create._draw_snap(context, self._snap_result)
         pts=list(self._points)
         if self._extruding:
             if self._extrude_closed:pts.append(self._points[0])
         elif self._pending:pts.append(self._pending)
         elif self._hover is not None and pts:pts.append(self._points[0] if self._closing else point(self._hover))
         positions=[]
+        keep_arrow=[]
         st=self._operation_settings
         if (self._extruding or st['operation']!='FACE') and len(pts)>=2:
             axis=st['direction'];up=self._normal if axis=='NORMAL' else Vector(tuple(float(a==axis) for a in 'XYZ'))
@@ -373,12 +381,27 @@ class WL_OT_draw_path(bpy.types.Operator):
                 co=Vector(p['co'])
                 if not (self._extruding and st['operation']=='FACE'):co-=up*(co-base).dot(up)
                 positions.extend((co+up*low,co+up*high))
+            if st['operation']=='SPLIT' and st['keep']!='BOTH' and not (
+                    self._extrude_closed if self._extruding else self._closing):
+                end=Vector(pts[-1]['co'])
+                side=cutter_solid.open_cut_side(base,end,up)
+                if side.length_squared>1e-10:
+                    size=min(side.length*.15,brush_create._neutral_size(context.scene.wavelength))
+                    side=side.normalized() * (1 if st['keep']=='INSIDE' else -1)
+                    center=(base+end-up*(end-base).dot(up))*.5
+                    tip=center+side*size
+                    wing=up.cross(side)*size*.22
+                    tail=tip-side*size*.3
+                    keep_arrow=[center,tip,tip,tail+wing,tip,tail-wing]
         for a,b in zip(pts,pts[1:]):
             curve=geo.sample(a,b,context.scene.wavelength_draw.resolution);positions.extend(p for edge in zip(curve,curve[1:]) for p in edge)
         shader=gpu.shader.from_builtin('UNIFORM_COLOR');gpu.state.depth_test_set('NONE')
         try:
             if positions:
                 batch=batch_for_shader(shader,'LINES',{'pos':positions});shader.bind();shader.uniform_float('color',(.3,1,.5,1));batch.draw(shader)
+            if keep_arrow:
+                shader.bind();shader.uniform_float('color',(1,.72,.22,1))
+                batch_for_shader(shader,'LINES',{'pos':keep_arrow}).draw(shader)
             if self._points:
                 gpu.state.point_size_set(7);batch=batch_for_shader(shader,'POINTS',{'pos':[p['co'] for p in self._points]})
                 shader.bind();shader.uniform_float('color',(1,.7,.1,1) if self._closing else (.5,1,.65,1));batch.draw(shader)
@@ -387,7 +410,7 @@ class WL_OT_draw_path(bpy.types.Operator):
                 shader.bind();shader.uniform_float('color',(1,.65,.2,1));batch.draw(shader)
         finally:gpu.state.point_size_set(1);gpu.state.depth_test_set('LESS_EQUAL')
     def _begin_extrude(self,context,event,closed):
-        self._extruding=True;self._extrude_closed=closed;self._value=''
+        self._extruding=True;self._extrude_closed=closed;self._value='';self._snap_result=None
         self._start=Vector(self._points[0]['co']);self._height_mouse_start=(event.mouse_region_x,event.mouse_region_y)
         self._height_m=brush_create._neutral_size(context.scene.wavelength);self._height_start_m=self._height_m
         self._virt_mouse=self._height_mouse_start
@@ -400,6 +423,7 @@ class WL_OT_draw_path(bpy.types.Operator):
         axis=self._operation_settings['direction']
         self._n=self._normal if axis=='NORMAL' else Vector(tuple(float(a==axis) for a in 'XYZ'))
         if event.type=='MOUSEMOVE':
+            self._snap_result = None
             self._virt_mouse=(event.mouse_region_x,event.mouse_region_y)
             self._step_value=tool_snap.step(context) if tool_snap.grid_enabled(context,event) else 0
             brush_create.WL_OT_cube_brush_create._update_height_from_mouse(self,context)

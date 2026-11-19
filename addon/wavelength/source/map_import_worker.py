@@ -25,8 +25,8 @@ def run(request):
                 stream.write(json.dumps([indices[id(entity)],[asdict(f) for f in brush],vertices,polygons],separators=(',',':'))+'\n');count+=1
                 if time.monotonic()-last_progress>=.1:
                     status(dict(state='VALIDATING',done=count,total=total));last_progress=time.monotonic()
-        metadata=dict(entities=[dict(pairs=e.pairs,brushes=len(e.brushes),hidden=e.vmf_hidden) for e in document.entities],
-                      brush_count=count,valve_axes=any(f.axes for e in document.entities for b in e.brushes for f in b))
+        metadata=dict(entities=[dict(pairs=e.pairs,brushes=len(e.brushes),hidden=e.vmf_hidden,visgroup=e.vmf_visgroup,groups=e.vmf_groups) for e in document.entities],
+                      visgroups=document.vmf_visgroups,cameras=document.vmf_cameras,view_metadata=document.vmf_view_metadata,brush_count=count,valve_axes=any(f.axes for e in document.entities for b in e.brushes for f in b))
         (folder/'metadata.json').write_text(json.dumps(metadata,separators=(',',':')),encoding='utf-8')
         status(dict(state='READY'))
     except Exception as exc:

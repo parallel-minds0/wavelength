@@ -14,6 +14,15 @@ def send(kind,value='PRESS',point=(0,0,.5),shift=False):
     steps.append(step)
 def click(point):
     send('MOUSEMOVE','NOTHING',point);send('LEFTMOUSE',point=point);send('LEFTMOUSE','RELEASE',point)
+click((-3,0,.5))
+send('MOUSEMOVE','NOTHING',(3,0,.5))
+send('ESC',point=(3,0,.5))
+def check_cancel():
+    assert not pencil._drawing
+    assert not any(pencil.is_guide(obj) for obj in bpy.context.scene.objects)
+    assert len(bpy.data.objects[target_name].data.polygons)==6
+    print('PASS Escape cancels guide preview without cutting the target',flush=True)
+steps.append(check_cancel)
 click((-3,0,.5));click((3,0,.5))
 send('Z');send('D');send('WHEELUPMOUSE')
 send('B');send('WHEELUPMOUSE',shift=True);send('WHEELDOWNMOUSE',shift=True);send('B');send('B')

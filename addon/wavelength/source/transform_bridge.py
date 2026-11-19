@@ -10,31 +10,17 @@ from . import workspace
 NATIVE={'builtin.move':'MOVE','builtin.rotate':'ROTATE','builtin.scale':'SCALE','builtin.transform':'TRANSFORM'}
 LEGACY={'wavelength.precision_move_tool':'builtin.move',**{'wavelength.engine_'+name+'_tool':'builtin.'+name for name in ('rotate','scale','transform')}}
 _keys=[];_original_tools=None;_states={}
-_snap_states={}
 _edit_widget_states={}
 
 
 def sync_grid_policy():
-    """Keep native transforms on the profile grid; restore outside wavelength."""
-    from . import tool_snap
-    active=set()
-    for window in bpy.context.window_manager.windows:
-        with bpy.context.temp_override(window=window):
-            if not workspace.active() or not tool_snap.profile_grid_active(bpy.context):continue
-            scene=window.scene;key=scene.as_pointer();active.add(key);ts=scene.tool_settings
-            fields=('use_snap','use_snap_translate','use_snap_rotate','use_snap_scale','use_snap_grid_absolute')
-            if key not in _snap_states:
-                _snap_states[key]=(scene,{k:getattr(ts,k) for k in fields if hasattr(ts,k)},set(ts.snap_elements))
-            for name in fields:
-                if hasattr(ts,name) and not getattr(ts,name):setattr(ts,name,True)
-            if set(ts.snap_elements)!={'GRID'}:ts.snap_elements={'GRID'}
-    for key,(scene,values,elements) in tuple(_snap_states.items()):
-        if key in active:continue
-        try:
-            for name,value in values.items():setattr(scene.tool_settings,name,value)
-            scene.tool_settings.snap_elements=elements
-        except ReferenceError:pass
-        _snap_states.pop(key,None)
+    """Snap preferences belong to Blender; the native adapter supplies spacing.
+
+    Never rewrite targets, enable flags or transform masks during timer updates.
+    This hook remains for callers that refresh tool bindings after UI changes.
+    """
+    pass
+
 
 def available(context):
     from .precision_move import WL_OT_precision_move
@@ -62,12 +48,27 @@ class WL_OT_profile_grid_context(bpy.types.Operator):
         return bool(context.area and context.area.type=='VIEW_3D' and workspace.active(context) and tool_snap.profile_grid_active(context))
     def execute(self,context):return {'FINISHED'}
 
+class WL_OT_duplicate_in_place(bpy.types.Operator):
+    """Duplicate without starting Blender's cursor-driven translate macro."""
+    bl_idname='wavelength.duplicate_in_place';bl_label='Duplicate in Place'
+    bl_options={'REGISTER','UNDO'}
+    @classmethod
+    def poll(cls,context):
+        return bool(workspace.active(context) and context.mode=='OBJECT' and context.selected_objects)
+    def execute(self,context):
+        from . import primitive_ui
+        if any(primitive_ui.root_for(obj) for obj in context.selected_objects):
+            return bpy.ops.wavelength.duplicate_assembly('EXEC_DEFAULT')
+        return bpy.ops.object.duplicate('EXEC_DEFAULT')
+
+
 class WL_OT_transform_route(bpy.types.Operator):
     bl_idname='wavelength.transform_route';bl_label='Profile Transform'
     kind:bpy.props.EnumProperty(items=[(key,key.title(),'') for key in ('MOVE','ROTATE','SCALE')],default='MOVE')
     @classmethod
     def poll(cls,context):return available(context)
     def invoke(self,context,event):
+        if self.kind=='SCALE':return bpy.ops.transform.resize('INVOKE_DEFAULT')
         if self.kind=='MOVE':bpy.ops.wavelength.precision_move('INVOKE_DEFAULT')
         else:bpy.ops.wavelength.engine_transform('INVOKE_DEFAULT',kind=self.kind)
         return {'FINISHED'}
@@ -104,6 +105,7 @@ def tools_from_context(cls,context,mode=None):
         if type(item) is tuple:return tuple(adapt(t) for t in item)
         if shaping and item.idname in NATIVE:
             return item._replace(widget='',widget_properties=None,keymap=None,operator='',draw_settings=None)
+        if enabled and item.idname=='builtin.scale':return item
         if enabled and item.idname in NATIVE:
             kind=NATIVE[item.idname]
             return item._replace(widget='WL_GGT_native_transform',widget_properties=None,
@@ -116,6 +118,8 @@ def tools_from_context(cls,context,mode=None):
 def sync():
     """Refresh tool runtime bindings on workspace/profile/context transitions."""
     from bl_ui.space_toolsystem_toolbar import VIEW3D_PT_tools_active
+    from .edit_safety import topology_modal_active
+    if topology_modal_active(bpy.context):return .1
     sync_grid_policy()
     hidden_spaces=set()
     for window in bpy.context.window_manager.windows:
@@ -155,13 +159,14 @@ def sync():
 
 def register():
     global _original_tools
-    for cls in (WL_OT_profile_grid_context,WL_OT_transform_route,WL_GGT_native_transform):bpy.utils.register_class(cls)
+    for cls in (WL_OT_profile_grid_context,WL_OT_duplicate_in_place,WL_OT_transform_route,WL_GGT_native_transform):bpy.utils.register_class(cls)
     from bl_ui.space_toolsystem_toolbar import VIEW3D_PT_tools_active
     _original_tools=VIEW3D_PT_tools_active.tools_from_context.__func__
     VIEW3D_PT_tools_active.tools_from_context=classmethod(tools_from_context)
     kc=bpy.context.window_manager.keyconfigs.addon
     if kc:
         km=kc.keymaps.new(name='Object Mode',space_type='EMPTY')
+        item=km.keymap_items.new('wavelength.duplicate_in_place','D','PRESS',shift=True);_keys.append((km,item))
         for key,kind in [('G','MOVE'),('R','ROTATE'),('S','SCALE')]:
             item=km.keymap_items.new('wavelength.transform_route',key,'PRESS');item.properties.kind=kind;_keys.append((km,item))
         for kind in NATIVE.values():
@@ -176,12 +181,6 @@ def unregister():
             for name,value in values.items():setattr(space,name,value)
         except ReferenceError:pass
     _edit_widget_states.clear()
-    for scene,values,elements in tuple(_snap_states.values()):
-        try:
-            for name,value in values.items():setattr(scene.tool_settings,name,value)
-            scene.tool_settings.snap_elements=elements
-        except ReferenceError:pass
-    _snap_states.clear()
     global _original_tools
     if bpy.app.timers.is_registered(sync):bpy.app.timers.unregister(sync)
     from bl_ui.space_toolsystem_toolbar import VIEW3D_PT_tools_active
@@ -202,4 +201,4 @@ def unregister():
             keymap_fallback=(fallback.keymap[0]+' (fallback)') if fallback and fallback.keymap else '')
     for km,item in _keys:km.keymap_items.remove(item)
     _keys.clear();_states.clear()
-    for cls in (WL_GGT_native_transform,WL_OT_transform_route,WL_OT_profile_grid_context):bpy.utils.unregister_class(cls)
+    for cls in (WL_GGT_native_transform,WL_OT_transform_route,WL_OT_duplicate_in_place,WL_OT_profile_grid_context):bpy.utils.unregister_class(cls)

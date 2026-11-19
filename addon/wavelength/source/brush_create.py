@@ -331,38 +331,25 @@ def _tool_label(settings):
     return profiles.create_cube_label(settings)
 
 
-_HOVER_POINT = None
-_HOVER_STEP = 1.0
 _HOVER_AREA_PTR = None
 _HOVER_HANDLE = None
 _HOVER_RESULT = None
 
 
-def _draw_idle_hover():
-    """Draw the passive snap marker without keeping a modal operator alive."""
-    global _HOVER_POINT
-    if not workspace.active(bpy.context) or _HOVER_POINT is None:
-        return
-    try:
-        area = bpy.context.area
-        if area is None or area.type != 'VIEW_3D' or area.as_pointer() != _HOVER_AREA_PTR:
-            return
-    except Exception:
-        return
-    if _HOVER_RESULT is not None:
+def _draw_snap(context, result):
+    if result and result[2] in {'VERTEX', 'EDGE', 'GRID'}:
         from . import cutter_snap
-        cutter_snap.draw(bpy.context,_HOVER_RESULT)
-        return
-    shader = gpu.shader.from_builtin('UNIFORM_COLOR')
-    gpu.state.depth_test_set('NONE')
-    gpu.state.line_width_set(2.0)
-    s = max((_HOVER_STEP or 0.5) * 0.18, 0.02)
-    p = _HOVER_POINT
-    marker = [(p.x-s,p.y,p.z),(p.x+s,p.y,p.z),(p.x,p.y-s,p.z),(p.x,p.y+s,p.z),(p.x,p.y,p.z-s),(p.x,p.y,p.z+s)]
-    batch = batch_for_shader(shader, 'LINES', {'pos': marker})
-    shader.bind(); shader.uniform_float('color', (1.0, 1.0, 1.0, 1.0)); batch.draw(shader)
-    gpu.state.line_width_set(1.0)
-    gpu.state.depth_test_set('LESS_EQUAL')
+        cutter_snap.draw(context, result)
+
+
+def _draw_idle_hover():
+    context = bpy.context
+    if (workspace.active(context) and context.area and context.area.type == 'VIEW_3D'
+            and context.area.as_pointer() == _HOVER_AREA_PTR and context.region_data
+            and context.mode == 'OBJECT' and _HOVER_RESULT):
+        active = context.workspace.tools.from_space_view3d_mode('OBJECT', create=False)
+        if active and any(active.idname == tool.bl_idname for tool in TOOLS):
+            _draw_snap(context, _HOVER_RESULT)
 
 
 class WL_OT_brush_hover(bpy.types.Operator):
@@ -378,19 +365,15 @@ class WL_OT_brush_hover(bpy.types.Operator):
                 context.mode == 'OBJECT' and hasattr(context.scene, 'wavelength'))
 
     def invoke(self, context, event):
-        global _HOVER_POINT, _HOVER_STEP, _HOVER_AREA_PTR, _HOVER_RESULT
+        global _HOVER_AREA_PTR, _HOVER_RESULT
         step = _step(context)
         if step is None or not _event_in_window_region(context, event):
             return {'PASS_THROUGH'}
         plane_point, u, v, n = _plane_from_mouse(context, event)
         from . import cutter_snap
         _HOVER_RESULT=cutter_snap.creation_targets(context).resolve(context,event,plane_point,n,plane_point)
-        point = _HOVER_RESULT[0] if _HOVER_RESULT else None
-        if point is not None:
-            _HOVER_POINT = point.copy()
-            _HOVER_STEP = _neutral_size(context.scene.wavelength)
-            _HOVER_AREA_PTR = context.area.as_pointer()
-            context.area.tag_redraw()
+        _HOVER_AREA_PTR = context.area.as_pointer()
+        context.area.tag_redraw()
         return {'PASS_THROUGH'}
 
 
@@ -437,12 +420,6 @@ class WL_OT_cube_brush_create(bpy.types.Operator):
         shader = gpu.shader.from_builtin('UNIFORM_COLOR')
         gpu.state.depth_test_set('NONE')
         gpu.state.line_width_set(2.0)
-        s = max(_neutral_size(context.scene.wavelength) * 0.18, 0.02)
-        p = self._hover
-        marker = [(p.x-s,p.y,p.z),(p.x+s,p.y,p.z),(p.x,p.y-s,p.z),(p.x,p.y+s,p.z),(p.x,p.y,p.z-s),(p.x,p.y,p.z+s)]
-        batch = batch_for_shader(shader, 'LINES', {'pos': marker})
-        shader.bind(); shader.uniform_float('color', (1.0, 1.0, 1.0, 1.0)); batch.draw(shader)
-
         if self._creating and self._start is not None and self._drag is not None:
             verts, _faces = _preview_geometry(context.scene.wavelength, self._start, self._drag, self._u, self._v, self._n, _creation_step(self), self._height_m)
             edge_set = set()
@@ -457,9 +434,7 @@ class WL_OT_cube_brush_create(bpy.types.Operator):
             shader.bind(); shader.uniform_float('color', (1.0, 1.0, 1.0, 0.9)); batch.draw(shader)
         gpu.state.line_width_set(1.0)
         gpu.state.depth_test_set('LESS_EQUAL')
-        if getattr(self,'_snap_result',None):
-            from . import cutter_snap
-            cutter_snap.draw(context,self._snap_result)
+        _draw_snap(context, getattr(self, '_snap_result', None))
 
     def _update_hover(self, context, event, choose_plane=False):
         if choose_plane or self._plane_point is None:
@@ -489,38 +464,39 @@ class WL_OT_cube_brush_create(bpy.types.Operator):
                 dy = 0.0
         self._virt_mouse = (self._virt_mouse[0] + dx, self._virt_mouse[1] + dy)
 
-    def _footprint_drag_from_mouse(self, context):
-        """Compute continuous 3D footprint drag point from virtual mouse coordinates without horizon or border limits."""
-        if self._start is None or self._initial_drag is None or self._start_mouse_2d is None or self._virt_mouse is None:
-            return self._drag
-        mdx = self._virt_mouse[0] - self._start_mouse_2d[0]
-        mdy = self._virt_mouse[1] - self._start_mouse_2d[1]
-        if (mdx * mdx + mdy * mdy) < 4.0:
-            return self._initial_drag.copy()
-        p0 = view3d_utils.region_2d_to_location_3d(context.region, context.region_data, self._start_mouse_2d, self._start)
-        p1 = view3d_utils.region_2d_to_location_3d(context.region, context.region_data, self._virt_mouse, self._start)
-        delta_view = p1 - p0
-        d0 = view3d_utils.region_2d_to_vector_3d(context.region, context.region_data, self._start_mouse_2d).normalized()
-        denom = d0.dot(self._n)
-        if abs(denom) < 0.25:
-            denom = -0.25 if denom <= 0 else 0.25
-        delta_plane = delta_view - d0 * (delta_view.dot(self._n) / denom)
-        raw_point = self._initial_drag + delta_plane
-        self._footprint_geometry_snap=False
+    def _footprint_drag_from_mouse(self, context, event):
+        """Project the current pointer onto the locked construction plane."""
         from . import cutter_snap
-        result=cutter_snap.creation_point(context,raw_point,self._plane_point,self._n,getattr(self,'_targets',None) or cutter_snap.creation_targets(context))
-        self._snap_result=result
-        if result and result[2] in {'VERTEX','EDGE'}:
-            self._footprint_geometry_snap=True
+
+        xy = Vector((event.mouse_region_x, event.mouse_region_y))
+        if (xy - Vector(self._start_mouse_2d)).length_squared < 4:
+            self._snap_result = None
+            self._footprint_geometry_snap = False
+            return self._initial_drag.copy()
+
+        origin, direction = _ray(context, event)
+        point = _intersect_plane(origin, direction, self._plane_point, self._n)
+        if point is None or (point - origin).dot(direction) < 0:
+            self._snap_result = None
+            return None
+
+        targets = getattr(self, '_targets', None) or cutter_snap.creation_targets(context)
+        result = targets.resolve(context, event, self._plane_point, self._n, self._plane_point, lock_plane=True)
+        self._footprint_geometry_snap = bool(result and result[2] in {'VERTEX', 'EDGE'})
+        if self._footprint_geometry_snap:
+            self._snap_result = result
             return result[0].copy()
-        plane_d = self._plane_point.dot(self._n)
-        su = _snap(raw_point.dot(self._u), self._step_value)
-        sv = _snap(raw_point.dot(self._v), self._step_value)
-        return self._u * su + self._v * sv + self._n * plane_d
+
+        su = _snap(point.dot(self._u), self._step_value)
+        sv = _snap(point.dot(self._v), self._step_value)
+        end = self._u * su + self._v * sv + self._n * self._plane_point.dot(self._n)
+        self._snap_result = (end, self._n, 'GRID', []) if self._step_value else None
+        return end
 
     primitive = ''
 
     def invoke(self, context, event):
+        global _HOVER_RESULT
         if not _event_in_window_region(context, event):
             return {'PASS_THROUGH'}
         st = context.scene.wavelength
@@ -552,6 +528,7 @@ class WL_OT_cube_brush_create(bpy.types.Operator):
         self._start_mouse_2d = (float(event.mouse_region_x), float(event.mouse_region_y))
         self._virt_mouse = self._start_mouse_2d
         self._last_mouse = (float(event.mouse_x), float(event.mouse_y))
+        _HOVER_RESULT = None
         self._handle = bpy.types.SpaceView3D.draw_handler_add(self._draw, (context,), 'WINDOW', 'POST_VIEW')
         context.window_manager.modal_handler_add(self)
         context.area.tag_redraw()
@@ -665,7 +642,7 @@ class WL_OT_cube_brush_create(bpy.types.Operator):
             if new_step is not None:
                 self._step_value = new_step
             if self._stage == 'FOOTPRINT':
-                self._drag = self._footprint_drag_from_mouse(context)
+                self._drag = self._footprint_drag_from_mouse(context, event)
             context.area.tag_redraw()
             return {'RUNNING_MODAL'}
         if event.type in {'MIDDLEMOUSE','WHEELUPMOUSE','WHEELDOWNMOUSE','WHEELINMOUSE','WHEELOUTMOUSE',
@@ -679,12 +656,13 @@ class WL_OT_cube_brush_create(bpy.types.Operator):
         if event.type == 'MOUSEMOVE':
             self._accumulate_mouse(context, event)
             if self._stage == 'FOOTPRINT':
-                self._drag = self._footprint_drag_from_mouse(context)
+                self._drag = self._footprint_drag_from_mouse(context, event)
                 if self._drag is not None:
                     self._hover = self._drag.copy()
                 context.area.tag_redraw()
                 return {'RUNNING_MODAL'}
             if self._stage == 'HEIGHT':
+                self._snap_result = None
                 self._update_height_from_mouse(context)
                 context.area.tag_redraw()
                 return {'RUNNING_MODAL'}
@@ -716,7 +694,10 @@ class WL_OT_cube_brush_create(bpy.types.Operator):
 
             if self._stage == 'FOOTPRINT':
                 self._accumulate_mouse(context, event)
-                self._drag = self._footprint_drag_from_mouse(context)
+                self._drag = self._footprint_drag_from_mouse(context, event)
+                if self._drag is None:
+                    context.area.tag_redraw()
+                    return {'RUNNING_MODAL'}
                 if context.scene.wavelength.brush_type=='TERRAIN':
                     from . import terrain
                     verts,_=_primitive_parts(context.scene.wavelength,self._start,self._drag,self._u,self._v,self._n,_creation_step(self))[0]
@@ -726,6 +707,7 @@ class WL_OT_cube_brush_create(bpy.types.Operator):
                     if st.brush_type == 'SPHERE':
                         self._stage = 'HEIGHT'
                 self._stage = 'HEIGHT'
+                self._snap_result = None
                 self._height_mouse_start = self._virt_mouse
                 self._height_start_m = self._height_m
                 context.area.tag_redraw()
@@ -902,12 +884,11 @@ def register_tool():
 def sync_tool_for_engine(settings): return None
 
 def unregister_tool():
-    global _TOOL_REGISTERED, _HOVER_HANDLE, _HOVER_POINT, _HOVER_RESULT
+    global _TOOL_REGISTERED, _HOVER_HANDLE, _HOVER_RESULT
     if _HOVER_HANDLE is not None:
         try: bpy.types.SpaceView3D.draw_handler_remove(_HOVER_HANDLE, 'WINDOW')
         except Exception: pass
         _HOVER_HANDLE = None
-    _HOVER_POINT = None
     _HOVER_RESULT = None
     for tool in reversed(TOOLS):
         try:bpy.utils.unregister_tool(tool)

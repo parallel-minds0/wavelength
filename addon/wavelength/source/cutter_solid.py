@@ -4,6 +4,11 @@ from mathutils import Vector
 from . import draw_geometry as geo,profiles,formats
 
 
+def open_cut_side(start, end, normal):
+    """Direction into the cutting volume for an open guide."""
+    return normal.cross(end - start)
+
+
 def apply(context,guide,points,closed,normal):
     target=guide.wavelength_cutter.target;settings=guide.wavelength_cutter
     if settings.operation=='SUBTRACT' and not closed:raise ValueError('Close the outline to subtract a volume')
@@ -19,7 +24,7 @@ def apply(context,guide,points,closed,normal):
     if any((b-a).length<1e-6 for a,b in zip(points,points[1:])):raise ValueError('Path collapses along the chosen direction; choose another axis')
     if not closed:
         a=(points[1]-points[0]).normalized();b=(points[-1]-points[-2]).normalized()
-        side=n.cross(points[-1]-points[0])
+        side=open_cut_side(points[0],points[-1],n)
         if side.length<1e-7:raise ValueError('Open path endpoints must be distinct')
         side.normalize();points=[points[0]-a*extent]+points+[points[-1]+b*extent]
         points += [points[-1]+side*extent*4,points[0]+side*extent*4]

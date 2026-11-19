@@ -36,6 +36,9 @@ class Request:
         self.started=time.monotonic();self.stage='RENDER_PRELOAD';self.phase_done=0;self.phase_total=len(self.materials)+len(self.models)
         self.path=Path(scene.wavelength.map_path or (scene.wavelength.map_name+'.vmf'))
         self._last_redraw=0
+        self._publication=None
+        self._staging=None
+        self._model_work_ms=0.0
         if not self.ready:
             self.directory=tempfile.TemporaryDirectory(prefix='wavelength-render-');self.folder=Path(self.directory.name)
             request=dict(settings=config,materials=sorted({m['wl_source_native_material'] for m in self.materials}),models=self.models,bundle=str(self.bundle),parent_pid=os.getpid())
@@ -73,9 +76,24 @@ class Request:
             _loaded[self.identity]=cached
         return cached
 
-    def publish(self):
-        """Append once, stage prop instances, then commit all bindings together."""
-        if self.published:return
+    def publish(self, *, blocking=True):
+        """Advance the publication, keeping staged props off-scene until commit."""
+        if self.published:return True
+        if self._publication is None:self._publication=self._publish_steps()
+        deadline=time.monotonic()+.012
+        while blocking or time.monotonic()<deadline:
+            started=time.monotonic()
+            step=next(self._publication, None)
+            elapsed=(time.monotonic()-started)*1000
+            if step == 'models':
+                self._model_work_ms+=elapsed
+                self.timings['model_step_ms']=round(max(elapsed,self.timings.get('model_step_ms',0)),2)
+            if step is None:
+                self._publication=None
+                return self.published
+        return False
+
+    def _publish_steps(self):
         self.stage='RENDER_BIND'
         from .map_import import redraw
         redraw(self.scene)
@@ -83,7 +101,9 @@ class Request:
         manifest=json.loads(self.bundle.read_text(encoding='utf-8'))
         cached=self.load_all(manifest)
         materials,meshes=cached
-        self.timings['library_ms']=round((time.monotonic()-started)*1000,2);started=time.monotonic()
+        self.timings['library_ms']=round((time.monotonic()-started)*1000,2)
+        yield True
+        started=time.monotonic()
         replaced=[];renames=[]
         replacements={}
         for old in self.materials:
@@ -102,33 +122,59 @@ class Request:
         replaced=[old for old in replacements if old.users==0]
         if replaced:bpy.data.batch_remove(replaced)
         for new,name in renames:new.name=name
-        self.timings['materials_ms']=round((time.monotonic()-started)*1000,2);started=time.monotonic()
-        staging=bpy.data.collections.new('Source Render References');hidden=[];removed=[]
+        self.timings['materials_ms']=round((time.monotonic()-started)*1000,2)
+        yield True
+        staging=bpy.data.collections.new('Source Render References');hidden=[];replacements_by_prop=[]
+        self._staging=staging
         from .scene import uid
         # Query view-layer visibility before altering collections. hide_get()
         # otherwise forces a full view-layer resync after every object link.
-        hidden_sources={old.as_pointer() for old in self.references if old.hide_get() or (old.parent and old.parent.hide_get())}
+        hidden_sources=set()
+        for old in self.references:
+            try:
+                if old.hide_get() or (old.parent and old.parent.hide_get()):hidden_sources.add(old.as_pointer())
+            except ReferenceError:pass
+            yield 'models'
         for old in self.references:
             try:
                 mesh=meshes.get(self.keys[old.as_pointer()])
                 if mesh is None:
-                    old['wl_asset_error']='Render asset unavailable; see render preparation status';continue
+                    old['wl_asset_error']='Render asset unavailable; see render preparation status'
+                    yield 'models'
+                    continue
                 ref=bpy.data.objects.new(old.name,mesh);staging.objects.link(ref)
                 ref.parent=old.parent;ref.matrix_parent_inverse=old.matrix_parent_inverse.copy();ref.matrix_basis=old.matrix_basis.copy()
                 ref['wl_model_reference']=True;ref['wl_exclude']=True;ref['wl_role']='MODEL_REFERENCE';ref['wl_source_model']=old['wl_source_native_model']
                 ref['wl_id']=uid()
                 ref.hide_render=old.hide_render
                 if old.as_pointer() in hidden_sources:hidden.append(ref)
-                removed.append(old)
-            except ReferenceError:continue
+                replacements_by_prop.append((ref,old))
+            except ReferenceError:pass
+            yield 'models'
+        # A prop may be deleted or reassigned while publication yields.
+        commit_started=time.monotonic()
+        live=set(self.scene.objects)
+        obsolete={ref for ref,old in replacements_by_prop if old not in live}
+        hidden=[ref for ref in hidden if ref not in obsolete]
+        if obsolete:bpy.data.batch_remove(obsolete)
+        linked_at=time.monotonic()
         self.scene.collection.children.link(staging)
+        self.timings['model_link_ms']=round((time.monotonic()-linked_at)*1000,2)
+        self._staging=None
+        removed=[old for _,old in replacements_by_prop if old in live]
+        removed_at=time.monotonic()
         if removed:bpy.data.batch_remove(removed)
+        self.timings['model_remove_ms']=round((time.monotonic()-removed_at)*1000,2)
+        visibility_at=time.monotonic()
         for ref in hidden:ref.hide_set(True)
+        self.timings['model_visibility_ms']=round((time.monotonic()-visibility_at)*1000,2)
+        self.timings['model_hidden_count']=len(hidden)
+        self.timings['model_commit_ms']=round((time.monotonic()-commit_started)*1000,2)
         errors=manifest.get('errors',[])
         self.scene.wavelength.status='Render assets ready'+(f'; {len(errors)} unavailable' if errors else '')
         if errors:self.scene['wl_render_asset_errors']=json.dumps(errors)
         self.scene['wl_source_blender_rendering']=True
-        self.timings['models_ms']=round((time.monotonic()-started)*1000,2)
+        self.timings['models_ms']=round(self._model_work_ms+self.timings['model_commit_ms'],2)
         self.published=True
         self.timings['library_loads']=self.library_loads
         self.timings['largest_library_slice_ms']=round(max(self.load_slice_times,default=0)*1000,2)
@@ -136,6 +182,12 @@ class Request:
         diagnostics.logger.info('Source render bundle publication timings: %s',self.timings)
 
     def close(self):
+        if self._publication is not None:
+            self._publication.close()
+            self._publication=None
+        if self._staging is not None:
+            bpy.data.batch_remove([*self._staging.objects,self._staging])
+            self._staging=None
         if self.process and self.process.poll() is None:self.process.terminate();self.process.wait(timeout=5)
         if self.log:self.log.close()
         if self.directory:self.directory.cleanup()

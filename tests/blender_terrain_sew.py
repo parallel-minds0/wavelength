@@ -33,6 +33,12 @@ for a,ae,b,be,reverse in sew.pairs(items):
         t=i/256;pa=surfaces[a].sample(*edge_uv(ae,t))[0];pb=surfaces[b].sample(*edge_uv(be,1-t if reverse else t))[0]
         assert (a.matrix_world@pa-b.matrix_world@pb).length<1e-5
 print('PASS world-space sewing across separate floor, wall and ceiling objects with mixed Source powers',flush=True)
+resolutions={o:o.wavelength_terrain.resolution for o in items}
+assert bpy.ops.wavelength.terrain_subdivide()=={'FINISHED'}
+assert all(o.wavelength_terrain.resolution==2*(resolutions[o]-1)+1 for o in items)
+sew.validate_export(left)
+print('PASS coordinated subdivision keeps all three seams and Source export constraints',flush=True)
+
 base=sew.frames(items);before=[p.copy() for p in sew.positions(wall,base[wall])]
 assert paint.network_stroke(items,base,Vector((256*unit,0,0)),Vector((-1,0,1)).normalized(),'RAISE',2,.3,.5)>0
 sew.validate_export(left)

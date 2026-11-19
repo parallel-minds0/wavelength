@@ -682,7 +682,7 @@ index e0d93b45..ead4380a 100644
  
    curs[0] = gridf * floorf(0.5f + curs[0] / gridf);
 diff --git a/source/blender/editors/transform/transform_snap.cc b/source/blender/editors/transform/transform_snap.cc
-index 3d630363..968b930a 100644
+index 3d630363..75094077 100644
 --- a/source/blender/editors/transform/transform_snap.cc
 +++ b/source/blender/editors/transform/transform_snap.cc
 @@ -19,6 +19,7 @@
@@ -698,7 +698,7 @@ index 3d630363..968b930a 100644
  }
  
 +/* Profile policy stays in the addon; native grid consumers share its RNA spacing. */
-+static float wavelength_profile_grid_spacing(bContext *C)
++float wavelength_profile_grid_spacing(bContext *C)
 +{
 +  wmOperatorType *gate = WM_operatortype_find("WAVELENGTH_OT_profile_grid_context", true);
 +  if (gate == nullptr || !WM_operator_poll(C, gate)) {
@@ -1624,3 +1624,391 @@ index 1508ca0d..59587133 100644
    WM_dropbox_add(
        lb, "FILE_OT_filepath_drop", filepath_drop_poll, filepath_drop_copy, nullptr, nullptr);
  }
+diff --git a/source/blender/editors/transform/transform_mode_resize.cc b/source/blender/editors/transform/transform_mode_resize.cc
+index 5e7c66e5..8bd95ea3 100644
+--- a/source/blender/editors/transform/transform_mode_resize.cc
++++ b/source/blender/editors/transform/transform_mode_resize.cc
+@@ -7,6 +7,12 @@
+  */
+ 
+ #include <algorithm>
++
++#include "MEM_guardedalloc.h"
++#include "BLI_bounds.hh"
++#include "BKE_collection.hh"
++#include "BKE_object.hh"
++#include "DNA_object_types.h"
+ #include <cstdlib>
+ 
+ #include "DNA_windowmanager_types.h"
+@@ -166,6 +172,99 @@ static bool clip_uv_transform_resize(TransInfo *t, float vec[2])
+   return scale != 1.0f;
+ }
+ 
++
++/* Freeze selection bounds once. Only profile-grid quantization is custom; mouse
++ * input, constraints, pivots, numeric entry, precision, mirroring and undo remain
++ * Blender's native resize implementation. */
++struct WavelengthResizeData {
++  float dimensions[3];
++};
++
++static void wavelength_resize_init(TransInfo *t)
++{
++  if (wavelength_profile_grid_spacing(t->context) <= 0.0f) {
++    return;
++  }
++  float lower[3], upper[3];
++  INIT_MINMAX(lower, upper);
++  bool found = false;
++  auto include_point = [&](float point[3]) {
++    mul_m3_v3(t->spacemtx_inv, point);
++    minmax_v3v3_v3(lower, upper, point);
++    found = true;
++  };
++  auto include_object = [&](Object *ob, const float matrix[4][4]) {
++    const auto box = BKE_object_boundbox_eval_cached_get(ob);
++    if (!box) {
++      return false;
++    }
++    for (const float3 &corner : bounds::corners(*box)) {
++      float point[3];
++      copy_v3_v3(point, corner);
++      mul_m4_v3(matrix, point);
++      include_point(point);
++    }
++    return true;
++  };
++  FOREACH_TRANS_DATA_CONTAINER (t, tc) {
++    tc->foreach_index_selected([&](const int i) {
++      const TransData *td = &tc->data[i];
++      if (t->options & CTX_OBJECT) {
++        Object *ob = static_cast<Object *>(td->extra);
++        if (ob && !include_object(ob, tc->data_ext[i].obmat) && ob->type == OB_EMPTY) {
++          /* Procedural brushes are selected through an empty assembly root. */
++          FOREACH_SCENE_OBJECT_BEGIN (t->scene, child) {
++            for (Object *parent = child->parent; parent; parent = parent->parent) {
++              if (parent == ob) {
++                include_object(child, child->object_to_world().ptr());
++                break;
++              }
++            }
++          }
++          FOREACH_SCENE_OBJECT_END;
++        }
++      }
++      else {
++        float point[3];
++        copy_v3_v3(point, td->iloc);
++        if (tc->use_local_mat) {
++          mul_m4_v3(tc->mat, point);
++        }
++        include_point(point);
++      }
++    });
++  }
++  if (found) {
++    auto *data = MEM_new_zeroed<WavelengthResizeData>(__func__);
++    sub_v3_v3v3(data->dimensions, upper, lower);
++    t->custom.mode.data = data;
++    t->custom.mode.use_free = true;
++  }
++}
++
++static bool wavelength_resize_snap(TransInfo *t, float values[3])
++{
++  const auto *data = static_cast<const WavelengthResizeData *>(t->custom.mode.data);
++  const float step = wavelength_profile_grid_spacing(t->context);
++  if (!data || step <= 0.0f || !transform_snap_is_active(t) ||
++      !(t->tsnap.mode & (SCE_SNAP_TO_GRID | SCE_SNAP_TO_INCREMENT)))
++  {
++    return false;
++  }
++  /* A common factor preserves native uniform/plane scaling and proportions. */
++  float size = 0.0f;
++  for (int i = 0; i < 3; i++) {
++    if (!(t->con.mode & CON_APPLY) || (t->con.mode & (CON_AXIS0 << i))) {
++      size = std::max(size, data->dimensions[i]);
++    }
++  }
++  if (size > 1e-8f) {
++    const float magnitude = std::max(step, roundf(fabsf(values[0]) * size / step) * step);
++    copy_v3_fl(values, copysignf(magnitude / size, values[0]));
++  }
++  return true;
++}
++
+ static void applyResize(TransInfo *t)
+ {
+   float mat[3][3];
+@@ -181,13 +280,18 @@ static void applyResize(TransInfo *t)
+     copy_v3_fl(t->values_final, ratio);
+     add_v3_v3(t->values_final, t->values_modal_offset);
+ 
+-    transform_snap_increment(t, t->values_final);
++    const bool profile_grid_snap = wavelength_resize_snap(t, t->values_final);
++    if (!profile_grid_snap) {
++      transform_snap_increment(t, t->values_final);
++    }
+ 
+     if (applyNumInput(&t->num, t->values_final)) {
+       constraintNumInput(t, t->values_final);
+     }
+ 
+-    transform_snap_mixed_apply(t, t->values_final);
++    if (!profile_grid_snap) {
++      transform_snap_mixed_apply(t, t->values_final);
++    }
+   }
+ 
+   size_to_mat3(mat, t->values_final);
+@@ -337,6 +441,7 @@ static void initResize(TransInfo *t, wmOperator *op)
+   t->num.unit_type[2] = B_UNIT_NONE;
+ 
+   transform_mode_default_modal_orientation_set(t, V3D_ORIENT_GLOBAL);
++  wavelength_resize_init(t);
+ }
+ 
+ /** \} */
+diff --git a/source/blender/editors/transform/transform_snap.hh b/source/blender/editors/transform/transform_snap.hh
+index 8f8be02c..acd3e9c4 100644
+--- a/source/blender/editors/transform/transform_snap.hh
++++ b/source/blender/editors/transform/transform_snap.hh
+@@ -26,6 +26,8 @@ bool peelObjectsTransform(TransInfo *t,
+                           float r_no[3],
+                           float *r_thickness);
+ 
++float wavelength_profile_grid_spacing(bContext *C);
++
+ bool transformModeUseSnap(const TransInfo *t);
+ 
+ void tranform_snap_target_median_calc(const TransInfo *t, float r_median[3]);
+diff --git a/source/blender/editors/space_outliner/outliner_draw.cc b/source/blender/editors/space_outliner/outliner_draw.cc
+index 5262f2f0..cd33fbce 100644
+--- a/source/blender/editors/space_outliner/outliner_draw.cc
++++ b/source/blender/editors/space_outliner/outliner_draw.cc
+@@ -1283,11 +1283,38 @@ static void outliner_draw_restrictbuts(ui::Block *block,
+                (te.flag & TE_CHILD_NOT_IN_COLLECTION))
+       {
+         /* Don't show restrict columns for children that are not directly inside the collection. */
++        if ((space_outliner->show_restrict_flags & SO_RESTRICT_ENABLE) &&
++            WM_operatortype_find("WAVELENGTH_OT_export_inclusion", true))
++        {
++          Object *ob = id_cast<Object *>(tselem->id);
++          PointerRNA ptr = RNA_id_pointer_create(&ob->id);
++          bt = uiDefIconButO(block, ui::ButtonType::But,
++              "WAVELENGTH_OT_export_inclusion", wm::OpCallContext::ExecDefault,
++              (ob->visibility_flag & OB_HIDE_RENDER) ? ICON_CHECKBOX_DEHLT : ICON_CHECKBOX_HLT,
++              int(region->v2d.cur.xmax - restrict_offsets.enable), te.ys,
++              UI_UNIT_X, UI_UNIT_Y, TIP_("Include in export, compilation and rendering"));
++          RNA_string_set(button_operator_ptr_ensure(bt), "object_name", ob->id.name + 2);
++          button_flag_enable(bt, ui::BUT_DRAG_LOCK);
++        }
+       }
+       else if ((tselem->type == TSE_SOME_ID) && (te.idcode == ID_OB)) {
+         Object *ob = id_cast<Object *>(tselem->id);
+         PointerRNA ptr = RNA_id_pointer_create(&ob->id);
+ 
++        /* Share the collection enable column with per-object export checks.
++         * The inverse render restriction is also the engine tree's state. */
++        if ((space_outliner->show_restrict_flags & SO_RESTRICT_ENABLE) &&
++            WM_operatortype_find("WAVELENGTH_OT_export_inclusion", true))
++        {
++          bt = uiDefIconButO(block, ui::ButtonType::But,
++              "WAVELENGTH_OT_export_inclusion", wm::OpCallContext::ExecDefault,
++              (ob->visibility_flag & OB_HIDE_RENDER) ? ICON_CHECKBOX_DEHLT : ICON_CHECKBOX_HLT,
++              int(region->v2d.cur.xmax - restrict_offsets.enable), te.ys,
++              UI_UNIT_X, UI_UNIT_Y, TIP_("Include in export, compilation and rendering"));
++          RNA_string_set(button_operator_ptr_ensure(bt), "object_name", ob->id.name + 2);
++          button_flag_enable(bt, ui::BUT_DRAG_LOCK);
++        }
++
+         if (space_outliner->show_restrict_flags & SO_RESTRICT_HIDE) {
+           BKE_view_layer_synced_ensure(bmain, scene, view_layer);
+           Base *base = (te.directdata) ? static_cast<Base *>(te.directdata) :
+diff --git a/source/blender/io/common/CMakeLists.txt b/source/blender/io/common/CMakeLists.txt
+index 7a8c39a6..4dea73f3 100644
+--- a/source/blender/io/common/CMakeLists.txt
++++ b/source/blender/io/common/CMakeLists.txt
+@@ -30,6 +30,7 @@ set(SRC
+   IO_string_utils.hh
+   IO_subdiv_disabler.hh
+   IO_types.hh
++  IO_wavelength_export.hh
+   IO_validate.hh
+   intern/dupli_parent_finder.hh
+ )
+diff --git a/source/blender/io/common/intern/abstract_hierarchy_iterator.cc b/source/blender/io/common/intern/abstract_hierarchy_iterator.cc
+index 4dc0b12f..868d236c 100644
+--- a/source/blender/io/common/intern/abstract_hierarchy_iterator.cc
++++ b/source/blender/io/common/intern/abstract_hierarchy_iterator.cc
+@@ -2,6 +2,7 @@
+  *
+  * SPDX-License-Identifier: GPL-2.0-or-later */
+ #include "IO_abstract_hierarchy_iterator.h"
++#include "IO_wavelength_export.hh"
+ #include "dupli_parent_finder.hh"
+ 
+ #include <string>
+@@ -303,7 +304,9 @@ void AbstractHierarchyIterator::export_graph_construct()
+   deg_iter_settings.flags = DEG_ITER_OBJECT_FLAG_LINKED_DIRECTLY |
+                             DEG_ITER_OBJECT_FLAG_LINKED_VIA_SET;
+   DupliList duplilist;
++  const WavelengthExportScope wavelength_scope(depsgraph_);
+   DEG_OBJECT_ITER_BEGIN (&deg_iter_settings, object) {
++    if (!wavelength_scope.includes(object)) { continue; }
+     /* Non-instanced objects always have their object-parent as export-parent. */
+     const bool weak_export = mark_as_weak_export(object);
+     visit_object(object, object->parent, weak_export);
+@@ -319,14 +322,16 @@ void AbstractHierarchyIterator::export_graph_construct()
+       DupliParentFinder dupli_parent_finder;
+ 
+       for (const DupliObject &dupli_object : duplilist) {
+-        if (!should_visit_dupli_object(&dupli_object)) {
++        if (!should_visit_dupli_object(&dupli_object) ||
++            !wavelength_scope.includes(dupli_object.ob, object)) {
+           continue;
+         }
+         dupli_parent_finder.insert(&dupli_object);
+       }
+ 
+       for (const DupliObject &dupli_object : duplilist) {
+-        if (!should_visit_dupli_object(&dupli_object)) {
++        if (!should_visit_dupli_object(&dupli_object) ||
++            !wavelength_scope.includes(dupli_object.ob, object)) {
+           continue;
+         }
+         visit_dupli_object(&dupli_object, object, dupli_parent_finder);
+diff --git a/source/blender/io/wavefront_obj/exporter/obj_exporter.cc b/source/blender/io/wavefront_obj/exporter/obj_exporter.cc
+index 6e9368e0..1b9b6145 100644
+--- a/source/blender/io/wavefront_obj/exporter/obj_exporter.cc
++++ b/source/blender/io/wavefront_obj/exporter/obj_exporter.cc
+@@ -6,6 +6,8 @@
+  * \ingroup obj
+  */
+ 
++#include "../../common/IO_wavelength_export.hh"
++
+ #include <cstdio>
+ #include <memory>
+ #include <system_error>
+@@ -119,7 +121,9 @@ filter_supported_objects(Depsgraph *depsgraph, const OBJExportParams &export_par
+   deg_iter_settings.flags = DEG_ITER_OBJECT_FLAG_LINKED_DIRECTLY |
+                             DEG_ITER_OBJECT_FLAG_LINKED_VIA_SET | DEG_ITER_OBJECT_FLAG_VISIBLE |
+                             DEG_ITER_OBJECT_FLAG_DUPLI;
++  const blender::io::WavelengthExportScope wavelength_scope(depsgraph);
+   DEG_OBJECT_ITER_BEGIN (&deg_iter_settings, object) {
++    if (!wavelength_scope.includes(object, (object->base_flag & BASE_FROM_DUPLI) ? data_.dupli_parent : nullptr)) { continue; }
+     if (export_params.export_selected_objects && !(object->base_flag & BASE_SELECTED)) {
+       continue;
+     }
+diff --git a/source/blender/io/ply/exporter/ply_export_load_plydata.cc b/source/blender/io/ply/exporter/ply_export_load_plydata.cc
+index 12ee4b09..6222b193 100644
+--- a/source/blender/io/ply/exporter/ply_export_load_plydata.cc
++++ b/source/blender/io/ply/exporter/ply_export_load_plydata.cc
+@@ -6,6 +6,8 @@
+  * \ingroup ply
+  */
+ 
++#include "../../common/IO_wavelength_export.hh"
++
+ #include "ply_export_load_plydata.hh"
+ #include "IO_mesh_utils.hh"
+ #include "IO_ply.hh"
+@@ -334,7 +336,9 @@ void load_plydata(PlyData &plyData, Depsgraph *depsgraph, const PLYExportParams
+   /* When exporting multiple objects, vertex indices have to be offset. */
+   uint32_t vertex_offset = 0;
+ 
++  const blender::io::WavelengthExportScope wavelength_scope(depsgraph);
+   DEG_OBJECT_ITER_BEGIN (&deg_iter_settings, object) {
++    if (!wavelength_scope.includes(object, (object->base_flag & BASE_FROM_DUPLI) ? data_.dupli_parent : nullptr)) { continue; }
+     if (object->type != OB_MESH) {
+       continue;
+     }
+diff --git a/source/blender/io/stl/exporter/stl_export.cc b/source/blender/io/stl/exporter/stl_export.cc
+index 64f5fafa..80884545 100644
+--- a/source/blender/io/stl/exporter/stl_export.cc
++++ b/source/blender/io/stl/exporter/stl_export.cc
+@@ -6,6 +6,8 @@
+  * \ingroup stl
+  */
+ 
++#include "../../common/IO_wavelength_export.hh"
++
+ #include <memory>
+ 
+ #include "BKE_context.hh"
+@@ -73,7 +75,9 @@ void export_frame(Depsgraph *depsgraph,
+                             DEG_ITER_OBJECT_FLAG_LINKED_VIA_SET | DEG_ITER_OBJECT_FLAG_VISIBLE |
+                             DEG_ITER_OBJECT_FLAG_DUPLI;
+ 
++  const blender::io::WavelengthExportScope wavelength_scope(depsgraph);
+   DEG_OBJECT_ITER_BEGIN (&deg_iter_settings, object) {
++    if (!wavelength_scope.includes(object, (object->base_flag & BASE_FROM_DUPLI) ? data_.dupli_parent : nullptr)) { continue; }
+     if (object->type != OB_MESH) {
+       continue;
+     }
+diff --git a/source/blender/io/common/IO_wavelength_export.hh b/source/blender/io/common/IO_wavelength_export.hh
+new file mode 100644
+--- /dev/null
++++ b/source/blender/io/common/IO_wavelength_export.hh
+@@ -0,0 +1,59 @@
++/* SPDX-License-Identifier: GPL-2.0-or-later */
++#pragma once
++#include "BKE_idprop.hh"
++#include "BLI_listbase.h"
++#include "BLI_set.hh"
++#include "DNA_collection_types.h"
++#include "DNA_layer_types.h"
++#include "DNA_object_types.h"
++#include "DNA_scene_types.h"
++#include "DEG_depsgraph_query.hh"
++
++namespace blender::io {
++/* Snapshot membership once per export. Never hide objects or change selection. */
++class WavelengthExportScope {
++  bool enabled_ = false;
++  Set<const Object *> objects_;
++  void visit(const LayerCollection *layer, bool blocked)
++  {
++    blocked |= (layer->flag & LAYER_COLLECTION_EXCLUDE) ||
++               (layer->collection->flag & COLLECTION_HIDE_RENDER);
++    if (!blocked) {
++      for (const CollectionObject &link : layer->collection->gobject) {
++        objects_.add(link.ob);
++      }
++    }
++    for (const LayerCollection &child : layer->layer_collections) {
++      visit(&child, blocked);
++    }
++  }
++ public:
++  explicit WavelengthExportScope(Depsgraph *graph)
++  {
++    const Scene *scene = DEG_get_input_scene(graph);
++    enabled_ = scene->id.properties &&
++               IDP_GetPropertyFromGroup(scene->id.properties, "_wl_export_inclusion_policy");
++    if (enabled_) {
++      const ViewLayer *layer = DEG_get_input_view_layer(graph);
++      for (const LayerCollection &root : layer->layer_collections) {
++        visit(&root, false);
++      }
++    }
++  }
++  bool includes(const Object *object, const Object *instancer = nullptr) const
++  {
++    if (!enabled_) { return true; }
++    const Object *original = DEG_get_original(object);
++    if (instancer && !includes(instancer)) { return false; }
++    bool hidden = original->visibility_flag & OB_HIDE_RENDER;
++    if (original->id.properties) {
++      const IDProperty *saved = IDP_GetPropertyFromGroup(
++          original->id.properties, "_wl_context_render_restore");
++      if (saved && ELEM(saved->type, IDP_INT, IDP_BOOLEAN)) {
++        hidden = saved->data.val != 0;
++      }
++    }
++    return (instancer || objects_.contains(original)) && !hidden;
++  }
++};
++} // namespace blender::io

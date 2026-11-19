@@ -1,8 +1,8 @@
-"""Engine-mode brush boundary resize gizmos.
+"""Edit Mode brush boundary resize gizmos.
 
 Unlike Blender's proportional Scale transform, these handles move one brush
 boundary while the opposite boundary remains fixed.  The dragged boundary is
-quantized to Wavelength's engine grid during the interaction.
+snapped using the active grid when grid snapping is enabled.
 """
 import bpy
 import bmesh
@@ -15,7 +15,7 @@ _pending_origins = {}
 
 def _finish_origins():
     """Rebase after the native handle releases, never during its transaction."""
-    for key, (obj, gizmo) in tuple(_pending_origins.items()):
+    for key, (obj, gizmo, area) in tuple(_pending_origins.items()):
         try:
             if gizmo.is_modal:
                 continue
@@ -26,6 +26,11 @@ def _finish_origins():
                     except RuntimeError:pass
         except ReferenceError:
             pass
+        if area:
+            try:
+                area.header_text_set(None)
+            except ReferenceError:
+                pass
         _pending_origins.pop(key, None)
     return .02 if _pending_origins else None
 
@@ -35,12 +40,8 @@ def _brush(context):
     from . import primitive_ui,procedural
     root=primitive_ui.root_for(obj)
     if root and procedural.state(root)=='PROCEDURAL' and context.mode=='EDIT_MESH':
-        settings=getattr(context.scene,'wavelength',None)
-        return root if settings and settings.grid_mode=='ENGINE' else None
+        return root
     if not obj or obj.type != 'MESH' or obj.mode != 'EDIT' or obj.get('wl_role') != 'BRUSH':
-        return None
-    settings = getattr(context.scene, 'wavelength', None)
-    if not settings or settings.grid_mode != 'ENGINE':
         return None
     return obj
 
@@ -78,7 +79,7 @@ def _handle_matrix(matrix, point, direction):
     return result
 
 
-def _boundary_delta(matrix, anchor, axis, sign, distance, step, snap):
+def _boundary_delta(matrix, anchor, axis, sign, distance, step, snap, absolute=True):
     """Convert handle travel to local displacement, snapping in world space."""
     direction = matrix.to_3x3().col[axis].copy()
     length = direction.length
@@ -89,7 +90,7 @@ def _boundary_delta(matrix, anchor, axis, sign, distance, step, snap):
         # Align the dominant world coordinate along the handle's direction.
         # Rounding a local coordinate ignores translated origins/object scale.
         component = max(range(3), key=lambda i: abs(direction[i]))
-        start = (matrix @ anchor)[component]
+        start = (matrix @ anchor)[component] if absolute else 0.0
         delta = (_snap(start + direction[component] * delta, step) - start) / direction[component]
     return delta
 
@@ -133,7 +134,7 @@ class WL_GGT_engine_resize(bpy.types.GizmoGroup):
         # tool. Switching to Move/Rotate must not remove shape editing controls.
         return (workspace.active(context, 'gizmos') and context.mode=='EDIT_MESH' and settings is not None and
                 context.space_data.show_gizmo and
-                settings.grid_mode == 'ENGINE' and _brush(context) is not None)
+                _brush(context) is not None)
 
     def setup(self, context):
         self._handles = []
@@ -167,18 +168,27 @@ class WL_GGT_engine_resize(bpy.types.GizmoGroup):
                     axis = st['axis']; sign = st['sign']
                     settings = bpy.context.scene.wavelength
                     unit = profiles.unit_meters(settings)
-                    step = profiles.active_grid_step_meters(settings)
+                    context = bpy.context
+                    profile_grid = tool_snap.profile_grid_active(context)
+                    snap = tool_snap.grid_enabled(context)
+                    step = tool_snap.step(context) if snap else None
+                    tools = context.scene.tool_settings
+                    absolute = (profile_grid or 'GRID' in tools.snap_elements or
+                                tools.use_snap_grid_absolute)
                     # Snap the actual world boundary, independently of its origin.
                     raw_delta = float(value)
                     matrix=st['base_matrix'] if obj.type!='MESH' else obj.matrix_world
                     base_min, base_max = st['base_min'], st['base_max']
                     base_face = base_max[axis] if sign > 0 else base_min[axis]
                     target = base_face + _boundary_delta(matrix, st['side_anchor'], axis, sign,
-                                                         raw_delta, step, tool_snap.grid_enabled(bpy.context))
-                    delta = target - base_face
-                    # Prevent inversion/collapse; one engine unit is the minimum thickness.
+                                                         raw_delta, step, snap, absolute)
+                    # Keep the brush nonzero even in metric mode.
                     opposite = base_min[axis] if sign > 0 else base_max[axis]
-                    local_unit = unit / max(matrix.to_3x3().col[axis].length, 1e-12)
+                    axis_length = matrix.to_3x3().col[axis].length
+                    if axis_length < 1e-12 or abs(base_face - opposite) < 1e-12:
+                        return
+                    minimum = unit if profile_grid else 1e-5
+                    local_unit = min(minimum / axis_length, abs(base_face - opposite))
                     if sign > 0:
                         target = max(target, opposite + local_unit)
                     else:
@@ -187,6 +197,12 @@ class WL_GGT_engine_resize(bpy.types.GizmoGroup):
                     if abs(delta - st.get('last', 0.0)) < 1e-10:
                         return
                     st['last'] = delta
+                    area = context.area
+                    if area:
+                        suffix = 'u' if profile_grid else 'm'
+                        display_unit = unit if profile_grid else 1.0
+                        span = abs(target - opposite) * axis_length / display_unit
+                        area.header_text_set(f"Brush size {'XYZ'[axis]}  {span:.4g} {suffix}")
                     if obj.type!='MESH':
                         # Stretch the live assembly about its opposite boundary.
                         # No mesh/modifier replacement and no forced finalization.
@@ -197,7 +213,7 @@ class WL_GGT_engine_resize(bpy.types.GizmoGroup):
                             except RuntimeError:pass
                             st['undo_started']=True
                         obj.matrix_world=matrix @ Matrix.Translation(pivot) @ Matrix.Diagonal((*scale,1.)) @ Matrix.Translation(-pivot)
-                        _pending_origins[obj.as_pointer()]=(obj,handle)
+                        _pending_origins[obj.as_pointer()]=(obj,handle,area)
                         if not bpy.app.timers.is_registered(_finish_origins):bpy.app.timers.register(_finish_origins,first_interval=.02)
                         return
                     # The gizmo exists only while the brush is already in Mesh Edit Mode.
@@ -221,7 +237,7 @@ class WL_GGT_engine_resize(bpy.types.GizmoGroup):
                             co[axis] = base[axis] + delta
                         vertex.co = co
                     bmesh.update_edit_mesh(obj.data, loop_triangles=False, destructive=False)
-                    _pending_origins[obj.as_pointer()] = (obj, handle)
+                    _pending_origins[obj.as_pointer()] = (obj, handle, area)
                     if not bpy.app.timers.is_registered(_finish_origins):
                         bpy.app.timers.register(_finish_origins, first_interval=.02)
 
@@ -229,6 +245,8 @@ class WL_GGT_engine_resize(bpy.types.GizmoGroup):
                 self._handles.append((gizmo, state))
 
     def refresh(self, context):
+        from .edit_safety import topology_modal_active
+        if topology_modal_active(context):return
         obj = _brush(context)
         if obj is None:
             return
@@ -248,7 +266,6 @@ class WL_GGT_engine_resize(bpy.types.GizmoGroup):
             p[axis] = high[axis] if sign > 0 else low[axis]
             # Orient arrow's local +Z along the requested local axis/sign.
             direction = Vector((0, 0, 0)); direction[axis] = sign
-            gizmo.matrix_basis = _handle_matrix(obj.matrix_world,p,direction)
             # Capture a fresh baseline whenever Blender asks us to refresh outside a drag.
             # target_set_handler's setter then works only from this immutable baseline.
             st.update(obj=obj, base_min=list(low), base_max=list(high),
@@ -259,6 +276,8 @@ class WL_GGT_engine_resize(bpy.types.GizmoGroup):
             members = st['side_vertices']
             st['side_anchor'] = (sum((Vector(st['base_verts'][i]) for i in members), Vector()) / len(members)
                                  if members else p.copy())
+            gizmo.hide = obj.type == 'MESH' and not members
+            gizmo.matrix_basis = _handle_matrix(obj.matrix_world, st['side_anchor'], direction)
 
 
 _CLASSES = [WL_GGT_engine_resize]

@@ -3,6 +3,12 @@ from wavelength.source import scene,vmf,ui
 import struct,io,zipfile
 col=custom_models.assign(ctx)
 scene.import_map(ctx.scene,vmf.parse((root/'addon/wavelength/environment/maps/minimal_source.vmf').read_text()))
+# Collision None must export a non-solid prop without changing authored keys.
+pairs_before=entity['wl_pairs']
+exported=scene.export_map(ctx.scene)
+prop=next(e for e in exported.entities if dict(e.pairs).get('classname')=='prop_static')
+assert dict(prop.pairs)['solid']=='0'
+assert entity['wl_pairs']==pairs_before
 destination=folder/'custom_model_map.bsp'
 assert bpy.ops.wavelength.build(filepath=str(destination))=={'FINISHED'}
 assert ui._JOB is not None

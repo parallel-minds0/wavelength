@@ -1,11 +1,11 @@
-# v0.16.2-pre.alpha — tested Windows native-grid installer
+# Windows installation — v0.51.0-pre.alpha
 
-Builds and installs wavelength's native grid for the exact Blender 5.2.3 LTS Release Candidate Windows x64 build `32ede9dba158` (original executable SHA-256 `19e60200c51e981aa48a515ffc22c46d9192ea0538e249b2891394a425bd855b`). Other Blender executables require their own matching patch.
+Installs wavelength's current add-on and native editor patch for the exact Blender 5.2.3 LTS Release Candidate Windows x64 build `32ede9dba158` (original executable SHA-256 `19e60200c51e981aa48a515ffc22c46d9192ea0538e249b2891394a425bd855b`). Other Blender executables require their own matching patch.
 
 - Compiles the native Blender renderer with MSVC and reuses the candidate's existing oneAPI AOT kernel DLL, fixing the earlier missing JIT DLL startup failure.
 - Fixes Windows installer file flushing and loose Source material path enumeration.
 - Includes the Python add-on, editable source, native binary patch, and pinned private Python runtime. No separate Blender runtime is distributed.
-- Verified native RNA startup, real OpenGL grid rendering on AMD Radeon(TM) Graphics, yellow parent lines, grey subdivisions, orthographic/perspective occlusion, workspace restoration, installed add-on loading, and brush creation.
+- The native editor includes profile grid, snapping, asset rendering and export inclusion. Earlier installation acceptance covered native RNA startup, OpenGL viewport drawing, workspace restoration and brush creation. Current release verification is recorded in the release notes.
 - Verified a real install/uninstall/reinstall cycle; uninstall restored the original executable byte-for-byte. Original backups and receipts are retained by the installer.
 
 Close Blender, extract the Windows installer ZIP, and run:

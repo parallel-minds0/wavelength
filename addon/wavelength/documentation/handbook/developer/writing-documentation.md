@@ -59,3 +59,26 @@ folder. HTML starts at
 `build/docs/html/index.html`; the PDF is
 `build/docs/pdf/wavelength-handbook.pdf`. `sync` regenerates the add-on Markdown
 copy and removes only files listed in its prior generated manifest.
+
+## Preserve implemented behavior
+
+The permanent [feature ledger](../FEATURES.md) records stable behavioral IDs,
+implementation ownership, regression entrypoints and known limits. Consult it
+before changing a subsystem. Every fix, addition or architectural replacement
+updates the affected contracts and verification; retain retired rows with their
+reason and migration path. The [surface inventory](../reference/feature-surface.md)
+includes private helpers and static UI/settings/native evidence, not just the
+visible buttons.
+
+`python tools/feature_inventory.py` compares the current implementation with its
+reviewed baseline. Source-body, interface, settings, test, native-patch, asset
+and configuration changes fail until explicitly reviewed. Accept a deliberate
+change with `--update --feature WL-... --reason "change, preservation, tests and
+limits"`; this appends the change record. Do not use baseline refresh as a way
+to dismiss regressions. Documentation checks run this guard too. Structural
+presence is not proof that an operator registers or its behavior works: run
+meaningful subsystem regressions and report what actually passed.
+
+The PDF embeds DejaVu Sans 2.37 from the checked-in documentation font assets
+to render navigation arrows and other Unicode text. The font license is stored
+beside those assets.

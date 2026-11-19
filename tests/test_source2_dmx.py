@@ -31,4 +31,19 @@ class Source2DmxTests(unittest.TestCase):
         self.assertEqual(assets.resolve('brick/wall'),'materials/brick/wall.vmat')
         self.assertEqual(assets.resolve('materials/brick/wall.vmat_c'),'materials/brick/wall.vmat')
         with self.assertRaises(ValueError):assets.resolve('../escape')
+    def test_blend_corner_weights_roundtrip(self):
+        weights=[[0,.25,.75,1]]
+        mesh=d.polygon_mesh([(0,0,0),(1,0,0),(1,1,0),(0,1,0)],[[0,1,2,3]],[[(0,0),(1,0),(1,1),(0,1)]],['materials/test.vmat'],[0],weights)
+        self.assertEqual(d.corner_blend_weights(d.loads(d.dumps(d.element('CMapRootElement',world=('CDmePolygonMesh',mesh)))).get('world')),weights)
+        with self.assertRaises(ValueError):d.polygon_mesh([(0,0,0)]*4,[[0,1,2,3]],[[(0,0)]*4],['m'],[0],[[0]])
+        with self.assertRaises(ValueError):d.polygon_mesh([(0,0,0)]*4,[[0,1,2,3]],[[(0,0)]*4],['m'],[0],[[0,0,float('nan'),0]])
+
+    def test_editable_projection_and_unbound_corner_streams(self):
+        projections=[((.25,.5),(0,1,0,23),(0,0,-1,-12))]
+        m=d.polygon_mesh([(0,0,0),(0,128,0),(0,128,64),(0,0,64)],[[0,1,2,3]],[[(0,0),(1,0),(1,1),(0,1)]],['m'],[0],projections=projections)
+        self.assertEqual(d.stream_data(m,'faceData','textureScale:0'),[(.25,.5)])
+        self.assertEqual(d.stream_data(m,'faceData','textureAxisU:0'),[(0,1,0,23)])
+        self.assertEqual(d.stream_data(m,'faceData','textureAxisV:0'),[(0,0,-1,-12)])
+        self.assertEqual(m.get('subdivisionData').get('streams'),[])
+        self.assertTrue(all(s.get('subdivisionBinding') is None for a in ('vertexData','faceVertexData','faceData','edgeData') for s in m.get(a).get('streams')))
 if __name__=='__main__':unittest.main()

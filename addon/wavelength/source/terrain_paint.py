@@ -1,7 +1,7 @@
 """Non-destructive height/mask painting on a normalized terrain control surface."""
 import math
 import bpy,gpu
-from bpy.props import EnumProperty
+from bpy.props import BoolProperty,EnumProperty,FloatProperty,PointerProperty,StringProperty
 from mathutils import Vector
 from bpy_extras import view3d_utils
 from gpu_extras.batch import batch_for_shader
@@ -73,7 +73,7 @@ def ensure_control(obj):
 
 def preview_material(obj):
     base=next((m for m in obj.data.materials if m),None);paint=obj.wavelength_terrain.paint_material
-    if paint is None or profiles.is_source(obj.get('wl_owner_profile','blender')):return base
+    if paint is None or profiles.is_source(obj.get('wl_owner_profile','blender')) or (base and base.get('wl_source_blend')):return base
     name=obj.get('wl_terrain_preview_material','');material=bpy.data.materials.get(name)
     signature=(base.name if base else '')+'|'+paint.name
     if material and material.get('wl_terrain_layers')==signature:return material
@@ -160,31 +160,89 @@ def stroke(obj,local,mode,radius,strength,opacity,invert=False,base=None):
     obj.data.update();obj.update_tag();return touched
 
 
+
+
+class WLMappedPaintSettings(bpy.types.PropertyGroup):
+    paint_radius:FloatProperty(name='Radius',default=1.5,min=.001,unit='LENGTH')
+    paint_strength:FloatProperty(name='Height Strength',default=.25,min=.001,unit='LENGTH')
+    paint_opacity:FloatProperty(name='Paint Opacity',default=.2,min=.001,max=1)
+    blend_base:PointerProperty(name='Base Material',type=bpy.types.Material)
+    paint_material:PointerProperty(name='Second Material',type=bpy.types.Material)
+
+
+def mapped_paint_members(context):
+    """Gather enabled patches on selected hosts and their sewn networks."""
+    from . import terrain_face,terrain_sew
+    hosts=[context.object,*context.selected_objects]
+    patches=[]
+    for host in dict.fromkeys(hosts):
+        if not host:continue
+        for patch in host.children:
+            if not patch.get('wl_face_mapping'):continue
+            modifier=terrain_face.mapping_modifier(patch)
+            if modifier and modifier.show_viewport:patches.append(patch)
+    if not patches:raise ValueError('Select a mesh with enabled face heightfields')
+    return list(dict.fromkeys(member for patch in patches for member in terrain_sew.network(patch)))
+
+def paint_target(context,patch_name):
+    """Resolve a mapped control mesh without changing the active host."""
+    if not patch_name:return context.object
+    from . import terrain_face
+    patch=bpy.data.objects.get(patch_name)
+    if not patch or not patch.get('wl_face_mapping'):
+        raise ValueError('The mapped heightfield is unavailable')
+    modifier=terrain_face.mapping_modifier(patch)
+    if not modifier or modifier.id_data!=context.object or not modifier.show_viewport:
+        raise ValueError('Enable the face heightfield modifier on the active mesh before painting')
+    return patch
+
+
 class WL_OT_terrain_paint(bpy.types.Operator):
     bl_idname='wavelength.terrain_paint';bl_label='Paint Terrain';bl_options={'REGISTER','UNDO','BLOCKING'}
     bl_description='Paint terrain with the selected type; hold the button to choose Raise / Lower, Smooth or Texture Blend'
     mode:EnumProperty(items=[('CURRENT','Current','Use the selected terrain paint type')]+[(key,label,label) for key,label,_ in PAINT_TYPES],default='CURRENT',options={'SKIP_SAVE'})
+    patch_name:StringProperty(options={'HIDDEN','SKIP_SAVE'})
+    shared:BoolProperty(default=False,options={'HIDDEN','SKIP_SAVE'})
+
     @classmethod
-    def poll(cls,context):return workspace.active(context) and context.object and context.mode=='OBJECT' and (context.object.get('wl_source_displacement') or (context.object.get('wl_terrain') and context.object.get('wl_procedural_state')=='PROCEDURAL'))
+    def poll(cls,context):
+        obj=context.object
+        return bool(workspace.active(context) and obj and context.mode=='OBJECT' and (
+            obj.get('wl_source_displacement') or
+            (obj.get('wl_terrain') and obj.get('wl_procedural_state')=='PROCEDURAL') or
+            any(child.get('wl_face_mapping') for child in obj.children)
+        ))
     def invoke(self,context,event):
         if context.object.get('wl_source_displacement'):
             bpy.ops.wavelength.source_displacement_paint('INVOKE_DEFAULT',mode=self.mode)
             return {'FINISHED'}
-        area=context.area if context.area.type=='VIEW_3D' else next((a for a in context.screen.areas if a.type=='VIEW_3D'),None)
+        area=context.area if context.area and context.area.type=='VIEW_3D' else next((a for a in context.screen.areas if a.type=='VIEW_3D'),None)
         if area is None:self.report({'ERROR'},'Open a 3D viewport');return {'CANCELLED'}
-        self.obj=context.object;s=self.obj.wavelength_terrain
+        try:
+            shared_members=mapped_paint_members(context) if self.shared else None
+            self.obj=shared_members[0] if shared_members else paint_target(context,self.patch_name)
+        except ValueError as exc:
+            self.report({'ERROR'},str(exc))
+            return {'CANCELLED'}
+        if not self.obj.get('wl_terrain') or self.obj.get('wl_procedural_state')!='PROCEDURAL':
+            self.report({'ERROR'},'Choose a live heightfield from the modifier panel')
+            return {'CANCELLED'}
+        s=self.obj.wavelength_terrain
         from . import terrain
         if not terrain.paintable(self.obj):
             self.report({'ERROR'},'Create Paintable Displacement from the flat terrain plane first');return {'CANCELLED'}
         if self.mode!='CURRENT':s.paint_mode=self.mode
         from . import terrain_sew
         try:
-            self.members=terrain_sew.network(self.obj)
-            self.connected=bool(self.obj.get('wl_terrain_vector_surface'))
+            self.members=shared_members if self.shared else terrain_sew.network(self.obj)
+            self.connected=bool(self.obj.get('wl_terrain_vector_surface')) or len(self.members)>1
             if any(o.get('wl_procedural_state')!='PROCEDURAL' for o in self.members):raise ValueError('All connected surfaces must remain procedural to paint; Unsew finalized neighbours first')
             terrain_sew.pairs(self.members)
         except ValueError as exc:self.report({'ERROR'},str(exc));return {'CANCELLED'}
-        if s.paint_mode=='TEXTURE' and profiles.is_source(self.obj['wl_owner_profile']):
+        source_blend=profiles.is_source(self.obj['wl_owner_profile']) or (
+            (self.shared or bool(self.patch_name)) and profiles.is_source(context.scene.wavelength.engine)
+        )
+        if s.paint_mode=='TEXTURE' and source_blend:
             material=next((m for m in self.obj.data.materials if m),None)
             if not material or not material.get('wl_source_blend'):
                 self.report({'ERROR'},'Assign a Source WorldVertexTransition material to paint its two texture layers');return {'CANCELLED'}
@@ -192,11 +250,30 @@ class WL_OT_terrain_paint(bpy.types.Operator):
                 other=next((m for m in obj.data.materials if m),None)
                 if other!=material:self.report({'ERROR'},'Connected texture painting requires the same transition material on every surface');return {'CANCELLED'}
         elif s.paint_mode=='TEXTURE':
+            if self.shared:
+                second=context.scene.wavelength_mapped_paint.paint_material
+                if not second:
+                    self.report({'ERROR'},'Choose a shared Second Material')
+                    return {'CANCELLED'}
+                bases={next((m for m in o.data.materials if m),None) for o in self.members}
+                if len(bases)>1:
+                    self.report({'ERROR'},'Selected and sewn patches must share their base material')
+                    return {'CANCELLED'}
+                for obj in self.members:obj.wavelength_terrain.paint_material=second
+            if self.patch_name and not s.paint_material and not any(m and m.get('wl_source_blend') for m in self.obj.data.materials):
+                self.report({'ERROR'},'Choose a second material for Texture Blend')
+                return {'CANCELLED'}
             layers={(next((m for m in o.data.materials if m),None),o.wavelength_terrain.paint_material) for o in self.members}
             if len(layers)>1:self.report({'ERROR'},'Connected texture painting requires matching base and paint materials');return {'CANCELLED'}
-        if not self.obj.get('wl_terrain_paint_initialized'):
-            s.paint_radius=max(s.width,s.length)*.1;s.paint_strength=max(s.amplitude*.1,max(s.width,s.length)*.01,.1);self.obj['wl_terrain_paint_initialized']=True
-        elif s.paint_strength<=.10001 and s.amplitude==0:
+        self.brush=context.scene.wavelength_mapped_paint if self.shared else s
+        self.brush_unit=1.0 if self.shared else self.obj['wl_unit_meters']
+        if not self.shared and not self.obj.get('wl_terrain_paint_initialized'):
+            if not self.patch_name or not s.is_property_set('paint_radius'):
+                s.paint_radius=max(s.width,s.length)*.1
+            if not self.patch_name or not s.is_property_set('paint_strength'):
+                s.paint_strength=max(s.amplitude*.1,max(s.width,s.length)*.01,.1)
+            self.obj['wl_terrain_paint_initialized']=True
+        elif not self.shared and not self.patch_name and s.paint_strength<=.10001 and s.amplitude==0:
             s.paint_strength=max(s.width,s.length)*.01
         for obj in self.members:obj.wavelength_terrain.flat_preview=False
         from . import terrain
@@ -221,7 +298,7 @@ class WL_OT_terrain_paint(bpy.types.Operator):
         if self in _RUNNING:_RUNNING.remove(self)
     def _draw(self):
         if not self.hit or bpy.context.area!=self.area:return
-        co,normal=self.hit;radius=self.obj.wavelength_terrain.paint_radius*self.obj['wl_unit_meters']
+        co,normal=self.hit;radius=self.brush.paint_radius*self.brush_unit
         from .brush_create import _axis_basis
         u,v,n=_axis_basis(normal);ring=[co+(u*math.cos(i*math.tau/64)+v*math.sin(i*math.tau/64))*radius for i in range(65)]
         shader=gpu.shader.from_builtin('UNIFORM_COLOR');shader.bind();shader.uniform_float('color',(1,.55,.1,1));gpu.state.depth_test_set('NONE')
@@ -231,7 +308,7 @@ class WL_OT_terrain_paint(bpy.types.Operator):
         if event.type in {'ESC','RET','NUMPAD_ENTER','RIGHTMOUSE'} and event.value=='PRESS':self.remove(context);return {'FINISHED'} if self.changed else {'CANCELLED'}
         if not workspace.active(context):self.remove(context);return {'FINISHED'} if self.changed else {'CANCELLED'}
         if event.type in {'WHEELUPMOUSE','WHEELDOWNMOUSE'}:
-            s=self.obj.wavelength_terrain;s.paint_radius*=1.1 if event.type=='WHEELUPMOUSE' else 1/1.1;self.area.tag_redraw();return {'RUNNING_MODAL'}
+            self.brush.paint_radius*=1.1 if event.type=='WHEELUPMOUSE' else 1/1.1;self.area.tag_redraw();return {'RUNNING_MODAL'}
         if event.type=='MIDDLEMOUSE' or event.alt:
             self.down=False;self.last=None;return {'PASS_THROUGH'}
         if event.type=='TIMER' and not self.down:return {'RUNNING_MODAL'}
@@ -242,8 +319,13 @@ class WL_OT_terrain_paint(bpy.types.Operator):
         if event.type in {'LEFTMOUSE','MOUSEMOVE','TIMER'}:
             rv=self.area.spaces.active.region_3d;origin=view3d_utils.region_2d_to_origin_3d(self.region,rv,(x,y));direction=view3d_utils.region_2d_to_vector_3d(self.region,rv,(x,y))
             best=None
+            from . import terrain_face
+            depsgraph=context.evaluated_depsgraph_get()
             for obj in self.members:
-                inverse=obj.matrix_world.inverted();evaluated=obj.evaluated_get(context.evaluated_depsgraph_get());hit,co,normal,_=evaluated.ray_cast(inverse@origin,(inverse.to_3x3()@direction).normalized())
+                if obj.get('wl_face_mapping'):
+                    modifier=terrain_face.mapping_modifier(obj)
+                    if not modifier or not modifier.show_viewport:continue
+                inverse=obj.matrix_world.inverted();evaluated=obj.evaluated_get(depsgraph);hit,co,normal,_=evaluated.ray_cast(inverse@origin,(inverse.to_3x3()@direction).normalized())
                 if hit:
                     world=obj.matrix_world@co;distance=(world-origin).length
                     if best is None or distance<best[0]:best=(distance,obj,co,world,(inverse.transposed().to_3x3()@normal).normalized())
@@ -251,18 +333,20 @@ class WL_OT_terrain_paint(bpy.types.Operator):
             self.hit=(best[3],best[4]) if hit else None
             if event.type=='LEFTMOUSE':self.down=event.value=='PRESS';self.last=None
             if hit and self.down:
-                s=self.obj.wavelength_terrain;unit=self.obj['wl_unit_meters'];radius=s.paint_radius*unit
+                s=self.obj.wavelength_terrain;brush=self.brush;unit=self.brush_unit;radius=brush.paint_radius*unit
                 if event.type=='TIMER' or self.last is None or (best[3]-self.last).length>radius*.08:
                     mode='SMOOTH' if event.shift else s.paint_mode
                     rate=.2 if event.type=='TIMER' else 1.
-                    if self.connected:changed=network_stroke(self.members,self.network_base,best[3],best[4],mode,radius,s.paint_strength*unit*rate,s.paint_opacity*rate,event.ctrl)
-                    else:changed=stroke(self.obj,best[2],mode,radius,s.paint_strength*unit*rate,s.paint_opacity*rate,event.ctrl,self.base)
+                    if self.connected:changed=network_stroke(self.members,self.network_base,best[3],best[4],mode,radius,brush.paint_strength*unit*rate,brush.paint_opacity*rate,event.ctrl)
+                    else:changed=stroke(self.obj,best[2],mode,radius,brush.paint_strength*unit*rate,brush.paint_opacity*rate,event.ctrl,self.base)
                     self.changed=bool(changed) or self.changed;self.last=best[3].copy()
             self.area.tag_redraw();return {'RUNNING_MODAL'}
         return {'RUNNING_MODAL'}
 
 
 def register():
+    bpy.utils.register_class(WLMappedPaintSettings)
+    bpy.types.Scene.wavelength_mapped_paint=PointerProperty(type=WLMappedPaintSettings)
     bpy.utils.register_class(WL_OT_terrain_paint)
     bpy.utils.register_class(WL_MT_terrain_paint_types)
 def unregister():
@@ -275,3 +359,5 @@ def unregister():
     bpy.utils.unregister_class(WL_MT_terrain_paint_types)
     try:bpy.utils.unregister_class(WL_OT_terrain_paint)
     except RuntimeError:pass
+    del bpy.types.Scene.wavelength_mapped_paint
+    bpy.utils.unregister_class(WLMappedPaintSettings)

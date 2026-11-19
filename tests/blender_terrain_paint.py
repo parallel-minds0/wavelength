@@ -37,8 +37,10 @@ class Assets:
     game='mock terrain materials'
     def material(self,name):return {'$basetexture':'red','$basetexture2':'green','_wl_shader':'worldvertextransition'}
     def read(self,name):return name.encode()
+    def fingerprint(self,name):return name
 def decode(data):return (2,2,2,2,bytes(([255,0,0,255] if b'red' in data else [0,255,0,255])*4))
-with patch.object(source_assets,'library',return_value=Assets()),patch.object(source_assets,'decode_vtf',side_effect=decode):
+from wavelength.source import native_source
+with patch.object(source_assets,'library',return_value=Assets()),patch.object(source_assets,'decode_vtf',side_effect=decode),patch.object(native_source,'direct',return_value=False):
     material=source_assets.material(ctx.scene.wavelength,'nature/test_terrain')
 assert material.get('wl_source_blend') and any(n.type=='MIX_RGB' for n in material.node_tree.nodes)
 source.data.materials.append(material)

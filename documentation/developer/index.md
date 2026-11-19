@@ -15,6 +15,12 @@ geometry-and-materials
 build-and-tests
 source-displacements
 writing-documentation
+asset-loading
+native-source-assets
+model-pipeline
+cell-maps
+cross-compiling
+feature-changes
 ```
 
 [Map asset loading and caching](asset-loading.md)
@@ -22,3 +28,9 @@ writing-documentation
 [Native Source 1 asset backend](native-source-assets.md)
 
 [Engine-neutral model pipeline](model-pipeline.md)
+
+[High-level cell-map backend](cell-maps.md)
+
+[Cross-profile level compilation](cross-compiling.md)
+
+[Feature preservation and accepted changes](feature-changes.md)

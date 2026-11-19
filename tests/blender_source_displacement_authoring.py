@@ -41,10 +41,19 @@ for j in range(17):
 sd.change_power(a,2);c.view_layer.update()
 # Native raise and layer blending span shared surfaces.
 point=Vector((128,64,2))*unit
-assert sd.paint_stroke([a,b],point,'RAISE',80*unit,2*unit,.5)>0
+direction=Vector((1,0,1)).normalized()
+before={o:[o.matrix_world@v.co for v in o.data.vertices] for o in (a,b)}
+assert sd.paint_stroke([a,b],point,'RAISE',80*unit,2*unit,.5,normal=direction)>0
+for obj in (a,b):
+ deltas=[obj.matrix_world@v.co-p for v,p in zip(obj.data.vertices,before[obj])]
+ assert any(delta.length>1e-5 for delta in deltas)
+ assert all(delta.cross(direction).length<1e-5 for delta in deltas)
 sd.sew([a,b]);c.view_layer.update()
 assert sd.paint_stroke([a,b],point,'TEXTURE',80*unit,0,.5)>0
 assert max(d.value for d in a.data.attributes[sd.BLEND].data)>0 and max(d.value for d in b.data.attributes[sd.BLEND].data)>0
+before={o:[v.co.copy() for v in o.data.vertices] for o in (a,b)}
+sd.sew([a,b],geometry=False)
+assert all(v.co==p for o in (a,b) for v,p in zip(o.data.vertices,before[o]))
 # Collision flags remain orthogonal and preserve other bits.
 a.wavelength_displacement_no_physics=True;a.wavelength_displacement_no_ray=True
 assert sd.info(a)['data']['flags']==10

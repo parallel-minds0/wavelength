@@ -47,6 +47,31 @@ Reference behavior was checked against Valve's
 and [VMF displacement loading](https://github.com/ValveSoftware/source-sdk-2013/blob/master/src/utils/vbsp/map.cpp).
 No Valve implementation is vendored into the addon.
 
+## Legacy procedural terrain
+
+Procedural terrain UI registration is retired. Terrain RNA, face mask
+synchronization, evaluation, and export remain available for existing scenes.
+Source's native displacement editing panel remains available for imported grids.
+The mapped terrain regression creates legacy fixtures through internal functions
+and checks that retired commands are absent and evaluated VMF export still works.
+
+## Continuous terrain prototype
+
+The cage welds exact shared corners across ordered brush quads. A face-domain
+patch ID and per-corner sampling UVs travel through native subdivision. Source
+conversion rasterizes the evaluated triangles into each original patch domain
+and writes normal and distance rows relative to the backing quad. The fixture
+reconstructs preview triangles from the serialized VMF and compares every
+sample to the evaluated mesh. It compiles three patches with local HL2 VBSP.
+
+Run the fixture in Blender background mode with
+`--python tests/blender_terrain_surface.py -- --compile` to write the Blender
+preview, VMF and BSP under `build/continuous-terrain`. The local compiler flag
+uses the installed HL2 toolchain. The fixture uses equal power and disables
+subdivision UV smoothing. Validation covers the requested grid sample locations.
+Viewport picking, live game preview, automatic export integration, material
+painting and migration remain outside this milestone.
+
 ## Verification
 
 - `tests/test_displacement.py`: powers, planes, start corners, offsets, elevation,

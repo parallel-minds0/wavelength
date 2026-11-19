@@ -1,10 +1,10 @@
 embeddedFonts:
-  - [Vera.ttf, VeraBd.ttf, VeraIt.ttf, VeraBI.ttf]
+  - [DejaVuSans.ttf, DejaVuSans-Bold.ttf, DejaVuSans-Oblique.ttf, DejaVuSans-BoldOblique.ttf]
 fontsAlias:
-  fontSans: BitstreamVeraSans-Roman
-  fontSansBold: BitstreamVeraSans-Bold
-  fontSansItalic: BitstreamVeraSans-Oblique
-  fontSansBoldItalic: BitstreamVeraSans-BoldOblique
+  fontSans: DejaVuSans
+  fontSansBold: DejaVuSans-Bold
+  fontSansItalic: DejaVuSans-Oblique
+  fontSansBoldItalic: DejaVuSans-BoldOblique
 styles:
   std:
     parent: normal

@@ -95,6 +95,11 @@ def copy_references(source, entity):
     flags = ('wl_model_reference', 'wl_entity_icon_reference')
     if any(any(child.get(flag) for flag in flags) for child in entity.children):
         return
+    asset=source.get('wl_custom_model')
+    if asset and asset.get('wl_model_schema'):
+        from ..model_lifecycle import _reference
+        _reference(entity,asset)
+        return
     owner = entity.users_collection[0] if entity.users_collection else bpy.context.scene.collection
     def clone(obj, parent):
         ref = obj.copy()  # Share cached mesh/curve assets, but own the transform.

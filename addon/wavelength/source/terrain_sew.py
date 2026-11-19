@@ -6,7 +6,7 @@ from bpy.props import BoolProperty
 from mathutils import Vector
 from mathutils.bvhtree import BVHTree
 from mathutils.geometry import barycentric_transform
-from . import procedural,profiles,workspace
+from . import procedural,workspace
 
 OFFSET='wavelength.terrain.shared_deformation'
 
@@ -177,9 +177,7 @@ def pairs(items):
 
 
 def knots(obj,edge):
-    d=procedural.Definition.loads(obj['wl_definition'])
     s=settings(obj);count=math.gcd(64,s.resolution-1)
-    if not profiles.is_source(d.owner):return count
     return math.gcd(count,(2**int(s.power))*(s.tiles_x if edge%2==0 else s.tiles_y))
 
 
@@ -230,7 +228,7 @@ def constrain(items,base=None,smooth=False,geometry=True):
     for obj in items:obj.data.update();obj.update_tag()
 
 
-def sew(selected,smooth=False):
+def sew(selected,smooth=False,*,allow_unmatched=False):
     from . import terrain
     selected=list(dict.fromkeys(selected))
     if len(selected)<2:raise ValueError('Select at least two paintable displacement surfaces')
@@ -256,7 +254,12 @@ def sew(selected,smooth=False):
                             for key in ((a,ae),(b,be)):
                                 if key in occupied and occupied[key]!=(b,be) and occupied[key]!=(a,ae):raise ValueError('More than two patches meet along an edge; non-manifold sewing refused')
                             occupied[a,ae]=(b,be);occupied[b,be]=(a,ae);matches.append((a,ae,b,be,reverse));break
-    if not matches or any(not any(o in (a,b) for a,_,b,_,_ in matches) for o in selected):raise ValueError('Every selected surface needs a matching full base edge; partial-edge joins are not supported yet')
+    matched={obj for a,_,b,_,_ in matches for obj in (a,b)}
+    if allow_unmatched:
+        if not matched:return 0
+        selected=[obj for obj in selected if obj in matched]
+    elif len(matched)!=len(selected):
+        raise ValueError('Every selected surface needs a matching full base edge; partial-edge joins are not supported yet')
     # Validate existing connected members before adding links or changing geometry.
     items=list(dict.fromkeys(o for obj in selected for o in network(obj)))
     for obj in items:
@@ -290,8 +293,7 @@ def unsew(selected):
 def patches(obj):
     """Source sampling follows UV topology instead of flattening world geometry."""
     from . import terrain_face
-    d=procedural.Definition.loads(obj['wl_definition']);s=settings(obj);surface=Surface(obj);q=quad(obj)
-    if not profiles.is_source(d.owner):raise ValueError('Source output requires Source-owned surfaces')
+    s=settings(obj);surface=Surface(obj);q=quad(obj)
     if obj.get('wl_terrain_face_corners') and (s.tiles_x!=1 or s.tiles_y!=1):raise ValueError('A brush-face displacement must have one patch')
     segments=2**int(s.power);result=[]
     def point(u,v):return q[0]*((1-u)*(1-v))+q[1]*(u*(1-v))+q[2]*(u*v)+q[3]*((1-u)*v)

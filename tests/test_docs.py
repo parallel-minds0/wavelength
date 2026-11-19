@@ -45,4 +45,34 @@ class DocumentationTests(unittest.TestCase):
         screenshots,trees=docs.check()
         self.assertGreater(len(trees),80);self.assertGreaterEqual(len(screenshots),3)
 
+    def test_sync_keeps_machine_readable_feature_baseline(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root=Path(directory);stage=root/'stage';(stage/'reference').mkdir(parents=True)
+            (stage/'reference/feature-surface.json').write_text('{"schema":1,"entries":{}}')
+            with patch.object(docs,'ROOT',root):docs.sync(stage)
+            self.assertTrue((root/'addon/wavelength/documentation/handbook/reference/feature-surface.json').is_file())
+
+    def test_addon_packaging_includes_handbook_metadata(self):
+        from installer.wavelength_installer.source_bundle import addon_files
+        with tempfile.TemporaryDirectory() as directory:
+            addon=Path(directory)
+            metadata=('documentation/handbook/.generated.json',
+                      'documentation/handbook/reference/feature-surface.json')
+            for name in (*metadata, 'documentation/handbook/.private.json'):
+                file=addon/name
+                file.parent.mkdir(parents=True,exist_ok=True)
+                file.write_text('{}')
+            self.assertEqual({relative.as_posix() for _,relative in addon_files(addon)},set(metadata))
+
+    def test_prepare_preserves_literal_feature_identifiers(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root=Path(directory);source=root/'authored'
+            (source/'reference').mkdir(parents=True);(source/'archive').mkdir()
+            literal='# Surface\n\n`WavelengthExportScope`\n'
+            (source/'reference/feature-surface.md').write_text(literal)
+            (source/'archive/index.md').write_text('# Archive\n')
+            with patch.object(docs,'ROOT',root),patch.object(docs,'DOCS',source),patch.object(docs,'OUT',root/'out'),patch.object(docs,'EXTRAS',{}),patch.object(docs,'check',return_value=([],[])),patch.object(docs,'version',return_value='0'):
+                stage=docs.prepare(root/'stage')
+            self.assertEqual((stage/'reference/feature-surface.md').read_text(),literal)
+
 if __name__=='__main__':unittest.main()

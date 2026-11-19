@@ -28,10 +28,15 @@ class Entity:
     pairs: list = field(default_factory=list)
     brushes: list = field(default_factory=list)
     vmf_hidden: bool = False
+    vmf_visgroup: list = field(default_factory=list)
+    vmf_groups: list = field(default_factory=list)
 
 @dataclass
 class Map:
     entities: list = field(default_factory=list)
+    vmf_visgroups: list = field(default_factory=list)
+    vmf_cameras: list = field(default_factory=list)
+    vmf_view_metadata: list = field(default_factory=list)
 
 def parse(text):
     tokens=[]; end=0

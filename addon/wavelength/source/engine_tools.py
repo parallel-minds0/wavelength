@@ -2,7 +2,7 @@
 import math
 import bpy
 from mathutils import Matrix, Vector
-from . import workspace, profiles, tool_snap, axis_guides
+from . import workspace, tool_snap, axis_guides
 
 _original_draw = None
 
@@ -21,6 +21,8 @@ class WL_OT_engine_transform(bpy.types.Operator):
         return bool(WL_OT_precision_move.poll(context))
 
     def invoke(self, context, event):
+        if self.kind=='SCALE':
+            return bpy.ops.transform.resize('INVOKE_DEFAULT',constraint_axis=tuple(self.axis==a for a in 'XYZ'),release_confirm=self.release_confirm)
         if tool_snap.enabled(context,event,self.kind) and not tool_snap.grid_enabled(context,event,self.kind):
             operator=bpy.ops.transform.rotate if self.kind=='ROTATE' else bpy.ops.transform.resize
             operator('INVOKE_DEFAULT',constraint_axis=tuple(self.axis==a for a in 'XYZ'))
@@ -83,19 +85,10 @@ class WL_OT_engine_transform(bpy.types.Operator):
                     if increment>1e-8:degrees=round(degrees/increment)*increment
                 axis = self.axis if self.axis != 'FREE' else 'Z'
                 change = Matrix.Rotation(math.radians(degrees), 4, axis)
-            else:
-                factor = amount if amount is not None else 1 + distance / 150
-                factors = [factor if self.axis == 'FREE' or self.axis == a else 1 for a in 'XYZ']
-                if tool_snap.grid_enabled(context,event,'SCALE'):
-                    for i in range(3):
-                        size = self._dimensions[i]
-                        if size > 1e-8 and (self.axis == 'FREE' or self.axis == 'XYZ'[i]):
-                            sign = -1 if factors[i] < 0 else 1
-                            factors[i] = sign * max(self._step, round(abs(size * factors[i]) / self._step) * self._step) / size
-                change = Matrix.Diagonal((*factors, 1))
             change = Matrix.Translation(self._pivot) @ change @ Matrix.Translation(-self._pivot)
             for obj, original in self._objects:
                 obj.matrix_world = change @ original
+            context.view_layer.update()
             context.area.tag_redraw()
         return {'RUNNING_MODAL'}
 
@@ -122,14 +115,25 @@ class WL_GGT_engine_transform(bpy.types.GizmoGroup):
                 if kind == 'SCALE':
                     g.draw_style = 'BOX'
                     g.length = .65
+                    # The operator owns scaling; do not add Arrow3D modal offset.
+                    g.target_set_handler('offset',get=lambda:0.,set=lambda value:None)
+                    g.use_draw_modal=True
+                    g.use_draw_value=False
                 g.color = g.color_highlight = color
                 g.alpha = .7
                 g.alpha_highlight = 1
                 g.scale_basis = .8 if kind == 'ROTATE' else .65
-                op = g.target_set_operator('wavelength.engine_transform')
-                op.release_confirm = True
-                op.kind = kind
-                op.axis = 'XYZ'[i]
+                if kind=='SCALE':
+                    op=g.target_set_operator('transform.resize')
+                    op.release_confirm=True
+                    op.constraint_axis=tuple(j==i for j in range(3))
+                    op.orient_type='GLOBAL'
+                    op.mouse_dir_constraint=tuple(float(j==i) for j in range(3))
+                else:
+                    op=g.target_set_operator('wavelength.engine_transform')
+                    op.release_confirm=True
+                    op.kind=kind
+                    op.axis='XYZ'[i]
                 self.handles.append((g, kind, i))
 
     def draw_prepare(self, context):
@@ -221,16 +225,6 @@ def _draw(self, context):
                           menu='WM_MT_toolsystem_submenu').name = brush.bl_idname
     from .pencil import WL_Tool_pencil
     col.operator('wavelength.activate_cutter',text='',icon_value=icon(WL_Tool_pencil.bl_icon),depress=active_id==WL_Tool_pencil.bl_idname)
-    if context.scene.wavelength.engine=='blender' or profiles.is_source(context.scene.wavelength.engine):
-        if context.object and context.object.get('wl_terrain') and context.object.get('wl_procedural_state')=='PROCEDURAL':
-            from . import terrain
-            if not terrain.paintable(context.object):
-                col.operator('wavelength.terrain_enable_paint',text='',icon='MESH_GRID')
-            else:
-                col.prop(context.object.wavelength_terrain,'flat_preview',text='',icon='MESH_PLANE',toggle=True)
-                from .terrain_paint import paint_button
-                paint_button(col,context)
-
 
 
 def register():

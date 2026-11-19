@@ -16,10 +16,13 @@ def defaults(platform,engine=None):
             if os.environ.get('WAVELENGTH_SOURCE_TOOLS'):candidates.insert(0,Path(os.environ['WAVELENGTH_SOURCE_TOOLS']))
             tool=next((d for d in candidates if any((d/n).is_file() for n in ('vbsp','vbsp_linux','vbsp++','vbsp.exe'))),root/'bin')
             fgd=profile['entity_fgd']
-            definition=next((p for p in (root/'bin'/fgd,root/'bin/x64'/fgd) if p.is_file()),None)
+            definitions=[root/path for path in profile.get('entity_fgd_paths',[])] or [root/'bin'/fgd,root/'bin/x64'/fgd]
+            definition=next((p for p in definitions if p.is_file()),None)
             combined=profile.get('combined_game_folder')
             if combined and (root/combined/'gameinfo.txt').is_file():game=root/combined
-            return {'game_dir':str(game),'compiler_dir':str(tool),'fgd_path':str(definition) if definition else '',
+            executable=root/profile.get('game_executable_name','')
+            runtime={'game_executable':str(executable)} if profile.get('game_executable_name') and executable.is_file() else {}
+            return {**runtime,'game_dir':str(game),'compiler_dir':str(tool),'fgd_path':str(definition) if definition else '',
                     'launch_args':'["-console", "-dev", "-game", "{game_dir}", "+map", "{map}"]'}
     return {'launch_args':'["-console", "-dev", "-game", "{game_dir}", "+map", "{map}"]'}
 

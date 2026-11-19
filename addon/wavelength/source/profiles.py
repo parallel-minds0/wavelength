@@ -6,8 +6,17 @@ SCHEMA_VERSION=2
 def is_mesh_export(engine):return bool(get(engine).get('mesh_export'))
 
 # Preserve persisted RNA enum numbers when adding profiles or changing dict order.
-PROFILE_ORDER=('blender','quake','goldsrc','goldsrc_windows','goldsrc_linux','goldsrc_linux_steam','source_hl2_linux','source_hl2_windows','source_gmod_windows','godot4','source2_cs2_windows','source_windows')
-PROFILE_ITEMS=[(key,PROFILES[key]['label'],PROFILES[key]['label'],index) for index,key in enumerate(PROFILE_ORDER)]
+PROFILE_ORDER=('blender','quake','goldsrc','goldsrc_windows','goldsrc_linux','goldsrc_linux_steam','source_hl2_linux','source_hl2_windows','source_gmod_windows','godot4','source2_cs2_windows','source_windows','civ5','source_csgo_legacy_windows')
+def profile_sort_key(label):
+    engine, _, remainder = label.partition(') ')
+    game, _, platform = remainder.rpartition(' – ')
+    return engine.casefold(), game.casefold(), platform.casefold()
+
+
+PROFILE_ITEMS=sorted(
+    ((key,PROFILES[key]['label'],PROFILES[key]['label'],index) for index,key in enumerate(PROFILE_ORDER)),
+    key=lambda item:profile_sort_key(item[1]),
+)
 
 def is_source(engine):
     return family(engine)=='source'
@@ -73,19 +82,20 @@ def world_to_engine(settings, value):
 
 def snap_enabled(settings, context=None):
     """Whether grid snapping should be enforced for the active profile."""
+    if context is not None:
+        ts = getattr(getattr(context, 'scene', None), 'tool_settings', None)
+        return bool(getattr(ts, 'use_snap', False) and
+                    set(getattr(ts, 'snap_elements', ())) & {'GRID', 'INCREMENT'})
     if get(settings.engine).get('brush_semantics'):
         return True
     if bool(getattr(settings, 'snap_to_grid', False)):
         return True
-    if context is not None:
-        ts = getattr(getattr(context, 'scene', None), 'tool_settings', None)
-        if bool(getattr(ts, 'use_snap', False)):
-            return True
     return False
 
 
 def active_snap_step_units(settings, context=None):
     """Active snap step in authoring units (engine units or Blender meters), or None if unsnapped."""
+    if not snap_enabled(settings, context):return None
     if get(settings.engine).get('brush_semantics'):
         return grid_step_units(settings)
     if snap_enabled(settings, context):
@@ -95,6 +105,7 @@ def active_snap_step_units(settings, context=None):
 
 def active_snap_step_meters(settings, context=None):
     """Active snap step in world meters, or None if unsnapped."""
+    if not snap_enabled(settings, context):return None
     if get(settings.engine).get('brush_semantics'):
         return engine_to_world(settings, grid_step_units(settings))
     if snap_enabled(settings, context):
@@ -104,6 +115,7 @@ def active_snap_step_meters(settings, context=None):
 
 def snap_world_value(settings, value, context=None):
     """Snap a world-space scalar through engine-unit space (or Blender grid if enabled), then convert back."""
+    if not snap_enabled(settings, context):return float(value)
     if get(settings.engine).get('brush_semantics'):
         step = grid_step_units(settings)
         return engine_to_world(settings, round(world_to_engine(settings, value) / step) * step)
@@ -115,6 +127,7 @@ def snap_world_value(settings, value, context=None):
 
 def snap_world_length(settings, value, minimum_steps=1, context=None):
     """Snap a positive world-space length to an exact grid multiple when snapping is active."""
+    if not snap_enabled(settings, context):return abs(float(value))
     if get(settings.engine).get('brush_semantics'):
         step = grid_step_units(settings)
         units = abs(world_to_engine(settings, value))

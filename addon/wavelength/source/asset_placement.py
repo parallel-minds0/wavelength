@@ -107,6 +107,7 @@ def paint(context,obj,index,mat,scope='SURFACE'):
     try:
         for target in targets:
             if target.type!='MESH':continue
+            brush=target.get('wl_role')=='BRUSH' and not profiles.is_mesh_export(context.scene.wavelength.engine)
             if target.get('wl_source_displacement'):
                 from . import source_displacement
                 source_displacement.assign_material(context,target,mat)
@@ -129,11 +130,11 @@ def paint(context,obj,index,mat,scope='SURFACE'):
                 if scope=='SURFACE' and not 0<=index<len(bm.faces):raise ValueError('Finalize generated geometry before painting individual surfaces')
                 faces=[face for face in bm.faces if face.select and not face.hide] if scope=='SELECTED' else [bm.faces[index]] if scope=='SURFACE' else list(bm.faces)
                 ids=bm.faces.layers.int.get('wl_face_id');uv=bm.loops.layers.uv.get('wavelength')
-                if target.get('wl_role')=='BRUSH':uv=uv or bm.loops.layers.uv.new('wavelength')
+                if brush:uv=uv or bm.loops.layers.uv.new('wavelength')
                 for face in faces:
                     face.material_index=slot;fid=str(face[ids]) if ids else None;record=records.get(fid)
                     if record and name:record['texture']=name
-                    if uv and target.get('wl_role')=='BRUSH':
+                    if uv and brush:
                         projection=record.get('projection',[0,0,0,1,1]) if record else [0,0,0,1,1]
                         normal=(target.matrix_world.to_3x3().inverted().transposed()@face.normal).normalized()
                         axes=(record.get('axes') if record else None) or formats.quake_axes(normal,projection)
@@ -144,16 +145,16 @@ def paint(context,obj,index,mat,scope='SURFACE'):
                             loop[uv].uv=(u/mat.get('wl_width',64),1-v/mat.get('wl_height',64))
                 bmesh.update_edit_mesh(target.data)
                 target.data['wl_faces']=json.dumps(records)
-                if target.get('wl_role')!='BRUSH':asset_browser._ensure_mesh_uv(target)
+                if not brush:asset_browser._ensure_mesh_uv(target)
             else:
                 if scope=='SURFACE' and not 0<=index<len(target.data.polygons):raise ValueError('Finalize generated geometry before painting individual surfaces')
                 indices=[index] if scope=='SURFACE' else list(range(len(target.data.polygons)))
-                if target.get('wl_role')=='BRUSH':
+                if brush:
                     faces=scene.brush_from_object(target,context.scene.wavelength.engine)
                     records={str(d.value):asdict(f) for d,f in zip(sorted(target.data.attributes['wl_face_id'].data,key=lambda d:d.value),faces)}
                     target.data['wl_faces']=json.dumps(records)
                 textures.assign(target,indices,mat)
-                if target.get('wl_role')=='BRUSH':editor.apply_uv(target,context.scene.wavelength.engine)
+                if brush:editor.apply_uv(target,context.scene.wavelength.engine)
                 else:asset_browser._ensure_mesh_uv(target)
             asset_browser._BRUSH_MAT_SIGS[target.as_pointer()]=asset_browser._brush_mat_signature(target)
             from . import node_primitives

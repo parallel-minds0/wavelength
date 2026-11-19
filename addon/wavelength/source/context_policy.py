@@ -28,7 +28,7 @@ def role(obj,engine=''):
     owner=obj.get('wl_custom_model_owner')
     if owner:
         definition=owner.get('wl_custom_model')
-        if definition and definition.wavelength_model.collision==obj:return 'HELPER'
+        if definition and definition.wavelength_model.collision==obj and definition.wavelength_model.origin!=owner:return 'HELPER'
         return 'CONTENT'
     kind=obj.get('wl_role','')
     if kind in {'ENTITY_ICON_SOURCE','ENTITY_ICON_REFERENCE','EDITOR_HELPER','LEAK_PATH'}:return 'HELPER'
@@ -47,6 +47,9 @@ def role(obj,engine=''):
 
 def allows(context,feature=None):
     scene=getattr(context,'scene',None);ws=getattr(context,'workspace',None)
+    if feature in {'editing','gizmos','snapping'}:
+        from . import profiles
+        if profiles.get(getattr(getattr(scene,'wavelength',None),'engine','blender')).get('authoring')=='hex_cells':return False
     enabled=bool(ws and ws.get('wl_workspace',getattr(ws,'name','')=='wavelength') and ws.get('wl_enabled',True))
     state=getattr(scene,'wavelength_context',None)
     from . import context_state
@@ -68,5 +71,7 @@ def operation_allowed(context,operator):
     if '_OT_' in operator:
         namespace,name=operator.split('_OT_',1);operator=namespace.lower()+'.'+name
     # Explicit File-menu IO remains available outside the authoring workspace.
-    if operator in {'wavelength.import_map','wavelength.export_map','wavelength.validate','wavelength.validate_alpha','wavelength.build_logs','wavelength.save_project'}:return allows(context,'export')
+    if operator in {'wavelength.import_map','wavelength.export_map','wavelength.cross_compile','wavelength.validate','wavelength.validate_alpha','wavelength.build_logs','wavelength.save_project'}:return allows(context,'export')
+    from . import profiles
+    if profiles.get(getattr(context.scene.wavelength,'engine','blender')).get('authoring')=='hex_cells' and not operator.startswith('wavelength.civ5_'):return False
     return allows(context)

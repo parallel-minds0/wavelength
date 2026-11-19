@@ -59,7 +59,7 @@ def tick():
     live = set()
     for owner in bpy.data.scenes:
         settings = getattr(owner, 'wavelength', None)
-        if not settings or not profiles.snap_enabled(settings):
+        if not settings or not owner.tool_settings.use_snap or not profiles.snap_enabled(settings):
             continue
         if settings.engine != 'blender' and settings.grid_mode != 'ENGINE':
             continue

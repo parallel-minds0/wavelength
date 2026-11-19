@@ -113,7 +113,9 @@ class Session:
                 if self.process.poll() is not None:raise ValueError('Map preparation worker stopped: '+(self.folder/'worker.log').read_text(errors='replace')[-2000:])
                 self.update_progress(state['state'],state.get('done',0),state.get('total'));return False
             metadata=json.loads((self.folder/'metadata.json').read_text(encoding='utf-8'))
-            document=formats.Map([formats.Entity(e['pairs'],[None]*e['brushes'],vmf_hidden=e['hidden']) for e in metadata['entities']])
+            document=formats.Map([formats.Entity(e['pairs'],[None]*e['brushes'],vmf_hidden=e['hidden'],vmf_visgroup=e.get('visgroup',[]),vmf_groups=e.get('groups',[]))
+                                  for e in metadata['entities']],vmf_visgroups=metadata.get('visgroups',[]),
+                                  vmf_cameras=metadata.get('cameras',[]),vmf_view_metadata=metadata.get('view_metadata',[]))
             settings=self.scene.wavelength
             if self.path.suffix.lower()=='.vmf':
                 if not profiles.is_source(settings.engine):settings.engine='source_hl2_windows' if os.name=='nt' else 'source_hl2_linux'

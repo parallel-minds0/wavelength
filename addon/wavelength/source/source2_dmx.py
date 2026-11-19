@@ -106,13 +106,17 @@ def dumps(root):
 def stream(name,typ,data,flags=0):
     semantic,_,index=name.partition(':')
     result=element('CDmePolygonMeshDataStream',name=('string',name),standardAttributeName=('string',semantic),semanticName=('string',semantic),semanticIndex=('int',int(index or 0)),vertexBufferLocation=('int',0),dataStateFlags=('int',flags),data=(typ+'_array',data))
-    result.put('subdivisionBinding','CDmePolygonMeshSubdivisiondataBinding',element('CDmePolygonMeshSubdivisiondataBinding',name=('string','subdivisionBinding'),targetDataType=('int',1 if name=='texcoord:0' and flags else -1),targetStreamIndex=('int',0 if name=='texcoord:0' and flags else -1),streamSourceType=('int',0 if name=='texcoord:0' and flags else 1)))
+    # Ordinary editable meshes have authoritative corner streams, like stock
+    # Hammer meshes. Do not bind UVs to an empty subdivision stream.
+    result.put('subdivisionBinding','element',None)
     return result
 
 def data_array(size,streams):return element('CDmePolygonMeshDataArray',size=('int',size),streams=('element_array',streams))
 
-def polygon_mesh(vertices,faces,uvs,materials,material_indices):
+def polygon_mesh(vertices,faces,uvs,materials,material_indices,blend_weights=None,projections=None):
     """Build manifold half-edge pairs, including the void side of open borders."""
+    if blend_weights is not None and (len(blend_weights)!=len(faces) or any(len(a)!=len(b) for a,b in zip(blend_weights,faces))):raise ValueError('Blend weights must match face corners')
+    if projections is not None and len(projections)!=len(faces):raise ValueError('Texture projections must match faces')
     edges=[];lookup={};face_edges=[]
     for face_id,face in enumerate(faces):
         if len(face)<3 or len(set(face))!=len(face):raise ValueError('Degenerate VMAP polygon')
@@ -125,7 +129,9 @@ def polygon_mesh(vertices,faces,uvs,materials,material_indices):
             else:
                 index=len(edges);edges.extend([{'vertex':b,'face':-1,'next':-1,'uv':(0,0)},{'vertex':a,'face':-1,'next':-1,'uv':(0,0)}])
             lookup[(a,b)]=index
-            edges[index].update(face=face_id,uv=uvs[face_id][corner]);loop.append(index)
+            weight=blend_weights[face_id][corner] if blend_weights is not None else 0.
+            if not math.isfinite(weight):raise ValueError('Nonfinite vertex blend weight')
+            edges[index].update(face=face_id,uv=uvs[face_id][corner],blend=max(0.,min(1.,weight)));loop.append(index)
         for j,index in enumerate(loop):edges[index]['next']=loop[(j+1)%len(loop)]
         face_edges.append(loop[0])
     # Boundary half edges form their own loops in reverse order.
@@ -146,11 +152,31 @@ def polygon_mesh(vertices,faces,uvs,materials,material_indices):
         n=tuple(x/length for x in n) if length else (0,0,1)
         length=math.sqrt(sum(x*x for x in u));t=tuple(x/length for x in u) if length else (1,0,0)
         normals.append(n);tangents.append((*t,1))
-    mesh.put('faceVertexData','CDmePolygonMeshDataArray',data_array(len(edges),[stream('texcoord:0','vector2',[e['uv'] for e in edges],1),stream('texcoord:1','vector2',[(0,0)]*len(edges),1),stream('normal:0','vector3',[normals[e['face']] if e['face']>=0 else (0,0,1) for e in edges],1),stream('tangent:0','vector4',[tangents[e['face']] if e['face']>=0 else (1,0,0,1) for e in edges],1),stream('VertexPaintBlendParams:0','vector4',[(0,0,0,0)]*len(edges),1),stream('VertexPaintTintColor:0','vector4',[(1,1,1,1)]*len(edges),1)]))
+    mesh.put('faceVertexData','CDmePolygonMeshDataArray',data_array(len(edges),[stream('texcoord:0','vector2',[e['uv'] for e in edges],1),stream('texcoord:1','vector2',[(0,0)]*len(edges),1),stream('normal:0','vector3',[normals[e['face']] if e['face']>=0 else (0,0,1) for e in edges],1),stream('tangent:0','vector4',[tangents[e['face']] if e['face']>=0 else (1,0,0,1) for e in edges],1),stream('VertexPaintBlendParams:0','vector4',[(e.get('blend',0.),0,0,0) for e in edges],1),stream('VertexPaintTintColor:0','vector4',[(1,1,1,1)]*len(edges),1)]))
     mesh.put('edgeData','CDmePolygonMeshDataArray',data_array(len(edges)//2,[stream('flags:0','int',[0]*(len(edges)//2),3)]))
-    mesh.put('faceData','CDmePolygonMeshDataArray',data_array(len(faces),[stream('materialindex:0','int',material_indices,8),stream('flags:0','int',[0]*len(faces),3),stream('textureScale:0','vector2',[(1,1)]*len(faces)),stream('textureAxisU:0','vector4',[(1,0,0,0)]*len(faces)),stream('textureAxisV:0','vector4',[(0,1,0,0)]*len(faces)),stream('lightmapScaleBias:0','int',[0]*len(faces),1)]))
-    mesh.put('subdivisionData','CDmePolygonMeshSubdivisionData',element('CDmePolygonMeshSubdivisionData',subdivisionLevels=('int_array',[0]*len(edges)),streams=('element_array',[stream('texcoord:0','vector2',[]),stream('displacement:0','vector3',[])])))
+    projections=projections or [((1,1),(1,0,0,0),(0,1,0,0))]*len(faces)
+    mesh.put('faceData','CDmePolygonMeshDataArray',data_array(len(faces),[stream('materialindex:0','int',material_indices,8),stream('flags:0','int',[0]*len(faces),3),stream('textureScale:0','vector2',[p[0] for p in projections]),stream('textureAxisU:0','vector4',[p[1] for p in projections]),stream('textureAxisV:0','vector4',[p[2] for p in projections]),stream('lightmapScaleBias:0','int',[0]*len(faces),1)]))
+    mesh.put('subdivisionData','CDmePolygonMeshSubdivisionData',element('CDmePolygonMeshSubdivisionData',subdivisionLevels=('int_array',[0]*len(edges)),streams=('element_array',[])))
     return mesh
+
+
+def corner_blend_weights(mesh):
+    """Read native layer-two weights in the same face/corner order as read_mesh."""
+    data=stream_data(mesh,'faceVertexData','VertexPaintBlendParams:0')
+    next_edges=mesh.get('edgeNextIndices',[]);indices=mesh.get('edgeVertexDataIndices',list(range(len(next_edges))))
+    result=[]
+    for start in mesh.get('faceEdgeIndices',[]):
+        edge=start;seen=set();values=[]
+        while edge not in seen:
+            if edge<0 or edge>=len(next_edges) or edge>=len(indices):raise ValueError('Invalid blend half-edge index')
+            seen.add(edge);index=indices[edge]
+            if data and not 0<=index<len(data):raise ValueError('Invalid blend data index')
+            value=float(data[index][0]) if data else 0.
+            if not math.isfinite(value):raise ValueError('Nonfinite vertex blend weight')
+            values.append(max(0.,min(1.,value)));edge=next_edges[edge]
+        if edge!=start:raise ValueError('Invalid blend face loop')
+        result.append(values)
+    return result
 
 def stream_data(mesh,array,name):
     block=mesh.get(array)

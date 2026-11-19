@@ -14,7 +14,11 @@ try:
     material=bpy.data.materials.new('Export painted');material.use_nodes=True
     tex=material.node_tree.nodes.new('ShaderNodeTexImage');tex.image=image
     material.node_tree.links.new(tex.outputs['Color'],material.node_tree.nodes['Principled BSDF'].inputs['Base Color'])
-    bpy.ops.mesh.primitive_cube_add(location=(0,0,1));obj=ctx.object;obj.name='StaticCube';obj.data.materials.append(material)
+    bpy.ops.mesh.primitive_cube_add(location=(0,0,1));obj=ctx.object;obj.name='StaticCube'
+    obj.data.materials.append(bpy.data.materials.new('Unused first slot'))
+    obj.data.materials.append(material)
+    for polygon in obj.data.polygons:
+        polygon.material_index=1
     obj['private_entity_metadata']='must not export'
     bpy.ops.mesh.primitive_cube_add(location=(20,0,0));helper=ctx.object;helper['wl_exclude']=True
     bpy.ops.mesh.primitive_cube_add(location=(30,0,0));entity_child=ctx.object
@@ -26,9 +30,12 @@ try:
     data=path.read_bytes();assert data[:4]==b'glTF'
     size,kind=struct.unpack_from('<II',data,12);doc=json.loads(data[20:20+size])
     assert doc['meshes'] and doc['images'] and doc['textures'] and not any('extras' in n for n in doc.get('nodes',[]))
+    for primitive in doc['meshes'][0]['primitives']:
+        assert 'baseColorTexture' in doc['materials'][primitive['material']]['pbrMetallicRoughness']
     assert not doc.get('animations') and not doc.get('skins')
     print('PASS Godot GLB contains mesh, UVs and embedded image; no helpers or entity metadata',flush=True)
     assert obj.data==initial[0] and obj.matrix_world==initial[1] and list(obj.data.materials)==initial[2]
+    assert all(polygon.material_index==1 for polygon in obj.data.polygons)
     assert set(bpy.data.objects)==initial[3] and set(bpy.data.materials)==initial[4] and set(bpy.data.images)==initial[5]
     assert list(ctx.selected_objects)==[obj] and ctx.object==obj
     assert list(image.pixels[:4])==[1.,0.,0.,1.]

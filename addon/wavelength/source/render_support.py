@@ -35,8 +35,7 @@ def step(blocking=False):
         if blocking:
             while not job.poll():time.sleep(.05)
         elif not job.poll():return
-        job.publish()
-        finished=True
+        finished=job.publish(blocking=blocking)
     except Exception as exc:
         finished=True
         job.scene.wavelength.status='Render asset preparation failed: '+str(exc)

@@ -1,11 +1,18 @@
 """Source 1 VMF interchange, including displacements and hidden containers."""
 import json,re,math
-from . import formats,displacement
+from . import formats,displacement,source_pose
 
 TOKEN=re.compile(r'\s+|//[^\n]*|"(?:\\.|[^"\\])*"|[{}]|[^\s{}"]+')
 OUTPUT='__vmf_output__'
-EDITOR_ROOTS={'versioninfo','visgroups','viewsettings','cameras',
-              'palette_plus','colorcorrection_plus','light_plus','postprocess_plus','bgimages_plus'}
+EDITOR_MEMBERSHIP_KEYS={'groupid','visgroupid','visgroupshown','visgroupautoshown','color'}
+
+
+def editor_membership(items):
+    return [(key,value) for kind,block in items if kind=='editor' and isinstance(block,list)
+            for key,value in block if key in EDITOR_MEMBERSHIP_KEYS and isinstance(value,str)]
+HAMMER_PLUS_ROOTS={'palette_plus','colorcorrection_plus','light_plus','postprocess_plus','bgimages_plus'}
+VIEW_METADATA_ROOTS={'versioninfo','viewsettings','cordon','cordons'} | HAMMER_PLUS_ROOTS
+EDITOR_ROOTS={'visgroups','cameras'} | VIEW_METADATA_ROOTS
 
 def parse(text):
     tokens=[m.group() for m in TOKEN.finditer(text) if not m.group().isspace() and not m.group().startswith('//')]
@@ -49,11 +56,13 @@ def parse(text):
             d=values(v);p=numbers(d['plane'],9);u=numbers(d['uaxis'],5);w=numbers(d['vaxis'],5)
             if not u[4] or not w[4]:raise ValueError('VMF texture scale cannot be zero')
             face=formats.Face([p[n:n+3] for n in (0,3,6)],d['material'],[0,0,float(d.get('rotation',0)),u[4],w[4]],[u[:4],w[:4]])
-            face.vmf={key:d[key] for key in ('lightmapscale','smoothing_groups','id') if key in d}
+            face.vmf={key:d[key] for key in ('lightmapscale','smoothing_groups','id','contents','flags') if key in d}
             for key,value in v:
                 if key=='dispinfo':face.vmf['dispinfo']=displacement.parse(value)
             faces.append(face)
         if len(faces)<4:raise ValueError('VMF solid requires at least four faces')
+        membership=editor_membership(pairs)
+        if membership:faces[0].vmf['visgroup']=membership
         return faces
     def contents(items, hidden=False):
         # Hammer wraps quick-hidden solids/entities instead of adding an entity
@@ -66,13 +75,15 @@ def parse(text):
     entities=[]
     for kind,pairs,entity_hidden in contents(root):
         if kind not in {'world','entity'}:
-            if kind in {'cordon','cordons'} and values(pairs).get('active','0')=='0':continue
+            if kind in {'cordon','cordons'}:
+                if isinstance(pairs,list) and values(pairs).get('active','0')=='0':continue
+                raise ValueError('Disable the active Hammer cordon before importing the VMF')
             if kind not in EDITOR_ROOTS:raise ValueError(f'Unsupported VMF root block: {kind}')
             continue
         props=[];brushes=[]
         for k,v,brush_hidden in contents(pairs):
             if isinstance(v,str):
-                if k not in {'id','mapversion'}:props.append((k,v))
+                if k!='id' and (k!='mapversion' or kind=='world'):props.append((k,v))
             elif k=='solid':
                 brush=solid(v)
                 if brush_hidden:
@@ -81,14 +92,19 @@ def parse(text):
             elif k=='connections':props.extend((OUTPUT+key,value) for key,value in v)
             elif k not in {'editor','group'}:raise ValueError(f'Unsupported VMF entity block: {k}')
         if kind=='world':props=[(k,v) for k,v in props if k!='classname'];props.insert(0,('classname','worldspawn'))
-        entities.append(formats.Entity(props,brushes,vmf_hidden=entity_hidden))
+        entities.append(formats.Entity(props,brushes,vmf_hidden=entity_hidden,vmf_visgroup=editor_membership(pairs),
+            vmf_groups=[value for key,value in pairs if key=='group' and isinstance(value,list)]))
     if sum(dict(e.pairs).get('classname')=='worldspawn' for e in entities)!=1:raise ValueError('VMF requires exactly one world')
-    return formats.Map(entities)
+    return formats.Map(entities,
+        vmf_visgroups=[(key,value) for key,value in root if key=='visgroups' and isinstance(value,list)],
+        vmf_cameras=[(key,value) for key,value in root if key=='cameras' and isinstance(value,list)],
+        vmf_view_metadata=[(key,value) for key,value in root
+                           if key in VIEW_METADATA_ROOTS and isinstance(value,list)])
 
-def write(document):
+def write(document, *, editor_metadata=True):
     lines=[];counter=0
     # Allocate all IDs before serializing side references (overlays/cubemaps).
-    identifiers={};old_sides={}
+    identifiers={};old_sides={};group_ids={}
     def allocate(item):
         nonlocal counter
         counter+=1;identifiers[id(item)]=str(counter)
@@ -100,6 +116,15 @@ def write(document):
                 allocate(face)
                 old=(face.vmf or {}).get('id')
                 if old:old_sides.setdefault(str(old),[]).append(identifiers[id(face)])
+    if editor_metadata:
+        for entity in document.entities:
+            for group in entity.vmf_groups:
+                original=next((value for key,value in group if key=='id'),None)
+                if not isinstance(original,str) or original in group_ids:
+                    raise ValueError('Missing or duplicate VMF object group ID: '+str(original))
+                allocate(group)
+                group_ids[original]=identifiers[id(group)]
+
     def remap(value):
         result=[]
         for old in str(value).split():
@@ -116,13 +141,36 @@ def write(document):
         lines.append(json.dumps(str(k),ensure_ascii=False)+' '+value)
     def start(k):lines.extend([k,'{'])
     def end():lines.append('}')
-    start('versioninfo');prop('editorversion',400);prop('editorbuild',0);prop('mapversion',1);prop('formatversion',100);prop('prefab',0);end()
+    def editor_block(name, items, *, remap_groups=False):
+        stack=[(name,items)]
+        while stack:
+            key,value=stack.pop()
+            if key is None:end()
+            elif isinstance(value,str):
+                if not remap_groups or key!='groupid':prop(key,value)
+                elif value in group_ids:prop(key,group_ids[value])
+            else:
+                start(key)
+                stack.append((None,None))
+                stack.extend(reversed(value))
+
+    metadata=document.vmf_view_metadata if editor_metadata else []
+    versions=[items for name,items in metadata if name=='versioninfo']
+    if versions:
+        for items in versions:editor_block('versioninfo',items)
+    else:
+        editor_block('versioninfo',[('editorversion','400'),('editorbuild','0'),
+                                    ('mapversion','1'),('formatversion','100'),('prefab','0')])
+    if editor_metadata:
+        for name,items in [*document.vmf_visgroups,*document.vmf_cameras,*metadata]:
+            if name!='versioninfo':editor_block(name,items)
     for entity in document.entities:
         world=dict(entity.pairs).get('classname')=='worldspawn'
         if entity.vmf_hidden and not world:start('hidden')
         start('world' if world else 'entity');prop('id',identifiers[id(entity)])
-        for k,v in entity.pairs:
-            if k in {'id','mapversion','wad'} or k.startswith(OUTPUT):continue
+        for k,v in source_pose.canonical_pairs(entity.pairs):
+            if k in {'id','wad'} or k.startswith(OUTPUT):continue
+            if k=='mapversion' and not (editor_metadata and world):continue
             prop(k,remap(v) if k.lower()=='sides' else v)
         outputs=[(k[len(OUTPUT):],v) for k,v in entity.pairs if k.startswith(OUTPUT)]
         if outputs:
@@ -166,6 +214,8 @@ def write(document):
                 prop('rotation',formats.number(face.projection[2]))
                 metadata=face.vmf or {}
                 prop('lightmapscale',metadata.get('lightmapscale','16'));prop('smoothing_groups',metadata.get('smoothing_groups','0'))
+                for key in ('contents','flags'):
+                    if key in metadata:prop(key,metadata[key])
                 disp=metadata.get('dispinfo')
                 if disp:
                     def write_pairs(items):
@@ -174,8 +224,14 @@ def write(document):
                             else:start(key);write_pairs(value);end()
                     start('dispinfo');write_pairs(displacement.pairs(disp));end()
                 end()
+            membership=(brush[0].vmf or {}).get('visgroup')
+            if editor_metadata and membership:editor_block('editor',membership,remap_groups=True)
             end()
             if hidden:end()
+        if editor_metadata:
+            for group in entity.vmf_groups:
+                editor_block('group',[(key,identifiers[id(group)] if key=='id' else value) for key,value in group],remap_groups=True)
+        if editor_metadata and entity.vmf_visgroup:editor_block('editor',entity.vmf_visgroup,remap_groups=True)
         end()
         if entity.vmf_hidden and not world:end()
     return '\n'.join(lines)+'\n'

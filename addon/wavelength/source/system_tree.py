@@ -224,6 +224,8 @@ def _visibility_tick():
 
 
 def register():
+    from . import export_scope
+    export_scope.register()
     invalidate_groups()
     for handlers in (bpy.app.handlers.depsgraph_update_post, bpy.app.handlers.load_post,
                      bpy.app.handlers.undo_post, bpy.app.handlers.redo_post):
@@ -241,6 +243,8 @@ def unregister():
     invalidate_groups()
     from . import system_tree_view
     system_tree_view.unregister()
+    from . import export_scope
+    export_scope.unregister()
     if bpy.app.timers.is_registered(_visibility_tick):
         bpy.app.timers.unregister(_visibility_tick)
 

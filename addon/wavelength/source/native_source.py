@@ -41,6 +41,7 @@ def bind_material(settings,mat,name,width,height):
     # never populate that tree with converted Source textures or shaders.
     mat.diffuse_color=(1,1,1,1)
     mat.pop('wl_source_pending',None)
+    mat.pop('wl_asset_error',None)
     return mat
 
 
@@ -110,14 +111,48 @@ def configure_viewports(scene=None):
                 area.spaces.active.shading.color_type='MATERIAL'
 
 
+def _refresh_recovered_uvs(scene,materials):
+    if not materials or not scene.wavelength.live_texture_reproject:return
+    from . import editor
+    for obj in scene.objects:
+        if obj.type!='MESH' or obj.mode!='OBJECT' or not obj.data.get('wl_faces'):continue
+        if any(m in materials for m in obj.data.materials):
+            try:editor.apply_uv(obj,scene.wavelength.engine)
+            except (ValueError,RuntimeError,KeyError) as exc:obj['wl_uv_warning']=str(exc)
+
+
+def recover_missing_materials(scene):
+    """Retry failed bindings once on profile changes, never on every redraw."""
+    if not profiles.is_source(scene.wavelength.engine):return 0
+    materials={m for obj in scene.objects if obj.type=='MESH' and not obj.get('wl_asset_template') for m in obj.data.materials
+               if m and m.get('wl_texture') and not m.get('wl_model_material_editable') and not m.get('wl_source2_material') and not m.get('wl_source_cache_key')}
+    recovered=0;dimensions=set()
+    for mat in materials:
+        before=(mat.get('wl_width',64),mat.get('wl_height',64))
+        try:
+            source_assets.material(scene.wavelength,mat['wl_texture'],target_mat=mat,defer=True);recovered+=1
+            if before!=(mat.get('wl_width',64),mat.get('wl_height',64)):dimensions.add(mat)
+        except (ValueError,OSError,KeyError) as exc:mat['wl_asset_error']=str(exc)
+    _refresh_recovered_uvs(scene,dimensions)
+    if recovered:
+        from . import render_support
+        render_support.prepare(scene)
+    return recovered
+
+
 def migrate(scene):
     """Rebind existing engine previews once on file load; retain authoring data."""
     settings=scene.wavelength
     materials={m for obj in scene.objects if obj.type=='MESH' for m in obj.data.materials
-               if m and m.get('wl_source_cache_key') and m.get('wl_texture')}
+               if m and m.get('wl_texture') and not m.get('wl_model_material_editable') and not m.get('wl_source2_material')}
+    dimensions=set()
     for mat in materials:
-        try:source_assets.material(settings,mat['wl_texture'],target_mat=mat)
-        except (ValueError,OSError) as exc:mat['wl_asset_error']=str(exc)
+        before=(mat.get('wl_width',64),mat.get('wl_height',64))
+        try:
+            source_assets.material(settings,mat['wl_texture'],target_mat=mat,defer=True)
+            if before!=(mat.get('wl_width',64),mat.get('wl_height',64)):dimensions.add(mat)
+        except (ValueError,OSError,KeyError) as exc:mat['wl_asset_error']=str(exc)
+    _refresh_recovered_uvs(scene,dimensions)
     from .entity import models
     for obj in tuple(scene.objects):
         if obj.get('wl_role')!='ENTITY' or obj.get('wl_custom_model'):continue

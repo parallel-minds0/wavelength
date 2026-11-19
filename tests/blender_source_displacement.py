@@ -35,3 +35,37 @@ exported=scene.export_map(c.scene)
 assert len(exported.entities[0].brushes)==1,'Original backing brush must not be split or replaced'
 assert len(vmf.parse(vmf.write(exported)).entities[0].brushes)==1
 print('PASS native displacement: original backing, untouched metadata, native 3D edits, alpha/tags, Source units, UVs and scene/VMF export',flush=True)
+
+c.workspace['wl_workspace'] = True
+bpy.ops.object.select_all(action='DESELECT')
+source = surfaces[0]
+source.select_set(True)
+c.view_layer.objects.active = source
+assert bpy.ops.wavelength.migrate_terrain() == {'FINISHED'}
+migrated = c.object
+assert migrated['wl_exclude']
+assert vmf.write(scene.export_map(c.scene)) == vmf.write(exported)
+assert bpy.ops.wavelength.terrain_game_preview() == {'FINISHED'}
+assert bpy.ops.wavelength.use_migrated_terrain() == {'FINISHED'}
+assert not migrated['wl_exclude']
+migrated_map = scene.export_map(c.scene)
+face = migrated_map.entities[0].brushes[0][sd.info(source)['face_id']-1]
+data = face.vmf['dispinfo']
+baseline = exported.entities[0].brushes[0][sd.info(source)['face_id']-1].vmf['dispinfo']
+assert data['triangle_tags'] == baseline['triangle_tags']
+assert data.get('flags') == baseline.get('flags')
+assert abs(data['alphas'][0][0]-127.5)<.001
+assert len(migrated_map.entities[0].brushes) == 1
+_, _, quad = sd.source_face(source)
+before = displacement.grid(data, quad, face.plane()[0])
+expected, _, _ = sd.read_surface(source)
+assert max((Vector(a)-b).length for a,b in zip(before,expected)) < .002
+migrated.data.vertices[0].co.z += .1
+migrated.data.update()
+edited_map = scene.export_map(c.scene)
+edited = edited_map.entities[0].brushes[0][sd.info(source)['face_id']-1].vmf['dispinfo']
+after = displacement.grid(edited, quad, face.plane()[0])
+assert abs((Vector(after[0])-Vector(before[0])).z * source['wl_unit_meters'] - .1) < .00001
+assert bpy.ops.wavelength.use_migrated_terrain() == {'FINISHED'}
+assert vmf.write(scene.export_map(c.scene)) == vmf.write(exported)
+print('PASS native migration copy, editable export, retained geometry and metadata, reversible export switch')

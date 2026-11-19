@@ -30,3 +30,5 @@ third-party/python/*
 /.documentation-source
 *.mdmp
 *.dmp
+
+/exceptions.txt

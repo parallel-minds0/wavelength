@@ -86,6 +86,8 @@ class WL_PT_engine_tree(bpy.types.Panel):
             map_import.draw_progress(layout,context.scene);return
         if context.scene.wavelength.engine=='blender':
             layout.label(text='Choose an engine profile',icon='INFO');return
+        from . import export_scope
+        scope=export_scope.Scope(context.scene,context.view_layer)
         groups=system_tree.groups(context.scene)
         for key,label,icon in system_tree.CATEGORIES:
             objects=groups[key];row=layout.row(align=True)
@@ -95,11 +97,13 @@ class WL_PT_engine_tree(bpy.types.Panel):
             hidden=system_tree.category_explicitly_hidden(context.scene,key)
             state=system_tree.tree_visibility(context.scene,key,context.view_layer,objects)
             op=row.operator('wavelength.system_category_visibility',text='',icon='HIDE_ON' if hidden else 'REMOVE' if state=='MIXED' else 'HIDE_OFF',emboss=False);op.category=key
+            export_scope.draw(row,scope,objects,category=key)
             if expanded:
                 for obj in objects:
                     row=layout.row(align=True);row.separator(factor=1.5)
                     op=row.operator('wavelength.system_select',text=obj.name,icon='OBJECT_DATA',emboss=False);op.object_name=obj.name
                     op=row.operator('wavelength.system_visibility',text='',icon='HIDE_ON' if system_tree.object_hidden(obj,context.view_layer) else 'HIDE_OFF',emboss=False);op.object_name=obj.name
+                    export_scope.draw(row,scope,[obj],object_name=obj.name)
         if bpy.ops.wavelength.reload_map_assets.poll():
             layout.separator()
             layout.operator('wavelength.reload_map_assets',text='Reload Asset Previews',icon='FILE_REFRESH')

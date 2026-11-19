@@ -10,14 +10,25 @@ from . import scene,formats,profiles
 from .geometry import cross,dot,sub,length,validate,TOLERANCE,BrushError
 
 
-def apply_uv(obj,engine,faces=None):
+def activate_mapping_uv(mesh):
+    """Use the engine mapping for Workbench, shader defaults and mesh export."""
+    layer=mesh.uv_layers.get('wavelength')
+    if layer is not None:
+        if mesh.uv_layers.active!=layer:mesh.uv_layers.active=layer
+        if not layer.active_render:layer.active_render=True
+
+
+def apply_uv(obj,engine,faces=None,*,face_ids=None):
     # Imported brush planes were already validated by the preparation worker.
     # Avoid exporting/validating the brand-new mesh again just to recover them.
     if faces is None:faces=scene.brush_from_object(obj,engine)
     attr=obj.data.attributes['wl_face_id'];by_id={i:f for i,f in zip(sorted(d.value for d in attr.data),faces)}
     layer=obj.data.uv_layers.get('wavelength') or obj.data.uv_layers.new(name='wavelength')
+    activate_mapping_uv(obj.data)
     for polygon in obj.data.polygons:
-        face=by_id[attr.data[polygon.index].value]
+        fid=attr.data[polygon.index].value
+        if face_ids is not None and fid not in face_ids:continue
+        face=by_id[fid]
         axes=face.axes or formats.quake_axes(face.plane()[0],face.projection)
         slot=polygon.material_index;material=obj.data.materials[slot] if slot<len(obj.data.materials) else None
         width=material.get('wl_width',64) if material else 64;height=material.get('wl_height',64) if material else 64
@@ -227,13 +238,15 @@ def _brush_state(obj):
     )
 
 # docs:begin live-edit-projection
-def apply_edit_uv(obj):
+def apply_edit_uv(obj,*,face_ids=None):
     """Project preview UVs onto the live BMesh, without committing native edits.
 
     Stored engine axes/scales are authoritative. Temporarily non-planar faces
     are allowed here; brush export validation belongs at the commit boundary.
     Return whether any UVs changed. Selection and persisted face records stay put.
     """
+    from .edit_safety import topology_modal_active
+    if topology_modal_active(bpy.context):return False
     import bmesh
     bm=bmesh.from_edit_mesh(obj.data)
     bm.normal_update()
@@ -245,6 +258,7 @@ def apply_edit_uv(obj):
     matrix=obj.matrix_world;normal_matrix=matrix.to_3x3().inverted().transposed()
     unit=obj.get('wl_unit_meters',1.)
     for face in bm.faces:
+        if face_ids is not None and (ids is None or face[ids] not in face_ids):continue
         record=records.get(str(face[ids]),{}) if ids else {}
         projection=record.get('projection',[0,0,0,1,1])
         normal=(normal_matrix@face.normal).normalized()
@@ -262,6 +276,7 @@ def apply_edit_uv(obj):
                 loop[layer].uv=value;changed=True
     # Updating only UV data leaves Blender's edit transaction and selection alive.
     if changed:bmesh.update_edit_mesh(obj.data,loop_triangles=False,destructive=False)
+    activate_mapping_uv(obj.data)
     return changed
 # docs:end live-edit-projection
 
@@ -269,6 +284,8 @@ def apply_edit_uv(obj):
 def _live_tick():
     """Poll brushes and reapply stored texture projection after geometry changes."""
     global _live_reprojecting
+    from .edit_safety import topology_modal_active
+    if topology_modal_active(bpy.context):return _LIVE_POLL_SECONDS
     try:
         from .workspace import active
         if not active(bpy.context):return _LIVE_POLL_SECONDS

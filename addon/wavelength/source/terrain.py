@@ -1,12 +1,12 @@
 """General Geometry Nodes heightfields with a Source displacement export adapter."""
 import json,math
 import bpy
-from bpy.props import FloatProperty,IntProperty,EnumProperty,BoolProperty,PointerProperty
+from bpy.props import FloatProperty,IntProperty,EnumProperty,BoolProperty,PointerProperty,StringProperty
 from mathutils import Vector
 from mathutils.bvhtree import BVHTree
 from . import profiles,workspace,procedural,draw_displacement
 GENERATOR='wavelength.geometry_nodes.heightfield'
-VERSION=3
+VERSION=4
 
 
 def update_facing(obj):
@@ -41,14 +41,14 @@ def export_facing(obj,vertices,info):
 
 
 def group():
-    name='Wavelength · Heightfield Terrain · v3'
+    name='Wavelength · Heightfield Terrain · v4'
     tree=bpy.data.node_groups.get(name)
     if tree:
         if tree.get('wl_generator')!=GENERATOR:raise ValueError('Conflicting terrain node group')
         return tree
     tree=bpy.data.node_groups.new(name,'GeometryNodeTree');tree['wl_generator']=GENERATOR;tree['wl_generator_version']=VERSION
     tree.interface.new_socket(name='Geometry',in_out='INPUT',socket_type='NodeSocketGeometry')
-    for name,kind,default in [('Width','NodeSocketFloat',16.),('Length','NodeSocketFloat',16.),('Resolution','NodeSocketInt',65),('Elevation','NodeSocketFloat',0.),('Amplitude','NodeSocketFloat',1.),('Frequency','NodeSocketFloat',.25),('Seed','NodeSocketFloat',0.),('Flat Placement','NodeSocketBool',False),('Material','NodeSocketMaterial',None)]:
+    for name,kind,default in [('Width','NodeSocketFloat',16.),('Length','NodeSocketFloat',16.),('Resolution','NodeSocketInt',65),('Elevation','NodeSocketFloat',0.),('Amplitude','NodeSocketFloat',1.),('Frequency','NodeSocketFloat',.25),('Seed','NodeSocketFloat',0.),('Noise Detail','NodeSocketFloat',2.),('Noise Roughness','NodeSocketFloat',.5),('Heightmap','NodeSocketImage',None),('Use Heightmap','NodeSocketBool',False),('Heightmap Scale','NodeSocketFloat',1.),('Heightmap Midlevel','NodeSocketFloat',0.),('Flat Placement','NodeSocketBool',False),('Material','NodeSocketMaterial',None)]:
         socket=tree.interface.new_socket(name=name,in_out='INPUT',socket_type=kind)
         if default is not None:socket.default_value=default
     tree.interface.new_socket(name='Geometry',in_out='OUTPUT',socket_type='NodeSocketGeometry')
@@ -78,6 +78,16 @@ def group():
     def sample(name,kind='FLOAT'):
         attribute=node('GeometryNodeInputNamedAttribute',name);attribute.data_type=kind;attribute.inputs['Name'].default_value=name
         sample=node('GeometryNodeSampleNearestSurface','Sample '+name);sample.data_type=kind;links.new(flatten.outputs[0],sample.inputs['Mesh']);links.new(attribute.outputs['Attribute'],sample.inputs['Value']);links.new(samplepos.outputs[0],sample.inputs['Sample Position']);return sample.outputs['Value']
+    links.new(inp.outputs['Noise Detail'],noise.inputs['Detail'])
+    links.new(inp.outputs['Noise Roughness'],noise.inputs['Roughness'])
+    uv_position=node('ShaderNodeVectorMath','Heightmap UV');uv_position.operation='ADD'
+    links.new(samplepos.outputs[0],uv_position.inputs[0]);uv_position.inputs[1].default_value=(.5,.5,0)
+    image=node('GeometryNodeImageTexture','Sample heightmap');image.extension='EXTEND'
+    links.new(inp.outputs['Heightmap'],image.inputs['Image']);links.new(uv_position.outputs[0],image.inputs['Vector'])
+    image_height=mathnode('MULTIPLY',mathnode('SUBTRACT',image.outputs['Color'],inp.outputs['Heightmap Midlevel']),inp.outputs['Heightmap Scale'])
+    use_image=node('GeometryNodeSwitch','Enable heightmap');use_image.input_type='FLOAT'
+    links.new(inp.outputs['Use Heightmap'],use_image.inputs['Switch']);links.new(image_height,use_image.inputs['True'])
+    z=mathnode('ADD',z,use_image.outputs[0])
     painted=sample('wl_terrain_height');blend=sample('wl_terrain_blend')
     height=node('GeometryNodeSwitch','Placement preview / full terrain');height.input_type='FLOAT';links.new(inp.outputs['Flat Placement'],height.inputs['Switch']);links.new(mathnode('ADD',z,painted),height.inputs['False']);links.new(inp.outputs['Elevation'],height.inputs['True'])
     offset=node('ShaderNodeCombineXYZ','Height offset');links.new(height.outputs[0],offset.inputs['Z'])
@@ -125,6 +135,11 @@ class WLTerrain(bpy.types.PropertyGroup):
     amplitude:FloatProperty(name='Amplitude',default=1,min=0,update=changed)
     frequency:FloatProperty(name='Frequency',default=.25,min=.00001,update=changed)
     seed:IntProperty(name='Seed',default=0,update=changed)
+    noise_detail:FloatProperty(name='Noise Detail',default=2,min=0,max=15,update=changed)
+    noise_roughness:FloatProperty(name='Noise Roughness',default=.5,min=0,max=1,update=changed)
+    heightmap:PointerProperty(name='Heightmap',type=bpy.types.Image,update=changed)
+    heightmap_scale:FloatProperty(name='Heightmap Height',default=1,update=changed)
+    heightmap_midlevel:FloatProperty(name='Heightmap Midlevel',default=0,min=0,max=1,update=changed)
     power:EnumProperty(name='Patch Power',items=[('2','2 — 5×5',''),('3','3 — 9×9',''),('4','4 — 17×17','')],default='3',update=changed)
     tiles_x:IntProperty(name='Patches X',default=2,min=1,max=16,update=changed)
     tiles_y:IntProperty(name='Patches Y',default=2,min=1,max=16,update=changed)
@@ -132,7 +147,7 @@ class WLTerrain(bpy.types.PropertyGroup):
 
 def remember(obj):
     previous=procedural.Definition.loads(obj['wl_definition']);s=obj.wavelength_terrain
-    values={key:getattr(s,key) for key in ('width','length','resolution','elevation','amplitude','frequency','seed','power','tiles_x','tiles_y')}
+    values={key:getattr(s,key) for key in ('width','length','resolution','elevation','amplitude','frequency','seed','noise_detail','noise_roughness','heightmap_scale','heightmap_midlevel','power','tiles_x','tiles_y')}
     from dataclasses import replace
     obj['wl_definition']=replace(previous,parameters=values,generator_version=VERSION).dumps()
 
@@ -152,9 +167,16 @@ def _update(obj):
     modifier=next((m for m in obj.modifiers if m.type=='NODES' and m.node_group and m.node_group.get('wl_generator')==GENERATOR),None)
     from . import terrain_paint
     if paintable(obj):terrain_paint.ensure_control(obj)
-    if modifier is None:modifier=obj.modifiers.new('Wavelength · Terrain Generator','NODES');modifier.node_group=group()
-    modifier.node_group=group()  # Upgrade the graph without replacing the painted control mesh.
+    if modifier is None:
+        tree=group()
+        modifier=obj.modifiers.new('Wavelength · Terrain Generator','NODES')
+        modifier.node_group=tree
+    elif modifier.node_group.get('wl_generator_version',0)<VERSION:
+        modifier.node_group=group()
     values=dict(Width=s.width*unit,Length=s.length*unit,Resolution=s.resolution,Elevation=s.elevation*unit,Amplitude=s.amplitude*unit,Frequency=s.frequency/unit,Seed=float(s.seed),Material=terrain_paint.preview_material(obj))
+    values.update({'Noise Detail':s.noise_detail,'Noise Roughness':s.noise_roughness,
+                   'Heightmap':s.heightmap,'Use Heightmap':bool(s.heightmap) and paintable(obj),
+                   'Heightmap Scale':s.heightmap_scale*unit,'Heightmap Midlevel':s.heightmap_midlevel})
     values['Flat Placement']=s.flat_preview
     if not paintable(obj):values.update(Resolution=2,Elevation=0.,Amplitude=0.)
     for socket in modifier.node_group.interface.items_tree:
@@ -189,9 +211,13 @@ def enable_paint(obj):
     update(obj)
 
 
+def supports_terrain(engine):
+    return profiles.get(engine).get('authoring')!='hex_cells'
+
+
 def create(context,paintable_surface=False):
     settings=context.scene.wavelength;unit=profiles.unit_meters(settings)
-    if settings.engine!='blender' and not profiles.is_source(settings.engine):raise ValueError('Terrain output is currently supported for Blender and Source profiles')
+    if not supports_terrain(settings.engine):raise ValueError('This profile uses cell-based terrain editing')
     data=bpy.data.meshes.new('Terrain');obj=bpy.data.objects.new('Terrain',data);context.collection.objects.link(obj);obj.location=context.scene.cursor.location
     try:
         from dataclasses import replace
@@ -226,7 +252,6 @@ def patches(obj):
     if obj.get('wl_terrain_vector_surface'):
         from . import terrain_sew
         return terrain_sew.patches(obj)
-    if not profiles.is_source(definition.owner):raise ValueError('Terrain belongs to a non-Source profile; convert ownership explicitly before Source export')
     s=obj.wavelength_terrain
     if obj.get('wl_procedural_state')=='FINALIZED':
         from types import SimpleNamespace
@@ -305,7 +330,7 @@ def patches(obj):
         evaluated.to_mesh_clear();terrain_paint.restore_surface(obj,previous)
 
 
-def brushes(obj,validate_seams=True):
+def brushes(obj,validate_seams=True,unit=None):
     if validate_seams and obj.get('wl_terrain_seams'):
         from . import terrain_sew
         terrain_sew.validate_export(obj)
@@ -321,7 +346,7 @@ def brushes(obj,validate_seams=True):
         mesh=bpy.data.meshes.new('.Terrain displacement export');temporary=bpy.data.objects.new('.Terrain displacement export',mesh)
         try:
             mesh.from_pydata(verts,[],faces);mesh.update();mesh.materials.append(material)
-            temporary.matrix_world=obj.matrix_world.copy();temporary['wl_unit_meters']=obj['wl_unit_meters'];temporary['wl_displacement']=json.dumps(info)
+            temporary.matrix_world=obj.matrix_world.copy();temporary['wl_unit_meters']=unit or obj['wl_unit_meters'];temporary['wl_displacement']=json.dumps(info)
             brush=draw_displacement.brush(temporary);brush[0].vmf['dispinfo']['alphas']=info['alphas'];result.append(brush)
         finally:bpy.data.objects.remove(temporary,do_unlink=True);bpy.data.meshes.remove(mesh)
     return result
@@ -329,16 +354,22 @@ def brushes(obj,validate_seams=True):
 
 def blend_settings(obj,context):
     definition=procedural.Definition.loads(obj['wl_definition']);settings=context.scene.wavelength
-    if not profiles.is_source(definition.owner) or settings.engine!=definition.owner:raise ValueError('Activate the terrain owning Source profile first')
-    if definition.owner_profile_id and definition.owner_profile_id!=settings.profile_id:raise ValueError('Activate the terrain owning saved profile first')
+    if not profiles.is_source(settings.engine):
+        raise ValueError('Activate a Source profile to generate terrain materials')
+    if profiles.is_source(definition.owner):
+        if settings.engine!=definition.owner:
+            raise ValueError('Activate the terrain owning Source profile first')
+        if definition.owner_profile_id and definition.owner_profile_id!=settings.profile_id:
+            raise ValueError('Activate the terrain owning saved profile first')
     if not settings.project_dir:raise ValueError('Configure a project directory before generating terrain materials')
     return settings
 
 
-def create_blend(obj,context):
+def create_blend(obj,context,*,base=None,paint=None):
     from . import source_assets,terrain_blend
     settings=blend_settings(obj,context);s=obj.wavelength_terrain
-    base=s.blend_base or next((m for m in obj.data.materials if m),None);paint=s.paint_material
+    base=base or s.blend_base or next((m for m in obj.data.materials if m),None)
+    paint=paint or s.paint_material
     if not base or not paint or not base.get('wl_texture') or not paint.get('wl_texture'):raise ValueError('Choose two Source materials for the terrain layers')
     for material in (base,paint):
         if material.get('wl_asset_profile') and material['wl_asset_profile']!=settings.engine:raise ValueError('Terrain layers must belong to the active Source profile')
@@ -354,6 +385,7 @@ def create_blend(obj,context):
     material['wl_generated_terrain_vmt']=text;material['wl_generated_terrain_name']=name
     material['wl_terrain_layer_sources']=json.dumps([base['wl_texture'],paint['wl_texture']])
     s.blend_base=base
+    s.paint_material=paint
     if obj.data.materials:obj.data.materials[0]=material
     else:obj.data.materials.append(material)
     obj['wl_terrain_generated_project_file']=str(project_file);obj['wl_terrain_generated_game_file']=str(game_file)
@@ -372,20 +404,59 @@ def ensure_generated_material(obj,material):
 class WL_OT_terrain_blend(bpy.types.Operator):
     bl_idname='wavelength.terrain_blend';bl_label='Create Blend Material';bl_options={'REGISTER','UNDO'}
     bl_description='Generate a two-layer Source VMT in the project and game material directories, then assign it to the terrain'
+    patch_name:StringProperty(options={'HIDDEN','SKIP_SAVE'})
+    shared:BoolProperty(default=False,options={'HIDDEN','SKIP_SAVE'})
+
     @classmethod
-    def poll(cls,context):return workspace.active(context) and context.mode=='OBJECT' and context.object and context.object.get('wl_terrain') and context.object.get('wl_procedural_state')=='PROCEDURAL' and profiles.is_source(context.object.get('wl_owner_profile',''))
+    def poll(cls,context):
+        obj=context.object
+        return bool(workspace.active(context) and context.mode=='OBJECT' and obj and
+                    profiles.is_source(context.scene.wavelength.engine) and (
+                        (obj.get('wl_terrain') and obj.get('wl_procedural_state')=='PROCEDURAL') or
+                        any(child.get('wl_face_mapping') for child in obj.children)
+                    ))
+
     def execute(self,context):
-        try:material=create_blend(context.object,context)
-        except (ValueError,OSError,RuntimeError) as exc:self.report({'ERROR'},str(exc));return {'CANCELLED'}
-        self.report({'INFO'},'Created '+material['wl_texture']);return {'FINISHED'}
+        from . import terrain_paint,terrain_sew
+        try:
+            shared_members=terrain_paint.mapped_paint_members(context) if self.shared else None
+            patch=shared_members[0] if shared_members else terrain_paint.paint_target(context,self.patch_name)
+            if not patch.get('wl_terrain') or patch.get('wl_procedural_state')!='PROCEDURAL':
+                raise ValueError('Choose a live heightfield from the modifier panel')
+            members=shared_members or (terrain_sew.network(patch) if self.patch_name else [patch])
+            for member in members:
+                if (self.shared or self.patch_name) and (member.get('wl_procedural_state')!='PROCEDURAL' or member.data.users!=1):
+                    raise ValueError('Blend setup requires live, single-user terrain throughout the sewn network')
+                blend_settings(member,context)
+            if self.shared:
+                palette=context.scene.wavelength_mapped_paint
+                if not palette.blend_base or not palette.paint_material:
+                    raise ValueError('Choose both shared Source materials')
+                material=create_blend(patch,context,base=palette.blend_base,paint=palette.paint_material)
+            else:
+                material=create_blend(patch,context)
+            for member in members:
+                if member==patch:continue
+                settings=member.wavelength_terrain
+                settings.blend_base=patch.wavelength_terrain.blend_base
+                settings.paint_material=patch.wavelength_terrain.paint_material
+                if member.data.materials:member.data.materials[0]=material
+                else:member.data.materials.append(material)
+                sync_material(member,force=True)
+        except (ValueError,OSError,RuntimeError) as exc:
+            self.report({'ERROR'},str(exc))
+            return {'CANCELLED'}
+        self.report({'INFO'},'Created '+material['wl_texture'])
+        return {'FINISHED'}
 
 
 class WL_OT_terrain_add(bpy.types.Operator):
     bl_idname='wavelength.terrain_add';bl_label='Terrain';bl_options={'REGISTER','UNDO'}
+    paintable_surface:BoolProperty(name='Paintable Heightfield',default=False)
     @classmethod
-    def poll(cls,context):return workspace.active(context) and context.mode=='OBJECT' and (context.scene.wavelength.engine=='blender' or profiles.is_source(context.scene.wavelength.engine))
+    def poll(cls,context):return workspace.active(context) and context.mode=='OBJECT' and supports_terrain(context.scene.wavelength.engine)
     def execute(self,context):
-        try:create(context)
+        try:create(context,paintable_surface=self.paintable_surface)
         except (ValueError,RuntimeError) as exc:self.report({'ERROR'},str(exc));return {'CANCELLED'}
         return {'FINISHED'}
 
@@ -408,6 +479,37 @@ class WL_OT_terrain_update(bpy.types.Operator):
     def execute(self,context):
         try:update(context.object)
         except (ValueError,RuntimeError) as exc:self.report({'ERROR'},str(exc));return {'CANCELLED'}
+        return {'FINISHED'}
+
+
+class WL_OT_terrain_subdivide(bpy.types.Operator):
+    bl_idname='wavelength.terrain_subdivide'
+    bl_label='Subdivide Terrain Network'
+    bl_description='Double grid segments on every connected terrain patch and reapply the common seam constraints'
+    bl_options={'REGISTER','UNDO'}
+
+    @classmethod
+    def poll(cls,context):
+        return WL_OT_terrain_update.poll(context) and paintable(context.object)
+
+    def execute(self,context):
+        from . import terrain_sew
+        try:
+            items=terrain_sew.network(context.object)
+            if any(obj.get('wl_procedural_state')!='PROCEDURAL' or not paintable(obj) for obj in items):
+                raise ValueError('Subdivision requires paintable procedural terrain throughout the network')
+            resolutions=[2*(obj.wavelength_terrain.resolution-1)+1 for obj in items]
+            if max(resolutions)>513:
+                raise ValueError('Subdivision would exceed 513 vertices per side')
+            terrain_sew.pairs(items)
+            for obj,resolution in zip(items,resolutions):
+                obj.wavelength_terrain.resolution=resolution
+            if len(items)>1:
+                context.view_layer.update()
+                terrain_sew.constrain(items)
+        except (ValueError,RuntimeError) as exc:
+            self.report({'ERROR'},str(exc))
+            return {'CANCELLED'}
         return {'FINISHED'}
 
 
@@ -471,8 +573,11 @@ class WL_PT_terrain(bpy.types.Panel):
             layout.prop(s,'width');layout.prop(s,'length')
         if not paintable(obj):
             layout.label(text='Flat terrain footprint');layout.operator('wavelength.terrain_enable_paint',icon='MESH_GRID');return
-        for key in ('resolution','elevation','amplitude','frequency','seed'):layout.prop(s,key)
-        if profiles.is_source(obj['wl_owner_profile']):
+        for key in ('resolution','elevation','amplitude','frequency','seed','noise_detail','noise_roughness'):layout.prop(s,key)
+        layout.template_ID(s,'heightmap',open='image.open')
+        if s.heightmap:
+            layout.prop(s,'heightmap_scale');layout.prop(s,'heightmap_midlevel')
+        if profiles.is_source(context.scene.wavelength.engine):
             layout.separator();layout.label(text='Source output sampling')
             layout.prop(s,'power')
             if not obj.get('wl_terrain_face_corners'):
@@ -480,13 +585,14 @@ class WL_PT_terrain(bpy.types.Panel):
         if obj.get('wl_terrain_error'):layout.label(text=obj['wl_terrain_error'],icon='ERROR')
         layout.separator();layout.prop(s,'paint_mode');layout.prop(s,'paint_radius');layout.prop(s,'paint_strength' if s.paint_mode!='TEXTURE' else 'paint_opacity')
         layout.operator('wavelength.terrain_sew',icon='AUTOMERGE_ON')
+        layout.operator('wavelength.terrain_subdivide',icon='MOD_SUBSURF')
         from . import terrain_sew
         if terrain_sew.links(obj):
             try:layout.label(text=f'{len(terrain_sew.network(obj))} connected surfaces')
             except ValueError as exc:layout.label(text=str(exc),icon='ERROR')
             row=layout.row(align=True);row.operator('wavelength.terrain_sew',text='Smooth Seams').smooth=True;row.operator('wavelength.terrain_unsew',text='Unsew')
         if s.paint_mode=='TEXTURE':
-            if profiles.is_source(obj['wl_owner_profile']):
+            if profiles.is_source(context.scene.wavelength.engine):
                 layout.prop(s,'blend_base');layout.prop(s,'paint_material',text='Second Material');layout.operator('wavelength.terrain_blend')
                 layout.label(text='Or assign an existing transition material')
             else:layout.prop(s,'paint_material')
@@ -495,34 +601,21 @@ class WL_PT_terrain(bpy.types.Panel):
         layout.operator('wavelength.terrain_update');layout.operator('wavelength.terrain_finalize')
 
 
-def menu(self,context):
-    if workspace.active(context) and (context.scene.wavelength.engine=='blender' or profiles.is_source(context.scene.wavelength.engine)):self.layout.operator('wavelength.terrain_add',icon='MESH_GRID')
-CLASSES=(WLTerrain,WL_OT_terrain_blend,WL_OT_terrain_add,WL_OT_terrain_enable_paint,WL_OT_terrain_update,WL_OT_terrain_finalize,WL_OT_terrain_flip_facing,WL_PT_terrain)
 def register():
-    for cls in CLASSES:bpy.utils.register_class(cls)
+    # Saved terrain still needs its RNA inputs and face-mask synchronization.
+    bpy.utils.register_class(WLTerrain)
     bpy.types.Object.wavelength_terrain=PointerProperty(type=WLTerrain)
-    bpy.types.VIEW3D_MT_mesh_add.append(menu)
-    from . import terrain_paint
-    terrain_paint.register()
-    from . import terrain_face
+    from . import terrain_face,source_displacement,terrain_surface
     terrain_face.register()
-    from . import terrain_sew
-    terrain_sew.register()
-    from . import source_displacement
+    terrain_surface.register()
     source_displacement.register()
+
+
 def unregister():
-    from . import source_displacement
+    from . import terrain_face,source_displacement,terrain_surface
     source_displacement.unregister()
-    from . import terrain_sew
-    terrain_sew.unregister()
-    from . import terrain_face
+    terrain_surface.unregister()
     terrain_face.unregister()
-    from . import terrain_paint
-    terrain_paint.unregister()
     _MATERIAL_SIGNATURES.clear()
-    try:bpy.types.VIEW3D_MT_mesh_add.remove(menu)
-    except Exception:pass
-    if hasattr(bpy.types.Object,'wavelength_terrain'):del bpy.types.Object.wavelength_terrain
-    for cls in reversed(CLASSES):
-        try:bpy.utils.unregister_class(cls)
-        except RuntimeError:pass
+    del bpy.types.Object.wavelength_terrain
+    bpy.utils.unregister_class(WLTerrain)

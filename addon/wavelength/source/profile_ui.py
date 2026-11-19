@@ -23,11 +23,43 @@ def selected(settings,context):
         settings.status='Profile could not be loaded: '+str(exc)
     finally:_SELECTING=False
 def store():return Store(Path(bpy.utils.user_resource('CONFIG'))/'wavelength'/'profiles')
+def registered_label(profile):
+    """Use the inherited backend's engine and platform around a saved name."""
+    label = profiles.get(profile['settings']['engine'])['label']
+    engine, _, remainder = label.partition(') ')
+    _, _, platform = remainder.rpartition(' – ')
+    name = profile['name']
+    if name.startswith(engine + ') '):
+        name = name[len(engine) + 2:]
+        name = name.removesuffix(' – ' + platform)
+    name = name.removesuffix(' (Steam)')
+    if platform in {'Windows', 'Linux'}:
+        name = name.removesuffix(' ' + platform).rstrip(' –—-')
+    if engine == '(Source' and name.casefold() == 'hl2':
+        name = 'Half-Life 2'
+    return f"{engine}) {name or profile['name']} – {platform}"
+
+
 def items(self,context):
     global _ITEMS
-    _ITEMS=[(key,profiles.get(key)['label'],'Protected shipped template',index) for index,key in enumerate(profiles.PROFILE_ORDER)]
-    _ITEMS.extend((p['id'],p['name'],'User profile; parent: '+p['parent'],p['enum_number']) for p in store().all())
+    settings = getattr(getattr(context, 'scene', None), 'wavelength', None)
+    active = getattr(settings or self, 'profile_id', None)
+    # Preserve the active identity for old files and prefer configured entries
+    # over a template with the same display label.
+    rows = {}
+    for key, label, _, number in profiles.PROFILE_ITEMS:
+        row = (key, label, 'Protected shipped template', number)
+        if label not in rows or key == active:
+            rows[label] = row
+    for profile in store().all():
+        key, label = profile['id'], registered_label(profile)
+        row = (key, label, 'User profile; parent: '+profile['parent'], profile['enum_number'])
+        if label not in rows or key == active or rows[label][0] != active:
+            rows[label] = row
+    _ITEMS = sorted(rows.values(), key=lambda item: profiles.profile_sort_key(item[1]))
     return _ITEMS
+
+
 def parents(self,context):
     global _PARENTS
     _PARENTS=[]
@@ -35,7 +67,8 @@ def parents(self,context):
         try:TEMPLATES.settings(key)
         except ValueError:continue
         _PARENTS.append((key,TEMPLATES.resolve(key)['label'],'Protected template parent',len(_PARENTS)))
-    _PARENTS.extend((p['id'],p['name'],'Registered user parent',p['enum_number']) for p in store().all())
+    _PARENTS.extend((p['id'],registered_label(p),'Registered user parent',p['enum_number']) for p in store().all())
+    _PARENTS.sort(key=lambda item: profiles.profile_sort_key(item[1]))
     return _PARENTS
 
 def snapshot(context,name,identity=None,parent=None):
@@ -84,7 +117,12 @@ def apply(context,value):
         s['_wl_active_engine']=before['engine'];s['_wl_engine_configs']=old_configs
         raise
     finally:ui._IN_ENGINE_CHANGE=previous
+    s.last_preview_build=''
+    s.last_build_request=''
     if not previous:textures.refresh(s,context)
+    if not previous and profiles.is_source(s.engine):
+        from . import native_source
+        native_source.recover_missing_materials(context.scene)
 
 class WL_OT_profile(bpy.types.Operator):
     bl_idname='wavelength.profile';bl_label='Registered Profile'
@@ -151,7 +189,10 @@ class WL_OT_profile_export(bpy.types.Operator,ExportHelper):
         except (ValueError,OSError,TypeError) as exc:self.report({'ERROR'},str(exc));return {'CANCELLED'}
 
 def draw_registry(layout,context):
-    s=context.scene.wavelength;layout.label(text='Active: '+s.profile_name)
+    s=context.scene.wavelength
+    active = (profiles.get(s.profile_id)['label'] if s.profile_id in profiles.PROFILES else
+              registered_label({'name': s.profile_name, 'settings': {'engine': s.engine}}))
+    layout.label(text='Active: '+active)
     layout.prop(s,'saved_profile',text='Registered Profile')
     row=layout.row(align=True)
     for action,label in [('LOAD','Load'),('REGISTER','Register'),('DUPLICATE','Derive')]:row.operator('wavelength.profile',text=label).action=action
@@ -166,7 +207,7 @@ def draw_registry(layout,context):
     try:
         value=registry.get(s.saved_profile)
         parent=value.get('parent')
-        label=TEMPLATES.resolve(parent)['label'] if parent in TEMPLATES.definitions else registry.get(parent)['name'] if parent else 'None'
+        label=TEMPLATES.resolve(parent)['label'] if parent in TEMPLATES.definitions else registered_label(registry.get(parent)) if parent else 'None'
         layout.label(text='Parent: '+label)
     except ValueError:pass
     for message in registry.errors[:2]:layout.label(text=message[:80],icon='ERROR')

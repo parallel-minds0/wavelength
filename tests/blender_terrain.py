@@ -14,6 +14,29 @@ obj.wavelength_terrain.seed=5;terrain.update(obj);ctx.view_layer.update()
 evaluated=obj.evaluated_get(ctx.evaluated_depsgraph_get());mesh=evaluated.to_mesh()
 assert any((a-b.co).length>.001 for a,b in zip(first,mesh.vertices));evaluated.to_mesh_clear()
 print('PASS general node terrain, UVs and seed variation',flush=True)
+# Use an ordinary Blender image as an independent Geometry Nodes height input.
+heightmap=bpy.data.images.new('Grayscale height fixture',width=2,height=2,float_buffer=True)
+heightmap.colorspace_settings.name='Non-Color'
+heightmap.pixels[:]=[0,0,0,1,1,1,1,1]*2
+heightmap.update()
+obj.wavelength_terrain.amplitude=0
+obj.wavelength_terrain.heightmap=heightmap
+obj.wavelength_terrain.heightmap_scale=2
+obj.wavelength_terrain.heightmap_midlevel=.5
+ctx.view_layer.update()
+evaluated=obj.evaluated_get(ctx.evaluated_depsgraph_get());mesh=evaluated.to_mesh()
+assert min(v.co.z for v in mesh.vertices)<-.9 and max(v.co.z for v in mesh.vertices)>.9
+evaluated.to_mesh_clear()
+assert bpy.ops.wavelength.terrain_subdivide()=={'FINISHED'}
+assert obj.wavelength_terrain.resolution==129
+material=bpy.data.materials.new('Heightmap Source material');material['wl_texture']='nature/dirtfloor001a'
+obj.data.materials.append(material);terrain.update(obj)
+ctx.scene.wavelength.engine='source_gmod_windows'
+document=scene.export_map(ctx.scene)
+assert len(document.entities[0].brushes)==4
+assert all(b[0].vmf['dispinfo']['power']==3 for b in document.entities[0].brushes)
+print('PASS Blender-owned heightmap, subdivision and Source output',flush=True)
+
 ctx.scene.wavelength.engine='source_gmod_windows';source=terrain.create(ctx,paintable_surface=True);source.wavelength_terrain.amplitude=64;ctx.view_layer.update()
 material=bpy.data.materials.new('Terrain material');material['wl_texture']='nature/dirtfloor001a';source.data.materials.append(material);terrain.update(source);ctx.view_layer.update()
 patches=terrain.patches(source);assert len(patches)==4

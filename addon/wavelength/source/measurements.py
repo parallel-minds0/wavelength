@@ -16,6 +16,8 @@ MAX_LABELS = 160
 
 
 def enabled(context):
+    from .edit_safety import topology_modal_active
+    if topology_modal_active(context):return False
     settings = getattr(context.scene, 'wavelength', None)
     space = context.space_data
     return bool(context.mode == 'EDIT_MESH' and workspace.active(context)

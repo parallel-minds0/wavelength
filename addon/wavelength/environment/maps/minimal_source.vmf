@@ -437,7 +437,7 @@ entity
 "id" "44"
 "classname" "info_player_start"
 "origin" "0 0 40"
-"angle" "90"
+"angles" "0 90 0"
 }
 entity
 {

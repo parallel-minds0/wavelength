@@ -26,7 +26,7 @@ Validation: `tests/test_source_assets.py`, `tests/blender_source_asset_cache.py`
 The cache suite covers edited VTF/model companions, inherited VMT changes, loose
 mount overrides, corrupt pixels, disk reuse, pending save/reload, and shared props.
 
-### Idle viewport indexes
+## Idle viewport indexes
 
 The System Tree caches engine-category membership and category eye states. Assembly
 and pencil timers share role indexes which do not expire merely because time passes.
@@ -50,3 +50,22 @@ rescanning the whole map. Removing an active reference activates its owning enti
 Native AssetRepresentation labels read wl_entity_browser_template for entity assets;
 object ID names and relative asset paths remain unique and unchanged. File Browser
 banner updates must tolerate a null layout on first draw, before layout initialization.
+
+## Large-map acceptance baseline
+
+On 2026-11-13, the Garry's Mod profile imported the 23.9 MB fork.vmf fixture
+with 8,769 brushes and 5,339 point entities. The staged import took about
+306 seconds and the longest main-thread slice took 16.34 seconds. A
+background Blender run measured 248 seconds for asset preparation after
+import, including 89.45 seconds appending the shared library, 8.20 seconds
+binding materials, and 56.41 seconds binding model references. It appended
+the library once. Switching Textures → Entities → Models → Textures left
+image, material, and mesh counts unchanged. This run measured CPU-side
+preparation and reuse. Interactive frame times and Asset Browser drawing
+require a separate foreground capture.
+
+Interactive publication now stages prop references over multiple timer callbacks.
+The final scene commit and the shared Blender library append remain synchronous.
+The preload regression forces yields between steps and checks that staged props
+remain off-scene until commit, shared meshes are reused, and shading changes
+reuse the published assets.

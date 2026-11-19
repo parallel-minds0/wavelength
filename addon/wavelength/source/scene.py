@@ -74,7 +74,7 @@ def mark_brush(obj):
 def brush_from_object(obj,engine,require_texture=False):
     if obj.get('wl_csg'):raise BrushError('CSG_NOT_FINALIZED','Finalize Geometry before exporting live CSG')
     if obj.mode!='OBJECT':raise BrushError('EDIT_MODE',f'{obj.name}: leave Edit Mode before exporting')
-    modifiers=[m for m in obj.modifiers if not (m.type=='NODES' and m.node_group and m.node_group.get('wl_generator')=='wavelength.displacement.face_mask')]
+    modifiers=[m for m in obj.modifiers if not (m.type=='NODES' and m.node_group and m.node_group.get('wl_generator') in {'wavelength.displacement.face_mask','wavelength.displacement.face_mapping'})]
     if modifiers:
         if all(m.type=='NODES' and m.node_group and str(m.node_group.get('wl_generator','')).startswith('wavelength.geometry_nodes.') for m in modifiers):
             depsgraph=bpy.context.evaluated_depsgraph_get()
@@ -135,35 +135,80 @@ def brush_from_object(obj,engine,require_texture=False):
 
 
 def export_map(scene):
+    from .export_scope import Scope
+    scope=Scope(scene)
     if profiles.is_mesh_export(scene.wavelength.engine):raise BrushError('PROFILE_EXPORT_FORMAT','Use Export Meshes & Textures for this profile')
-    if any(o.get('wl_csg') and not o.get('wl_exclude') for o in scene.objects):
+    if any(o.get('wl_csg') and scope.includes(o) and not o.get('wl_exclude') for o in scene.objects):
         raise BrushError('CSG_NOT_FINALIZED','Finalize Geometry before exporting live CSG')
     if bpy.context.scene==scene:bpy.context.view_layer.update()
     engine=scene.wavelength.engine
-    if not profiles.is_source(engine) and any(o.get('wl_source_displacement') and not o.get('wl_exclude') for o in scene.objects):
+    if not profiles.is_source(engine) and any(o.get('wl_source_displacement') and scope.includes(o) and not o.get('wl_exclude') and not o.get('wl_custom_model_owner') for o in scene.objects):
         raise BrushError('PROFILE_EXPORT_FORMAT','Native displacements require a Source 1 profile and VMF export')
     world_pairs=json.loads(scene.get('wl_world_pairs','[["classname","worldspawn"]]'))
     if profiles.is_goldsrc(engine):
         world_pairs=[(k,v) for k,v in world_pairs if k!='mapversion']
         world_pairs.append(('mapversion','220'))
-    world=formats.Entity(world_pairs,[]); grouped={};point=[];seen=set()
-    attachments={};validated_seams=set()
+    world=formats.Entity(world_pairs,[],vmf_visgroup=json.loads(scene.get('wl_vmf_world_visgroup','[]')),
+        vmf_groups=json.loads(scene.get('wl_vmf_world_groups','[]'))); grouped={};point=[];seen=set()
+    attachments={};mapped={};validated_seams=set()
     from . import terrain_face,terrain_sew
     for obj in scene.objects:
+        if obj.get('wl_face_mapping'):
+            if not profiles.is_source(engine) or obj.get('wl_exclude'):continue
+            modifier=terrain_face.mapping_modifier(obj)
+            if not modifier or not modifier.show_render or not scope.includes(modifier.id_data):continue
+            source,_=terrain_face.validate_attachment(obj)
+            if source is None or source.get('wl_exclude'):continue
+            if obj.get('wl_terrain_seams') and obj not in validated_seams:
+                members=terrain_sew.network(obj)
+                terrain_sew.validate_export(obj)
+                validated_seams.update(members)
+            if source.get('wl_role')=='BRUSH':
+                if source.get('wl_entity_id'):
+                    raise ValueError(f'{source.name}: Source displacement faces require a world brush')
+                mapped.setdefault(source,[]).append(obj)
+            else:
+                from . import terrain
+                world.brushes.extend(terrain.brushes(obj,validate_seams=False,unit=profiles.unit_meters(scene.wavelength)))
+            continue
+        if not scope.includes(obj):continue
         if obj.get('wl_terrain_seams') and not obj.get('wl_exclude') and obj not in validated_seams:
             members=terrain_sew.network(obj);terrain_sew.validate_export(obj);validated_seams.update(members)
         if obj.get('wl_exclude') or not obj.get('wl_terrain_face_corners'):continue
         source,_=terrain_face.validate_attachment(obj)
-        if source is None:continue
+        if source is None or not scope.includes(source):continue
         if source.get('wl_exclude'):raise ValueError('Displacement source brush is excluded from export')
         attachments.setdefault(source,[]).append(obj)
+    continuous = {}
+    backing = {}
+    if profiles.is_source(engine):
+        from . import terrain_output
+        depsgraph = bpy.context.evaluated_depsgraph_get()
+        for obj in scene.objects:
+            if not obj.get('wl_continuous_terrain') or obj.get('wl_exclude') or not scope.includes(obj):
+                continue
+            for binding in obj['wl_continuous_terrain'].values():
+                host = binding.get('host')
+                if (host and host not in backing and scope.includes(host)
+                        and not host.get('wl_exclude') and host.get('wl_role') == 'BRUSH' and host not in attachments):
+                    backing[host] = brush_from_object(host, engine, require_texture=True)
+            for patch_id, (host, index, data, _) in enumerate(terrain_output.source_patches(obj, depsgraph, backing), 1):
+                native = obj['wl_continuous_terrain'][str(patch_id)].get('native')
+                patches = continuous.setdefault(host, {})
+                if index in patches:
+                    raise ValueError(f'{host.name}: multiple terrains claim the same Source face')
+                patches[index] = (data, native)
+    # Explicit collision meshes are compiler sources, never extra world brushes.
+    collision_sources={col.wavelength_model.collision for owner in scene.objects
+                       if (col:=owner.get('wl_custom_model')) and
+                       col.wavelength_model.collision_mode=='OBJECT' and col.wavelength_model.collision}
     for obj in sorted(scene.objects,key=lambda o:(o.get('wl_id',''),o.name)):
-        if obj.get('wl_exclude') or obj.get('wl_custom_model_owner'):continue
+        if not scope.includes(obj) or obj in collision_sources or obj.get('wl_exclude') or obj.get('wl_custom_model_owner'):continue
         if obj.get('wl_custom_model') and not profiles.is_source(engine):raise ValueError('Custom model compilation currently requires its owning Source profile')
         if obj.get('wl_terrain'):
             if not profiles.is_source(engine):raise ValueError('Terrain map export currently requires a Source profile')
             from . import terrain
-            world.brushes.extend(terrain.brushes(obj,validate_seams=False));continue
+            world.brushes.extend(terrain.brushes(obj,validate_seams=False,unit=profiles.unit_meters(scene.wavelength) if not profiles.is_source(obj.get('wl_owner_profile','')) else None));continue
         if obj.get('wl_displacement'):
             if not profiles.is_source(engine):raise ValueError('Drawing displacements require a Source profile')
             from .draw_displacement import brush
@@ -182,13 +227,21 @@ def export_map(scene):
             # discards the backing brush's ordinary sides, so emit independent
             # displacement backings for legacy attachments as well.
             if obj in attachments:continue
-            try:brush=brush_from_object(obj,engine,require_texture=True)
+            try:brush=backing[obj] if obj in backing else brush_from_object(obj,engine,require_texture=True)
             except BrushError as exc:
                 error=BrushError(exc.code,f'{obj.name}: {exc}');error.object_name=obj.name
                 raise error from exc
             if any((f.vmf or {}).get('dispinfo') for f in brush):
                 from . import source_displacement
                 brush=source_displacement.apply(obj,brush)
+            if obj in mapped:brush=terrain_face.apply(obj,brush,mapped[obj])
+            for index, (data, native) in continuous.get(obj, {}).items():
+                face = brush[index]
+                if (face.vmf or {}).get('dispinfo') and native is None:
+                    raise ValueError(f'{obj.name}: continuous terrain overlaps an existing displacement')
+                face.vmf = dict(face.vmf or {}, dispinfo=data)
+            membership=json.loads(obj.get('wl_vmf_solid_visgroup','[]'))
+            if membership:brush[0].vmf=dict(brush[0].vmf or {},visgroup=membership)
             entity_id=obj.get('wl_entity_id')
             if entity_id:
                 pairs=json.loads(obj.get('wl_entity_pairs','[]'))
@@ -197,7 +250,9 @@ def export_map(scene):
                     pairs=source_schema.export_pairs(scene.wavelength,pairs,bpy.path.abspath)
                 if not any(k=='classname' and v for k,v in pairs):
                     raise BrushError('ENTITY_CLASS_MISSING',f'{obj.name}: brush entity has no classname')
-                entity=grouped.setdefault(entity_id,formats.Entity(pairs,[],vmf_hidden=bool(obj.get('wl_vmf_entity_hidden'))))
+                entity=grouped.setdefault(entity_id,formats.Entity(pairs,[],vmf_hidden=bool(obj.get('wl_vmf_entity_hidden')),
+                    vmf_visgroup=json.loads(obj.get('wl_vmf_entity_visgroup','[]')),
+                    vmf_groups=json.loads(obj.get('wl_vmf_entity_groups','[]'))))
                 if entity.pairs!=pairs:
                     raise BrushError('ENTITY_MISMATCH',f'{obj.name}: brush entity members have conflicting properties')
                 entity.brushes.append(brush)
@@ -209,6 +264,14 @@ def export_map(scene):
                 pairs=source_schema.export_pairs(scene.wavelength,pairs,bpy.path.abspath)
                 from . import source_pose
                 pairs=source_pose.export_pairs(obj,pairs)
+                asset=obj.get('wl_custom_model')
+                if asset and dict(pairs).get('classname') in {'prop_static','prop_dynamic','prop_dynamic_override'}:
+                    state=asset.wavelength_model
+                    collision_disabled=state.collision_mode=='NONE' or (
+                        state.collision_mode=='OBJECT' and state.collision and not scope.includes(state.collision))
+                    if collision_disabled:
+                        pairs=[(key,value) for key,value in pairs if key!='solid']
+                        pairs.append(('solid','0'))
             if obj.get('wl_custom_model') and not profiles.is_source(engine):
                 rotation=obj.matrix_world.to_euler('XYZ')
                 angles=' '.join(formats.number(math.degrees(rotation[i])) for i in (1,2,0))
@@ -230,9 +293,14 @@ def export_map(scene):
                     pass
             pairs=[(k,origin if k=='origin' else v) for k,v in pairs]
             if not any(k=='origin' for k,v in pairs):pairs.append(('origin',origin))
-            point.append(formats.Entity(pairs,[],vmf_hidden=bool(obj.get('wl_vmf_entity_hidden'))))
+            point.append(formats.Entity(pairs,[],vmf_hidden=bool(obj.get('wl_vmf_entity_hidden')),
+                vmf_visgroup=json.loads(obj.get('wl_vmf_entity_visgroup','[]')),
+                    vmf_groups=json.loads(obj.get('wl_vmf_entity_groups','[]'))))
     if not world.brushes:raise BrushError('EMPTY_MAP','No world brushes')
-    document=formats.Map([world,*grouped.values(),*point])
+    document=formats.Map([world,*grouped.values(),*point],
+        vmf_visgroups=json.loads(scene.get('wl_vmf_visgroups','[]')),
+        vmf_cameras=json.loads(scene.get('wl_vmf_cameras','[]')),
+        vmf_view_metadata=json.loads(scene.get('wl_vmf_view_metadata','[]')))
     return document
 
 
@@ -263,6 +331,11 @@ def import_map_iter(scene,document,defer_assets=None,prepared=None):
             obj=bpy.data.objects.new('Brush',mesh);collection.objects.link(obj);created.append(obj);mark_brush(obj)
             obj.matrix_world=Matrix.Translation(tuple(x*unit for x in center))
             obj['wl_unit_meters']=unit
+            obj['wl_profile']=scene.wavelength.engine
+            membership=(brush[0].vmf or {}).get('visgroup')
+            if membership:obj['wl_vmf_solid_visgroup']=json.dumps(membership)
+            if entity.vmf_visgroup:obj['wl_vmf_entity_visgroup']=json.dumps(entity.vmf_visgroup)
+            if entity.vmf_groups:obj['wl_vmf_entity_groups']=json.dumps(entity.vmf_groups)
             if entity.vmf_hidden:obj['wl_vmf_entity_hidden']=True
             records={str(i+1):asdict(face) for i,face in enumerate(brush)};mesh['wl_faces']=json.dumps(records)
             for i,datum in enumerate(mesh.attributes['wl_face_id'].data):datum.value=i+1
@@ -280,11 +353,13 @@ def import_map_iter(scene,document,defer_assets=None,prepared=None):
                     if mat is None:
                         try:
                             mat=textures.material(scene.wavelength,name,defer=defer_assets)
-                        except (OSError,ValueError,KeyError):
+                        except (OSError,ValueError,KeyError) as exc:
                             mat=bpy.data.materials.get('wl_missing_'+name)
                             if mat is None:
                                 mat=bpy.data.materials.new('wl_missing_'+name)
                             mat['wl_texture']=name
+                            mat['wl_asset_profile']=scene.wavelength.engine;mat['wl_source_pending']=True
+                            mat['wl_source_game']=bpy.path.abspath(scene.wavelength.game_dir);mat['wl_asset_error']=str(exc)
                         material_cache[name]=mat
                     materials[name]=len(mesh.materials)
                     mesh.materials.append(mat)
@@ -311,10 +386,13 @@ def import_map_iter(scene,document,defer_assets=None,prepared=None):
             obj.location=[float(x)*unit for x in values.get('origin','0 0 0').split()]
             obj['wl_unit_meters']=unit
             obj['wl_role']='ENTITY';obj['wl_id']=uid();obj['wl_pairs']=json.dumps(entity.pairs)
+            obj['wl_profile']=scene.wavelength.engine
             if profiles.is_source(scene.wavelength.engine):
                 from . import source_pose
                 source_pose.apply(obj,entity.pairs,force=True)
             collection.objects.link(obj);created.append(obj)
+            if entity.vmf_visgroup:obj['wl_vmf_entity_visgroup']=json.dumps(entity.vmf_visgroup)
+            if entity.vmf_groups:obj['wl_vmf_entity_groups']=json.dumps(entity.vmf_groups)
             if entity.vmf_hidden:obj['wl_vmf_entity_hidden']=True
             obj['_wl_reference_fresh']=True
             if profiles.is_goldsrc(scene.wavelength.engine) or profiles.is_source(scene.wavelength.engine):
@@ -335,6 +413,12 @@ def import_map_iter(scene,document,defer_assets=None,prepared=None):
         for obj in collection.objects:
             if obj.as_pointer() in hidden_pointers or (obj.parent and obj.parent.as_pointer() in hidden_pointers):obj.hide_set(True)
         scene['wl_world_pairs']=json.dumps(world[0].pairs)
+        scene['wl_vmf_visgroups']=json.dumps(document.vmf_visgroups)
+        scene['wl_vmf_cameras']=json.dumps(document.vmf_cameras)
+        scene['wl_vmf_view_metadata']=json.dumps(document.vmf_view_metadata)
+        scene['wl_vmf_world_visgroup']=json.dumps(world[0].vmf_visgroup)
+        scene['wl_vmf_world_groups']=json.dumps(world[0].vmf_groups)
+        scene['wl_import_profile']=scene.wavelength.engine
     except BaseException:
         for obj in list(collection.objects):bpy.data.objects.remove(obj,do_unlink=True)
         for mesh in meshes:

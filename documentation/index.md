@@ -14,6 +14,7 @@ of the current implementation.
 :maxdepth: 2
 :numbered:
 
+FEATURES
 user/index
 developer/index
 reference/index

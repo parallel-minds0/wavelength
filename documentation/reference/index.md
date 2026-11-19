@@ -10,4 +10,7 @@ Developer Guide includes annotated excerpts for important contracts.
 
 modules
 api
+feature-surface
 ```
+
+[Complete reviewed feature surface](feature-surface.md)

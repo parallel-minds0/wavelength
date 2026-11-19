@@ -107,6 +107,8 @@ def exit_assembly_edit_mode(root, context=None):
 
 
 def sync_assemblies(force=False):
+    from .edit_safety import topology_modal_active
+    if topology_modal_active(bpy.context):return .08
     if bpy.app.background and not force:return None
     try:
         wm=getattr(bpy.context,'window_manager',None)
@@ -252,7 +254,7 @@ def sync_arch_inputs(root,context):
     return False
 
 
-def rebuild(root, kind, values, context):
+def rebuild(root, kind, values, context, *, exact_dimensions=False):
     if procedural.state(root)=='FINALIZED' and root.get('wl_procedural_state'):raise ValueError('Finalized geometry cannot regenerate')
     settings = getattr(context.scene, 'wavelength', None)
     engine = root.get('wl_engine', settings.engine if settings else 'blender')
@@ -260,6 +262,9 @@ def rebuild(root, kind, values, context):
     unit = float(root.get('wl_unit_meters', profiles.unit_meters(settings) if settings else 1.0))
     grid_step = profiles.grid_step_units(settings) if (is_engine and settings) else (profiles.active_snap_step_units(settings, context) if settings else None)
     definition=procedural.definition_for(root,kind,values,engine,unit,grid_step)
+    if exact_dimensions:
+        from dataclasses import replace
+        definition=replace(definition,grid_step=None)
     if not root.get("wl_definition") and settings and engine==settings.engine:
         from dataclasses import replace
         definition=replace(definition,owner_profile_id=getattr(settings,"profile_id",""),owner_profile_name=getattr(settings,"profile_name",""))
@@ -387,6 +392,8 @@ def finalize(root,context):
     # The generator is an authoring container, not part of finalized geometry.
     # Detach before removing it, preserving world transforms and brush metadata.
     name=root.name
+    from . import landing_stairs
+    landing_stairs.discard(root)
     children=[(child,child.matrix_world.copy()) for child in root.children]
     for child,world in children:
         child.parent=None
@@ -672,6 +679,8 @@ def _unregister_keymaps():
 
 
 def register():
+    from . import landing_stairs
+    landing_stairs.register()
     for cls in (WL_OT_finalize_primitive,WL_OT_assembly_editmode_toggle,WL_OT_primitive_lock,WL_OT_stair_curve_toggle,WL_OT_primitive,WL_PT_primitive):bpy.utils.register_class(cls)
     bpy.types.VIEW3D_MT_mesh_add.append(add_menu)
     bpy.types.VIEW3D_MT_object.append(object_menu)
@@ -691,3 +700,5 @@ def unregister():
     bpy.types.VIEW3D_MT_object.remove(object_menu)
     bpy.types.VIEW3D_MT_object_context_menu.remove(object_menu)
     for cls in (WL_PT_primitive,WL_OT_primitive,WL_OT_stair_curve_toggle,WL_OT_primitive_lock,WL_OT_assembly_editmode_toggle,WL_OT_finalize_primitive):bpy.utils.unregister_class(cls)
+    from . import landing_stairs
+    landing_stairs.unregister()

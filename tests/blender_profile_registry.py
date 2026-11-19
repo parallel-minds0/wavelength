@@ -11,6 +11,20 @@ try:
     s=ctx.scene.wavelength;s.engine='godot4';s.profile_name='Parent project';s.grid_step='32'
     bpy.ops.mesh.primitive_cube_add();obj=ctx.object;data=obj.data;matrix=obj.matrix_world.copy()
     parent=registry.save(profile_ui.snapshot(ctx,'Parent',parent='godot4'))
+    labels = {key: (label, number) for key, label, _, number in profile_ui.items(None, ctx)}
+    assert labels['source_hl2_windows'] == ('(Source) Half-Life 2 – Windows', 7)
+    assert labels['civ5'][0] == '(Civilization V) Civilization V – Any Platform'
+    assert labels['goldsrc_linux'][0] == '(GoldSrc) Half-Life – Linux'
+    assert 'goldsrc_linux_steam' not in labels
+    assert list(labels.values()) == sorted(labels.values(), key=lambda row: profiles.profile_sort_key(row[0]))
+    assert labels[parent['id']] == ('(Godot) Parent – Any Platform', parent['enum_number'])
+    assert profile_ui.registered_label({'name': 'HL2 Windows (Steam)', 'settings': {'engine': 'source_hl2_windows'}}) == '(Source) Half-Life 2 – Windows'
+    alias = registry.save({'schema':2,'name':'HL2 Windows (Steam)','parent':'source_hl2_windows','settings':{}})
+    labels = {key: label for key, label, _, _ in profile_ui.items(None, ctx)}
+    assert labels[alias['id']] == '(Source) Half-Life 2 – Windows'
+    assert 'source_hl2_windows' not in labels and registry.get('source_hl2_windows')['builtin']
+    assert registry.get(alias['id'])['name'] == 'HL2 Windows (Steam)'
+    registry.remove(alias['id'])
     profile_ui.apply(ctx,parent)
     assert s.profile_id==parent['id'] and s.saved_profile==parent['id'] and s.engine=='godot4'
     child=registry.save({'schema':2,'name':'Child','parent':parent['id'],'settings':{'metric_grid_step':.25}})

@@ -8,6 +8,18 @@ class ImportedModel:
     warnings:list=field(default_factory=list)
 
 _BACKENDS={}
+_ROUTES={}
+
+
+def register_route(source_family,target_family,adapter):
+    """Model conversion capabilities are independent from file import support."""
+    _ROUTES[source_family,target_family]=adapter
+
+
+def route(source_family,target_family):
+    adapter=_ROUTES.get((source_family,target_family))
+    if adapter is None:raise ValueError(f'Model conversion {source_family} → {target_family} is not implemented')
+    return adapter
 
 def register(backend):
     if backend.id in _BACKENDS:raise ValueError('Model backend already registered: '+backend.id)

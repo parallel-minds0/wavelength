@@ -29,3 +29,13 @@ remain unchanged for export.
 
 > Screenshot placeholder: editable imported map while previews appear, System
 > Tree reload button, and completed textured map.
+
+## Retry scene placeholders after assets become available
+
+Missing scene materials retain their engine texture identity, which can allow
+the picker to find an asset even while the scene still shows a placeholder.
+Source material recovery now retries those failed bindings on file load and
+Source profile changes, rather than requiring an existing successful cache key.
+Newly resolved texture dimensions refresh live brush projection once. Existing
+working bindings are not rebuilt on every redraw. Use F3 → **Reload Map Asset
+Previews** for an explicit retry; it also starts renderer preparation when needed.

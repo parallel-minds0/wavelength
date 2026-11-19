@@ -94,3 +94,36 @@ The Source animation adapter is not a lossless runtime graph decompiler. Blended
 additive, IK/root-motion and included-sequence graphs are explicitly rejected;
 sequence events warn and are not exported. Facial flex, attachment and collision
 reconstruction remain outside this initial editable model importer.
+
+
+## Native profile-grid scaling (2026-11-01)
+
+Scaling now uses Blender's native resize operator and native Scale toolbar gizmo.
+The combined transform tool also dispatches its scale handles to native resize.
+Only grid quantization changes: frozen selection dimensions determine the factor
+needed to reach a profile-grid size, while uniform/plane scaling preserves ratios.
+Numeric values, pivots, constraints, cancellation and mirroring retain native behavior.
+The profile/workspace gate leaves ordinary Blender contexts unchanged.
+
+- Real modal mouse-input tests: identical snap-off factors inside/outside wavelength;
+  inward/outward scaling with live profile-grid snapping on X/Y/Z and uniform scale;
+  procedural assembly bounds; cancellation restores original transforms.
+- Installed startup verified native `transform.resize` and `VIEW3D_GGT_xform_gizmo`.
+- Python regression suite: 244 tests passed.
+- Installed executable SHA-256:
+  `291CEAD54039453AADDCB645AB10C0F01DFDAEB17FA603E4B417FE457B70B7F4`.
+
+
+## Native object export checkboxes (2026-11-02)
+
+- Native Outliner object/parented-child rows now display explicit inclusion
+  checkboxes in the existing collection-enable column. An actual UI click was
+  verified to change the shared inclusion state and object render restriction.
+- OBJ, PLY, STL, USD and Alembic use a per-export native collection-path snapshot.
+  FBX filters its existing context-object input; glTF uses its supported tree
+  filter extension hook. Export options and authoring selection are preserved.
+- Real OBJ/PLY/STL/FBX/glTF/USD exports omitted unchecked objects and render-disabled
+  collections. Alembic export/import omitted them too. Selection-only intersects
+  the inclusion policy. Python regression suite: 247 passed.
+- Installed SHA-256:
+  `E8AE222783D786EDD4FF7940B20A24E32178FB3D232AD829D2439DA11C9F50D1`.

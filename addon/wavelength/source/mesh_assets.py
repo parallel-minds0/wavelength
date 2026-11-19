@@ -30,13 +30,17 @@ def defaults(engine):
                 'compiler_dir':str(compiler) if (compiler/'resourcecompiler.exe').is_file() else ''}
     return {}
 
-def candidates(context,selected=False):
+def candidates(context,selected=False,*,include_brush_utilities=False):
+    from .export_scope import Scope
+    scope=Scope(context.scene,context.view_layer)
     objects=context.selected_objects if selected else context.scene.objects
     result=[]
     for obj in objects:
-        if obj.type!='MESH' or obj.get('wl_exclude') or obj.hide_render or obj.hide_get():continue
+        if obj.type!='MESH' or obj.get('wl_exclude') or not scope.includes(obj):continue
         if obj.get('wl_model_reference') or obj.get('wl_asset_template') or obj.get('wl_entity_browser_template'):continue
-        if context_policy.role(obj,context.scene.wavelength.engine) in {'HELPER','LIBRARY'}:continue
+        role=context_policy.role(obj,context.scene.wavelength.engine)
+        engine_brush=include_brush_utilities and obj.get('wl_role')=='BRUSH' and getattr(obj,'wavelength_context_role','AUTO')=='AUTO' and not obj.get('wl_editor_helper') and not obj.get('wl_csg_target')
+        if role in {'HELPER','LIBRARY'} and not (role=='HELPER' and engine_brush):continue
         parent=obj;entity=False
         while parent:
             if parent.get('wl_role')=='ENTITY' or parent.get('wl_model_reference'):entity=True;break
@@ -133,19 +137,26 @@ def export(context,directory,selected=False,*,engine=None,name=None):
             if shader and (shader.inputs['Normal'].is_linked or shader.inputs['Roughness'].is_linked or shader.inputs['Metallic'].is_linked or shader.inputs['Metallic'].default_value>0 or shader.inputs['Alpha'].is_linked or shader.inputs['Alpha'].default_value<1):warnings.append(original.name+': CS2 first-pass conversion exports base color and scalar roughness only')
         return material
     try:
+        from . import terrain_face
         depsgraph=context.evaluated_depsgraph_get()
         for obj in objects:
-            mesh=bpy.data.meshes.new_from_object(obj.evaluated_get(depsgraph),preserve_all_data_layers=True,depsgraph=depsgraph);meshes.append(mesh)
+            mesh=terrain_face.export_mesh(obj,depsgraph);meshes.append(mesh)
             if not mesh.polygons:raise ValueError(f'{obj.name}: evaluated mesh has no faces')
             matrix=Matrix.Scale(1/unit,4)@obj.matrix_world
             mesh.transform(matrix)
             if matrix.determinant()<0:mesh.flip_normals()
             if any(not math.isfinite(c) for v in mesh.vertices for c in v.co):raise ValueError(f'{obj.name}: mesh has nonfinite coordinates')
-            slots=list(mesh.materials) or [None];mesh.materials.clear()
+            slots=list(mesh.materials) or [None]
+            # Clearing material slots also resets Blender's polygon indices.
+            # Evaluated node meshes can assign faces to a later slot.
+            material_indices = [polygon.material_index for polygon in mesh.polygons]
+            mesh.materials.clear()
             for original in slots:
                 if original is None:
                     original=bpy.data.materials.new('.wavelength default');materials.append(original)
                 mesh.materials.append(material_copy(original))
+            for polygon, index in zip(mesh.polygons, material_indices, strict=True):
+                polygon.material_index = index if index < len(slots) else 0
             if any(_base_image(m) is not None for m in slots if m) and not mesh.uv_layers:raise ValueError(f'{obj.name}: textured mesh requires UV coordinates')
             clone=bpy.data.objects.new(obj.name,mesh);temporary.collection.objects.link(clone);clones.append(clone)
             object_records.append({'name':obj.name,'vertices':len(mesh.vertices),'polygons':len(mesh.polygons)})

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Validate Markdown/source contracts; build HTML/PDF; sync packaged Markdown."""
-import argparse,ast,hashlib,html,json,os,re,shutil,subprocess,sys
+import argparse,ast,hashlib,html,json,os,re,shutil,subprocess,sys,importlib.util
 from pathlib import Path
 
 ROOT=Path(__file__).resolve().parents[1]
@@ -37,6 +37,11 @@ def safe_source(value):
     return path
 
 def check():
+    # Preserve reviewed behavior/interfaces before regenerating source views.
+    # A documentation build must never quietly accept a removed operator.
+    spec=importlib.util.spec_from_file_location('wl_feature_inventory',ROOT/'tools/feature_inventory.py')
+    inventory=importlib.util.module_from_spec(spec);spec.loader.exec_module(inventory)
+    inventory.check(ROOT,DOCS)
     screenshots=[];ids=set();samples=0;trees=[]
     for path in sources():trees.append((path,ast.parse(path.read_text(encoding='utf-8'),filename=str(path))))
     for path in DOCS.rglob('*.md'):
@@ -101,7 +106,10 @@ def prepare(stage=None):
         if original.is_file():mapping[original.resolve()]=target;write(stage/target,original.read_text(encoding='utf-8'))
     # Rewrite repository Markdown links when an included note lives outside docs/.
     for original,target in mapping.items():
-        text=original.read_text(encoding='utf-8').replace('Wavelength','wavelength')
+        text=original.read_text(encoding='utf-8')
+        # Reviewed identifiers/declarations are literal source data, not prose
+        # branding. Renaming them here would corrupt the packaged inventory.
+        if target!='reference/feature-surface.md':text=text.replace('Wavelength','wavelength')
         def rewrite(match):
             label,url=match.groups()
             if re.match(r'[a-z]+:|#',url):return match[0]
@@ -135,7 +143,7 @@ def sync(stage):
                 target=mirror/relative;target.parent.mkdir(parents=True,exist_ok=True);shutil.copyfile(source,target)
     destination=ROOT/'addon/wavelength/documentation/handbook';manifest=destination/'.generated.json'
     previous=json.loads(manifest.read_text()) if manifest.is_file() else []
-    files=[path for path in stage.rglob('*') if path.is_file() and (path.suffix=='.md' or 'screenshots' in path.relative_to(stage).parts and path.suffix.lower() in {'.png','.jpg','.jpeg'})]
+    files=[path for path in stage.rglob('*') if path.is_file() and (path.suffix=='.md' or path.relative_to(stage).as_posix()=='reference/feature-surface.json' or 'screenshots' in path.relative_to(stage).parts and path.suffix.lower() in {'.png','.jpg','.jpeg'})]
     current=[path.relative_to(stage).as_posix() for path in files]
     for relative in set(previous)-set(current):
         stale=(destination/relative).resolve()

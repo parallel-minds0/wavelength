@@ -10,16 +10,23 @@ def number(v):
     return f'{v:.8f}'
 
 
-def export(definition,scene,material_names):
+def export(definition,scene,material_names,*,scope=None,collision_mode=None,triangle_counts=None,collision_triangles=None):
+    from .export_scope import Scope
+    scope=scope or Scope(scene)
     settings=definition.wavelength_model;root=settings.origin
     if root is None:raise ValueError('Custom model origin entity is missing')
-    objects=[o for o in definition.objects if o.type in {'MESH','ARMATURE'} and o.name in scene.objects]
-    meshes=[o for o in objects if o.type=='MESH' and o!=settings.collision]
+    objects=[o for o in definition.objects if o.type in {'MESH','ARMATURE'} and o.name in scene.objects and scope.includes(o)]
+    collision_mode=collision_mode if collision_mode is not None else settings.collision_mode
+    collision=settings.collision if collision_mode=='OBJECT' else None
+    # An assigned render source may also supply collision. A separate collision
+    # helper is omitted from triangles, but choosing the render mesh itself
+    # must never turn the entire model into collision-only geometry.
+    meshes=[o for o in objects if o.type=='MESH' and not o.get('wl_model_collision_only') and (o!=collision or o.get('wl_custom_model_owner')==root)]
     rigs=[o for o in objects if o.type=='ARMATURE']
     if not meshes:raise ValueError('Custom model has no render meshes')
     if len(rigs)>1:raise ValueError('Use one armature per custom model')
     if settings.clips and any(o.data.shape_keys and o.data.shape_keys.animation_data for o in meshes):raise ValueError('Animated shape keys require vertex-animation export; bake to a supported skeletal setup first')
-    unit=root['wl_unit_meters'];origin=root.matrix_world.inverted();nodes=[('root',-1)];bone_ids={};object_ids={}
+    unit=root.get('wl_unit_meters',definition.get('wl_model_unit_meters'));origin=root.matrix_world.inverted();nodes=[('root',-1)];bone_ids={};object_ids={}
     def relative(obj):
         current=obj;matrix=Matrix.Identity(4)
         while current and current!=root:
@@ -69,6 +76,8 @@ def export(definition,scene,material_names):
             evaluated=obj.evaluated_get(dg);mesh=evaluated.to_mesh(preserve_all_data_layers=True,depsgraph=dg)
             try:
                 mesh.calc_loop_triangles();matrix=relative(obj);normal_matrix=matrix.to_3x3().inverted().transposed()
+                if triangle_counts is not None:
+                    triangle_counts[obj.name]=len(mesh.loop_triangles)
                 uv=next((layer for layer in mesh.uv_layers if layer.active_render),mesh.uv_layers.active)
                 if not uv:raise ValueError('UV unwrap the model before compiling: '+obj.name)
                 arm=next((m.object for m in obj.modifiers if m.type=='ARMATURE' and m.object),None)
@@ -76,6 +85,9 @@ def export(definition,scene,material_names):
                 for tri in mesh.loop_triangles:
                     mat=mesh.materials[tri.material_index] if tri.material_index<len(mesh.materials) else None
                     if mat:mat=mat.original
+                    # Modifiers can introduce slots absent from the source mesh.
+                    if mat not in material_names:
+                        material_names[mat] = f'material_{len(material_names)}'
                     lines.append(material_names[mat])
                     face_uv=uv
                     if mat and mat.use_nodes:
@@ -98,6 +110,7 @@ def export(definition,scene,material_names):
                         lines.append(str(weights[0][0])+' '+' '.join(number(v) for v in values)+' '+str(len(weights))+' '+links)
                         collision_points.append(tuple(p))
             finally:evaluated.to_mesh_clear()
+        if not collision_points:raise ValueError('Custom model has no evaluated render triangles')
         lines.append('end');result['reference.smd']='\n'.join(lines)+'\n'
         for r in rigs:r.data.pose_position=poses[r]
         for i,clip in enumerate(settings.clips):
@@ -106,17 +119,23 @@ def export(definition,scene,material_names):
             for at,fr in enumerate(range(clip.start,clip.end+1)):
                 scene.frame_set(fr);lines.extend(['time '+str(at),*skeleton(transforms())])
             result[f'clip_{i}.smd']='\n'.join([*lines,'end'])+'\n'
-        if settings.collision:
-            obj=settings.collision;ev=obj.evaluated_get(dg);mesh=ev.to_mesh()
+        if collision:
+            obj=collision;ev=obj.evaluated_get(dg);mesh=ev.to_mesh()
             try:collision_points=[tuple(relative(obj)@v.co/unit) for v in mesh.vertices]
             finally:ev.to_mesh_clear()
-        if settings.collision_mode=='NONE':return result
+        if collision_mode=='NONE':return result
+        if collision_mode=='BOX':
+            from itertools import product
+            bounds=[(min(p[i] for p in collision_points),max(p[i] for p in collision_points)) for i in range(3)]
+            collision_points=list(product(*bounds))
         bm=bmesh.new()
         try:
             for p in set(collision_points):bm.verts.new(p)
             if len(bm.verts)<4:raise ValueError('Model collision needs a volume')
             bmesh.ops.convex_hull(bm,input=list(bm.verts),use_existing_faces=False);bmesh.ops.triangulate(bm,faces=list(bm.faces))
             bm.normal_update()
+            if collision_triangles is not None:
+                collision_triangles.extend(tuple(tuple(vertex.co) for vertex in face.verts) for face in bm.faces)
             lines=['version 1','nodes','0 "root" -1','end','skeleton','time 0','0 0 0 0 0 0 0','end','triangles']
             for face in bm.faces:
                 lines.append(next(iter(material_names.values())))

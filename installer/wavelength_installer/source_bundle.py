@@ -4,6 +4,29 @@ from pathlib import Path
 import json,shutil,tempfile,zipfile,ast,subprocess,sys
 from .core import sha256
 
+
+def addon_files(addon):
+    """Yield the same runtime files for ZIP releases and source installs."""
+    metadata = {
+        'environment/sprites/manifest.json',
+        'environment/profiles/templates.json',
+        'documentation/handbook/.generated.json',
+        'documentation/handbook/reference/feature-surface.json',
+    }
+    for file in sorted(addon.rglob('*')):
+        relative = file.relative_to(addon)
+        if file.is_symlink():
+            raise ValueError('Symlinks in source add-on are unsupported')
+        if not file.is_file():
+            continue
+        if relative.as_posix() in metadata:
+            yield file, relative
+        elif (not any(part.startswith('.') or part in {'__pycache__', 'dev', 'third-party'}
+                      for part in relative.parts)
+              and (file.suffix in {'.py', '.md', '.svg', '.map', '.vmf'} or file.name == 'LICENSE')):
+            yield file, relative
+
+
 @contextmanager
 def bundle_from_source(root):
     root=Path(root)
@@ -18,12 +41,8 @@ def bundle_from_source(root):
         shutil.copytree(root/'patches',bundle/'patches')
         archive=bundle/'addon.zip'
         with zipfile.ZipFile(archive,'w',zipfile.ZIP_DEFLATED) as z:
-            for file in sorted(addon.rglob('*')):
-                parts=file.relative_to(addon).parts
-                if file.is_symlink():raise ValueError('Symlinks in source add-on are unsupported')
-                icon_manifest=parts in {('environment','sprites','manifest.json'),('environment','profiles','templates.json')}
-                if file.is_file() and not any(p.startswith('.') or p in {'__pycache__','dev','third-party'} for p in parts) and (file.suffix in {'.py','.md','.svg','.map','.vmf'} or file.name=='LICENSE' or icon_manifest):
-                    z.write(file,Path('wavelength')/file.relative_to(addon))
+            for file, relative in addon_files(addon):
+                z.write(file, Path('wavelength') / relative)
         tree=ast.parse((addon/'__init__.py').read_text())
         info=next(ast.literal_eval(n.value) for n in tree.body if isinstance(n,ast.Assign) and any(isinstance(t,ast.Name) and t.id=='bl_info' for t in n.targets))
         (bundle/'bundle.json').write_text(json.dumps({'schema':1,'native_grid_abi':1,'native_policy':'required','version':'.'.join(map(str,info['version']))+'-pre.alpha','addon':'addon.zip','addon_sha256':sha256(archive)}))

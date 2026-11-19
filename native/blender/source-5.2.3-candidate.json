@@ -6,10 +6,10 @@
   "windows_dependencies_commit": "60d6e96b917568278d400a4024c98da0fb777338",
   "original_sha256": "19e60200c51e981aa48a515ffc22c46d9192ea0538e249b2891394a425bd855b",
   "source_patch": "grid-5.2.3-candidate-msvc.patch",
-  "source_patch_sha256": "82738bf37ca2fd3a008cc7f755190f9ddaabc87c4a4c56f7821e031e8e25513e",
+  "source_patch_sha256": "a00be31c31e66fc09805c460b2e180392c499e51d64428435ba8ef836cda71f6",
   "compiler": "MSVC 14.51.36231",
   "build_configuration": "Release, Ninja, native Windows x64",
-  "unit_tests": 241,
+  "unit_tests": 247,
   "status": "installed; standard Solid, Material Preview and Rendered engine selection restored; Eevee/Cycles renders verified",
   "viewport_checks": {
     "passed": true,
@@ -115,5 +115,7 @@
     "Static editable MDL -> StudioMDL -> validated deployment",
     "Weighted skeleton and named skeletal clips round trip",
     "Native object-ID drop in Models browser, async build, no prop placement"
-  ]
+  ],
+  "release_executable_sha256": "e8ae222783d786edd4ff7940b20a24e32178fb3d232ad829d2439da11c9f50d1",
+  "release_tag": "v0.51.0-pre.alpha"
 }

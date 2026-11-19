@@ -66,7 +66,11 @@ class Assets:
             if path.suffix.lower()=='.vpk' and not path.is_file():path=path.with_name(path.stem+'_dir.vpk')
             if not path.exists() or str(path) in seen:return
             seen.add(str(path))
-            if path.is_dir():self.mounts.append(path)
+            if path.is_dir():
+                self.mounts.append(path)
+                # Source implicitly mounts a game's split pack archives even
+                # when gameinfo lists only the directory (CS:GO Legacy does).
+                for archive in sorted(path.glob('*_dir.vpk')):mount(archive)
             elif path.suffix.lower()=='.vpk':self.mounts.append(VPK(path))
         for kind,value in paths:
             if not isinstance(value,str) or not set(kind.lower().split('+'))&{'game','mod','platform'}:continue
@@ -214,6 +218,7 @@ def decode_vtf(data,max_dimension=512):
     major,minor,header=struct.unpack_from('<III',data,4)
     if major!=7 or minor>5 or header>len(data) or header<64:raise ValueError('Unsupported VTF version/header')
     width,height,flags,frames=struct.unpack_from('<HHIH',data,16)
+    if max_dimension is None:max_dimension=max(width,height)
     fmt=struct.unpack_from('<I',data,52)[0];mips=data[56]
     depth=struct.unpack_from('<H',data,63)[0] if minor>=2 and len(data)>=65 else 1
     if not width or not height or width*height>67108864 or not frames or not 1<=mips<=16 or depth!=1 or flags&0x4000:
@@ -239,7 +244,7 @@ def decode_vtf(data,max_dimension=512):
     pixels=data[offset:offset+size]
     # A VTF may contain only its largest mip. Bound decoded preview allocation
     # and work even then, rather than expanding the whole image before resizing.
-    if not isinstance(max_dimension,int) or not 1<=max_dimension<=4096:
+    if not isinstance(max_dimension,int) or max_dimension<1:
         raise ValueError('Invalid VTF preview dimension')
     ratio=min(1.0,max_dimension/max(w,h))
     pw,ph=max(1,int(w*ratio)),max(1,int(h*ratio))
@@ -360,12 +365,14 @@ def material(settings,name,target_mat=None,defer=False):
                                       assets.fingerprint('materials/'+asset_path(props['$basetexture2']).removeprefix('materials/').removesuffix('.vtf')+'.vtf') if props.get('$basetexture2') else None])
     from . import native_source
     existing=target_mat or bpy.data.materials.get(key)
+    if existing:existing['wl_source_game']=str(assets.game)
     if native_source.direct(settings) and existing and existing.get('wl_source_cache_key')==key and existing.get('wl_source_native_material')==name:
         return existing
     if not native_source.direct(settings) and existing and existing.get('wl_source_cache_key')==key and existing.get('wl_realized') and existing.get('wl_source_blend_checked') and existing.use_nodes and any(n.type=='TEX_IMAGE' and n.image for n in existing.node_tree.nodes):
         return existing
     if native_source.direct(settings):
         mat=existing or bpy.data.materials.new(key)
+        mat['wl_source_game']=str(assets.game)
         mat['wl_source_blend']=props.get('_wl_shader','').startswith('worldvertextransition')
         header=assets.prefix(base)
         if len(header)<20 or header[:4]!=b'VTF\0':raise ValueError('Invalid VTF header: '+base)
@@ -375,6 +382,7 @@ def material(settings,name,target_mat=None,defer=False):
         return native_source.bind_material(settings,mat,name,width,height)
     if defer:
         mat=existing or bpy.data.materials.new(key)
+        mat['wl_source_game']=str(assets.game)
         header=assets.prefix(base)
         if len(header)<20 or header[:4]!=b'VTF\0':raise ValueError('Invalid VTF header: '+base)
         width,height=struct.unpack_from('<HH',header,16)
@@ -389,6 +397,7 @@ def material(settings,name,target_mat=None,defer=False):
         return mat
     image,width,height=preview_image(assets,base)
     mat=existing or bpy.data.materials.new(key);mat.use_nodes=True
+    mat['wl_source_game']=str(assets.game)
     mat['wl_texture']=name;mat['wl_width']=width;mat['wl_height']=height
     mat['wl_asset_profile']=settings.engine
     mat['wl_asset_origin']='User-installed Source game; private preview'

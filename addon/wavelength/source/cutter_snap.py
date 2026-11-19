@@ -42,7 +42,7 @@ class Targets:
         hit=self.bvh.ray_cast(origin,direction) if self.bvh and not lock_plane else (None,None,None,None)
         location,up,index,_=hit
         if location is None:location=brush_create._intersect_plane(origin,direction,plane,normal);up=normal
-        if location is None:return None
+        if location is None or (lock_plane and (location-origin).dot(direction)<0):return None
         raw=location.copy();kind='FACE' if index is not None else 'PLANE';highlight=[]
         geometry_enabled=self.always_geometry or not getattr(event,'ctrl',False)
         if geometry_enabled or tool_snap.grid_enabled(context,event):
@@ -132,16 +132,6 @@ def creation_targets(context):
     return entry[2]
 
 
-def creation_point(context,value,plane,normal,targets):
-    """Snap a proposed brush endpoint without breaking its construction plane.
-
-    Brush dragging uses an offset virtual cursor. Project the actual proposed
-    endpoint, rather than the hardware mouse, so snapping doesn't cause a jump.
-    """
-    xy=view.location_3d_to_region_2d(context.region,context.region_data,value)
-    if xy is None:return None
-    event=SimpleNamespace(mouse_region_x=xy.x,mouse_region_y=xy.y,ctrl=False)
-    return targets.resolve(context,event,plane,normal,plane,lock_plane=True)
 def hover_result(context,xy):
     from . import pencil
     if pencil._drawing or not context.region_data:return
@@ -160,4 +150,6 @@ def hover_result(context,xy):
 
 
 def hover(context,tool,xy):
-    draw(context,hover_result(context,xy),pixel=True)
+    result = hover_result(context, xy)
+    if result and result[2] in {'VERTEX', 'EDGE', 'GRID'}:
+        draw(context, result, pixel=True)

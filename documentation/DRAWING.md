@@ -96,9 +96,9 @@ Both retained pieces use the same chosen cut texture.
 The cutter always targets nearby vertices and edges, even with Blender's global
 snap toggle off. Grid snapping still follows Blender's snap toggle and profile. Vertices within 14 screen pixels take priority,
 then edges, then the profile grid. Occluded geometry is excluded. The target
-vertex or edge highlights orange; faces are never highlighted; the placement cursor is orange for geometry
-snaps and green for face/grid placement. The oriented ring, crosshair and normal
-stem appear before the first click and follow the live point while drawing.
+vertex or edge highlights orange. Grid snaps use a green marker. Free placement
+follows the mouse pointer on the drawing plane. An arrow indicates the kept
+side for an open solid split with Inside or Outside selected.
 Hold Ctrl to bypass vertex/edge magnetism. Ctrl still inverts grid snapping,
 and Shift+Tab toggles Blender grid snapping normally.
 
@@ -171,5 +171,48 @@ from the previous point. The chosen surface depth is preserved. Blender's snap
 toggle and Ctrl inversion still control grid quantization.
 
 This policy only applies when **Grid: Profile** is active and the profile defines
-a grid. Metric/free profiles retain their normal surface following and Blender
-snapping. A grid is a separate profile capability from BSP/convex brush rules.
+a grid. The pencil locks its drawing plane in metric and free profiles too.
+A grid is a separate profile capability from BSP/convex brush rules.
+
+## Brush footprint pointer
+
+The first click locks the drawing plane. As you move the pointer, the footprint
+corner follows its projection onto that plane. Grid snapping and nearby
+geometry targets show one placement marker. If the pointer ray misses the
+plane, move back over it before confirming the footprint.
+
+## Fit a straight stair between landings
+
+Place an Empty at the center of each landing's connecting edge, at walking
+height. Parent each Empty to its landing if it should follow that landing.
+Create a straight stair and select it in Object Mode in the wavelength
+workspace. In **Object Properties → Fit Stair to Landings**, assign the two
+connection objects and set **Steps**.
+
+Choose **Preview** to see the proposed flight as a wireframe. Choose **Apply**
+to regenerate the stair or **Discard** to clear the proposal. If you move a
+landing, run **Preview** and **Apply** again. The stair takes its width from
+**Edit Parameters** and derives its rise and tread depth from the connection
+points. **Max Rise** and **Min Tread** are optional checks in profile units.
+Set either to zero to disable that check.
+
+The fit ends at the upper connection. Use separate geometry for the landings.
+Finalize Geometry bakes the current flight into editable meshes or brushes and
+removes its landing controls.
+
+## Place fence posts along a route
+
+In the wavelength workspace, press **F3 → Add Fence Route** or select a curve
+with one open Poly spline. Edit the curve in Blender's Edit Mode, then return
+to Object Mode and open **Object Properties → Fence Route**.
+
+Set the post spacing, width and height in meters. Set **Gate Distance** from
+the start of the curve to the center of the opening. Set **Gate Width** to
+zero for a continuous fence. For brush profiles, choose a **Post Material**
+already assigned an engine texture in the active profile.
+
+Click **Preview** to inspect the wireframe and **Apply** to create the posts
+in a collection. **Discard** clears the preview. If you edit the route, move
+it or change its settings, preview again before applying. Each Apply replaces
+the route's previous posts, so move or copy any posts you want to keep out of
+the generated collection before reapplying.

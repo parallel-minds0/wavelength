@@ -1,3 +1,41 @@
+# v0.51.0-pre.alpha — editable model workflow and Source export fixes
+
+This is a development pre-release of the accumulated editor work. The full
+pipeline remains in progress.
+
+- Edit shared game-model sources, make unique variants, detach independent
+  copies and attach them to placed entities.
+- Create named model assets from ordinary Blender meshes. Manage source parts,
+  export inclusion and shared model origins while preserving visible geometry.
+- Publish with a target/profile dialog, owned material dependencies and optional
+  editable packages. Remember successful settings per asset.
+- Save named model revisions, open independent variants and restore a selected
+  placement with an automatic checkpoint.
+- Check Source model inputs before compilation and preview generated collision.
+- Convert Source levels/materials toward CS2 with explicit conversion reports.
+  Expanded profile, terrain, surface-editing and export-inclusion workflows are
+  recorded in the feature ledger.
+- Show build progress, independent regular/preview BSP targets, deployment,
+  deployment verification and runtime-map folder controls.
+- Normalize legacy scalar Source angle keys to vector angles. A captured HL2
+  stack overflow was traced to the fixture's scalar angle key. The corrected
+  room and a BSP-packed blue model/material were observed running in HL2.
+- Regenerate the checksum-bound Windows native patch for the current tested
+  Blender executable and include the synchronized handbook and feature ledger.
+
+Release verification passed 271 unit tests, the documentation and feature
+inventory checks, native delta reconstruction, and an isolated packaged Windows
+install/status/repair/uninstall cycle. Uninstall restored the original executable
+byte-for-byte.
+
+Known limits include unsupported procedural-material baking, complete LOD and
+socket authoring, direct browser-drop publishing, visual acceptance of the
+collision overlay, and broader physics/animation/GMod runtime acceptance.
+Source 2 animation/collision and other unsupported transfer routes retain their
+documented limits. Windows native compatibility remains tied to the exact
+Blender candidate fingerprint. Linux native output is the older historical
+experimental patch and is not validated with this development release.
+
 # v0.50.0-pre.alpha — CS2 map and material IO
 
 Published Windows update, including the accumulated authoring milestones since

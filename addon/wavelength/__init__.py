@@ -2,7 +2,7 @@
 bl_info = {
     "name": "Wavelength",
     "author": "Wavelength contributors",
-    "version": (0, 50, 0),
+    "version": (0, 51, 0),
     "blender": (4, 5, 0),
     "location": "Wavelength Workspace; Scene and Object Properties",
     "description": "Quake and GoldSrc level authoring",
@@ -16,3 +16,10 @@ def register():
 def unregister():
     from .source import unregister as source_unregister
     source_unregister()
+
+
+class glTF2ExportUserExtension:
+    """glTF's supported extension point for wavelength inclusion checks."""
+    def gather_tree_filter_tag_hook(self,tree,export_settings):
+        from .source.regular_exports import filter_gltf_tree
+        filter_gltf_tree(tree,export_settings)

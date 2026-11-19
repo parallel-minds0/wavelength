@@ -1,6 +1,11 @@
-# wavelength — 0.50.0-pre.alpha
+# wavelength — 0.51.0-pre.alpha
 
 Blender level authoring for Quake, GoldSrc and Source 1, with editable CS2 / Source 2 VMAP geometry and materials, and Godot 4 mesh/texture export.
+
+This pre-alpha includes the editable model lifecycle, named revisions, collision preview,
+Source cross-compilation and the legacy-angle startup fix. Static model rendering
+with packed materials was verified in HL2. Physics/animation runtime acceptance
+and broader engine coverage remain incomplete.
 
 Development priorities and known gaps: [TODO](TODO.md). Release scope and known limitations are tracked in the TODO
 and [release notes](documentation/RELEASE-NOTES.md).
@@ -11,7 +16,7 @@ code excerpts are included directly from the implementation. See
 [documentation authoring](documentation/developer/writing-documentation.md) for HTML/PDF
 build commands and manual screenshot placeholders.
 
-The [Windows release](https://github.com/parallel-minds0/wavelength/releases/tag/v0.50.0-pre.alpha) includes a tested native-grid installer for the exact Blender 5.2.3 LTS Release Candidate Windows x64 build `32ede9dba158`. See [installation and validation](documentation/WINDOWS-INSTALL.md).
+The [Windows release](https://github.com/parallel-minds0/wavelength/releases/tag/v0.51.0-pre.alpha) includes a tested native-grid installer for the exact Blender 5.2.3 LTS Release Candidate Windows x64 build `32ede9dba158`. See [installation and validation](documentation/WINDOWS-INSTALL.md).
 
 Close Blender, extract the installer, then run:
 

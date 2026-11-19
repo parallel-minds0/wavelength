@@ -51,6 +51,36 @@ alignment. Source 1 additionally exposes lightmap scale. These are brush mapping
 controls; ordinary model UVs continue to use Blender's mesh UV editing tools.
 This is not a complete implementation of Hammer 2's material editing system.
 
+**Live Mapping** is on by default. Drag the U/V shift, rotation or scale fields
+to see changes immediately. In Edit Mode, the changes follow selected visible
+faces. In Object Mode, they affect the selected objects. Each adjustment starts
+from the face's existing mapping, so relative offsets across faces are preserved.
+This works on finalized textured brushes and native mesh profiles with an active
+UV map. Turn Live Mapping off to stage values for **Apply Mapping**, which
+projects the selection using those values and its existing materials. Both
+paths use the wavelength UV layer for viewport display and export when present.
+Finalize generated geometry before using these mapping controls.
+
+## Texture Layout
+
+Select faces on a finalized brush or a native mesh with UVs, then open
+**3D Viewport → N → Item → Texture Layout**. The same controls are in the Asset
+Browser's **Texture Settings**. Valve-axis brush profiles and mesh profiles
+support these operations.
+
+- Enable **Viewport Texture Handles** to show U, V, scale and rotation controls
+  on the active face. Drag an axis to slide the selected textures, drag the
+  diagonal handle to scale, or drag the opposite handle around the face to
+  rotate. Ctrl snaps the adjustment, release commits, and Esc restores the
+  original mapping.
+- For **Continue Across Edge**, select two adjacent faces with the same
+  material. Select the reference face last to make it active. The other face
+  receives a matching projection along their shared edge.
+- For **Apply Best Hotspot**, add trim-sheet rectangles to the material with
+  **Add Hotspot Region**. Enter **Min UV** and **Max UV** in the 0–1 image range
+  from the lower-left corner. Each selected face maps into the closest
+  aspect-ratio match, with quarter-turn orientation considered.
+
 Click the eyedropper in the browser header or **Pick** in its left panel, then
 click a surface in the viewport. A brush face picks its engine texture and mapping.
 An entity model or icon picks its entity class. Hold Shift while clicking to

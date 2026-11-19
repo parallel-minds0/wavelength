@@ -1,10 +1,25 @@
 """Source QAngle poses: Rz(yaw) @ Ry(pitch) @ Rx(roll), in map axes."""
 import json
 import math
-from mathutils import Euler
+
+
+def canonical_pairs(pairs):
+    """Emit Source vector angles instead of the legacy recursive scalar key."""
+    values=dict(pairs)
+    if 'angle' not in values:return pairs
+    if 'angles' in values:
+        return [(key,value) for key,value in pairs if key!='angle']
+    yaw=float(values['angle'])
+    if not math.isfinite(yaw):raise ValueError('Source angles must be finite')
+    pitch=0.
+    if yaw in (-1.,-2.):pitch,yaw=(-90. if yaw==-1. else 90.),0.
+    from . import formats
+    angles=' '.join(formats.number(value) for value in (pitch,yaw,0.))
+    return [(key,value) for key,value in pairs if key!='angle']+[('angles',angles)]
 
 
 def rotation(pairs):
+    from mathutils import Euler
     values=dict(pairs)
     if 'angles' in values:
         angles=[float(v) for v in values['angles'].split()]
@@ -38,7 +53,7 @@ def export_pairs(obj,pairs):
     current=obj.matrix_world.to_quaternion().to_matrix()
     original=rotation(pairs).to_matrix()
     if max(abs(current[i][j]-original[i][j]) for i in range(3) for j in range(3))<1e-5:
-        return pairs  # Preserve original literals, including legacy angle keys.
+        return canonical_pairs(pairs)  # Preserve vector literals; normalize legacy scalar keys.
     euler=current.to_euler('XYZ')
     angles=' '.join(formats.number(math.degrees(euler[i])) for i in (1,2,0))
     return [(k,v) for k,v in pairs if k not in {'angle','angles'}]+[('angles',angles)]

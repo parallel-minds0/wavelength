@@ -8,9 +8,6 @@ def profile_grid_active(context):
     spacing=profiles.active_grid_step_meters(settings)
     return getattr(settings,'grid_mode','BLENDER')=='ENGINE' and spacing is not None and spacing>0
 def enabled(context, event=None, kind='TRANSLATE'):
-    if profile_grid_active(context):
-        from . import workspace
-        if workspace.active(context):return True
     ts = context.scene.tool_settings
     active = bool(ts.use_snap)
     if event is not None and getattr(event, 'ctrl', False):
@@ -19,9 +16,6 @@ def enabled(context, event=None, kind='TRANSLATE'):
 
 
 def grid_enabled(context, event=None, kind='TRANSLATE'):
-    if profile_grid_active(context):
-        from . import workspace
-        if workspace.active(context):return True
     return enabled(context, event, kind) and bool(set(context.scene.tool_settings.snap_elements) & {'INCREMENT', 'GRID'})
 
 

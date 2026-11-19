@@ -7,8 +7,8 @@ from wavelength.source import profiles
 class MeshProfileTests(unittest.TestCase):
  def test_persisted_enum_numbers_do_not_move(self):
   previous=('blender','quake','goldsrc','goldsrc_windows','goldsrc_linux','goldsrc_linux_steam','source_hl2_linux','source_hl2_windows','source_gmod_windows')
-  self.assertEqual(tuple(row[0] for row in profiles.PROFILE_ITEMS[:9]),previous)
-  self.assertEqual([row[3] for row in profiles.PROFILE_ITEMS[:9]],list(range(9)))
+  stored_numbers={row[0]:row[3] for row in profiles.PROFILE_ITEMS}
+  self.assertEqual([stored_numbers[key] for key in previous],list(range(9)))
  def test_mesh_profiles_have_no_bsp_or_entity_pipeline(self):
   for engine in ('godot4','source2_cs2_windows'):
    self.assertTrue(profiles.is_mesh_export(engine));self.assertFalse(profiles.requires_convex_brushes(engine))

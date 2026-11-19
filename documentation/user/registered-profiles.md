@@ -5,7 +5,12 @@ protected. **User profiles** inherit a template or another user profile and stor
 only their own settings overrides, under a stable UUID.
 
 Open the viewport header profile popover or **Scene Properties → wavelength Map**.
-Both show the **Registered Profile** selector and registry controls.
+Both show the **Registered Profile** selector and registry controls. Labels use
+**(Engine) Game – Platform**, such as **(Source) Half-Life 2 – Windows**.
+The picker sorts by engine, then game and platform. Matching display labels
+share one row. The active profile takes priority, followed by a registered
+profile over a shipped template. Steam launch settings stay with the saved
+profile and are omitted from the label.
 
 ## Register and use
 
@@ -82,3 +87,18 @@ new compiler or model format. The generic Source 1 / Windows base exports VMF,
 requires an explicit game FGD, and has no Build/Play pipeline. An L4D2 custom
 configuration can inherit that base, but this does not add a verified L4D2 build
 pipeline.
+
+## CS:GO Legacy on Windows
+
+Select **Counter-Strike: Global Offensive Legacy — Source 1 — Windows**.
+It inherits the Source 1 profile and mounts the original installation's `csgo`
+directory containing `gameinfo.txt`, not CS2's `game/csgo` directory. The original
+`csgo.exe` is discovered independently from CS2. If SDK `bin/csgo.fgd` is missing,
+discovery can use the Source 1 FGD shipped in CS2's `game/csgo/import_scripts/bin/`.
+
+Directory-only search paths automatically mount their split VPK indexes, while
+loose overrides remain available. This profile supports Source 1 editing, VMF
+import/export and the shared Source 1 → CS2 cross-compiler. CS:GO uses BSP21;
+built-in BSP compilation is not enabled for this profile. Installing the legacy
+game alone does not supply the SDK compiler tools. Existing profile enum numbers
+are preserved when adding this entry.

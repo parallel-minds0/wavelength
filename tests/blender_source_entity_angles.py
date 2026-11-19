@@ -38,3 +38,22 @@ world=obj.matrix_world.copy();pose.apply(obj,pairs);c.view_layer.update();assert
 print('PASS Valve AngleMatrix agreement: cardinal, mixed axes, gimbal cases, 100 random rotations; real entity import/export; rotated export; model refresh preserves edits',flush=True)
 
 
+
+# Legacy scalar keys crash the installed HL2 server through recursive KeyValue.
+from wavelength.source import vmf
+for scalar,expected in [('90','0 90 0'),('-1','-90 0 0'),('-2','90 0 0'),('0','0 0 0')]:
+ pairs=[('classname','info_player_start'),('angle',scalar),('targetname','retained')]
+ original=list(pairs)
+ canonical=pose.canonical_pairs(pairs)
+ assert 'angle' not in dict(canonical) and dict(canonical)['angles']==expected
+ assert pairs==original and dict(canonical)['targetname']=='retained'
+ assert close(pose.rotation(pairs).to_matrix(),pose.rotation(canonical).to_matrix())
+ document=formats.Map([formats.Entity([('classname','worldspawn')],[]),formats.Entity(pairs,[])])
+ written=vmf.write(document)
+ assert '"angle"' not in written and f'"angles" "{expected}"' in written
+ obj=bpy.data.objects.new('Legacy angle',None);c.collection.objects.link(obj)
+ pose.apply(obj,pairs,force=True);c.view_layer.update()
+ assert dict(pose.export_pairs(obj,pairs))['angles']==expected
+ bpy.data.objects.remove(obj,do_unlink=True)
+assert pose.canonical_pairs([('angle','90'),('angles','15 20 30')])==[('angles','15 20 30')]
+print('PASS legacy Source angle normalization, vertical sentinels, VMF output and unchanged authoring pairs')

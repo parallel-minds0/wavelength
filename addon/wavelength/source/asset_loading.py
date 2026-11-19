@@ -215,5 +215,7 @@ class WL_OT_reload_map_assets(bpy.types.Operator):
             except (OSError,ValueError) as exc:mat['wl_asset_error']=str(exc)
         for obj in tuple(scene.objects):
             if obj.get('wl_role')=='ENTITY' and not obj.get('wl_custom_model'):entity(scene,obj)
+        from . import render_support
+        render_support.prepare(scene)
         self.report({'INFO'},'Map asset previews queued; geometry remains editable')
         return {'FINISHED'}

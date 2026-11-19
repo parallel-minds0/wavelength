@@ -45,17 +45,41 @@ def check():
    tool=SimpleNamespace(_plane_point=None,_targets=targets)
    brush_create.WL_OT_cube_brush_create._update_hover(tool,ctx,event((3,1,1.7),(4,3)),True)
    assert (tool._hover-Vector((3,1,1.7))).length<1e-5,'Brush first point missed unselected vertex'
-   tool._start=Vector((2,0,1.7));tool._initial_drag=Vector((3.01,1.01,1.7));tool._start_mouse_2d=(98,100);tool._virt_mouse=(100,100);tool._step_value=.4064
-   with patch.object(view,'region_2d_to_location_3d',return_value=Vector()):
-    end=brush_create.WL_OT_cube_brush_create._footprint_drag_from_mouse(tool,ctx)
+   tool._start=Vector((2,0,1.7));tool._initial_drag=Vector((3.01,1.01,1.7));tool._start_mouse_2d=(0,0);tool._step_value=.4064
+   end=brush_create.WL_OT_cube_brush_create._footprint_drag_from_mouse(tool,ctx,event((3,1,1.7),(4,3)))
    assert (end-Vector((3,1,1.7))).length<1e-5,'Brush endpoint did not prioritize geometry'
    assert brush_create._creation_step(tool)==0,'Generator will round the vertex back onto grid'
    vertices,_=brush_create._radial_geometry(ctx.scene.wavelength,tool._start,end,tool._u,tool._v,tool._n,brush_create._creation_step(tool))
    assert abs((vertices[0]-tool._start).length-(end-tool._start).length)<1e-5,'Radial brush lost exact geometry radius'
+   rv.view_perspective='PERSP';rv.view_rotation=Vector((5,-8,5)).to_track_quat('Z','Y');rv.update()
+   tool._step_value=0
+   tool._targets=cutter_snap.Targets(ctx,None)
+   expected=Vector((2.13,.19,1.7))
+   pointer=event(expected)
+   end=brush_create.WL_OT_cube_brush_create._footprint_drag_from_mouse(tool,ctx,pointer)
+   projected=view.location_3d_to_region_2d(region,rv,end)
+   assert (projected-Vector((pointer.mouse_region_x,pointer.mouse_region_y))).length<.25 and tool._snap_result is None, end
+   tool._step_value=.4064
+   end=brush_create.WL_OT_cube_brush_create._footprint_drag_from_mouse(tool,ctx,pointer)
+   assert abs(end.x-round(expected.x/.4064)*.4064)<1e-5 and tool._snap_result[0]==end
+   rv.view_perspective='ORTHO';rv.view_rotation=Quaternion((1,0,0,0));rv.update()
    stroke=SimpleNamespace(_points=[],_pending=None,_plane=Vector(),_normal=Vector((0,0,1)),_targets=targets,_value='')
    pencil.WL_OT_draw_path._update(stroke,ctx,event((3,1,1.7),(4,3)))
    assert (stroke._hover-Vector((3,1,1.7))).length<1e-5
    assert abs(stroke._plane.z-1.7)<1e-5,'Pencil first vertex did not establish the surface plane'
+   stroke._points=[pencil.point(stroke._hover)]
+   ctx.scene.wavelength.engine='blender'
+   ts.use_snap=False
+   rv.view_perspective='PERSP';rv.view_rotation=Vector((5,-8,5)).to_track_quat('Z','Y');rv.update()
+   expected=Vector((-1.6,.25,1.7))
+   pointer=event(expected)
+   pencil.WL_OT_draw_path._update(stroke,ctx,pointer)
+   projected=view.location_3d_to_region_2d(region,rv,stroke._hover)
+   assert abs(stroke._hover.z-1.7)<1e-5
+   assert (projected-Vector((pointer.mouse_region_x,pointer.mouse_region_y))).length<.25
+   assert stroke._snap_result[2]=='PLANE'
+   ctx.scene.wavelength.engine='source_hl2_windows'
+   rv.view_perspective='ORTHO';ts.use_snap=True
    rv.view_rotation=Vector((5,-8,5)).to_track_quat('Z','Y');rv.update()
    height_tool=SimpleNamespace(_start=Vector((3,1,0)),_height_mouse_start=(0,0),_virt_mouse=(0,0),_n=Vector((0,0,1)),_height_start_m=1.69,_plane_point=Vector(),_step_value=.4064,_targets=targets)
    brush_create.WL_OT_cube_brush_create._update_height_from_mouse(height_tool,ctx)

@@ -10,6 +10,9 @@ import sys
 import zipfile
 
 ROOT=Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT))
+from installer.wavelength_installer.source_bundle import addon_files
+
 REMOTE='https://github.com/parallel-minds0/wavelength.git'
 
 def run(*args, capture=False):
@@ -28,10 +31,7 @@ def package():
     destination.parent.mkdir(exist_ok=True)
     source=ROOT/'addon/wavelength'
     with zipfile.ZipFile(destination,'w',zipfile.ZIP_DEFLATED) as archive:
-        for file in sorted(source.rglob('*')):
-            relative=file.relative_to(source)
-            if not file.is_file() or any(part.startswith('.') or part in {'dev','third-party','__pycache__'} for part in relative.parts):continue
-            if file.suffix not in {'.py','.md','.svg','.map','.vmf'} and file.name!='LICENSE' and relative.as_posix() not in {'environment/sprites/manifest.json','environment/profiles/templates.json'}:continue
+        for file, relative in addon_files(source):
             archive.write(file,Path('wavelength')/relative)
     with zipfile.ZipFile(destination) as archive:
         if archive.testzip():raise RuntimeError('Invalid package')

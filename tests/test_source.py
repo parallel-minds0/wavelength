@@ -60,6 +60,9 @@ class SourceTests(unittest.TestCase):
         metadata='\n'.join(name+'\n{\n"enabled" "0"\n}\n' for name in vmf.EDITOR_ROOTS if name.endswith('_plus'))
         text=text.replace('world\n{','world\n{\ngroup\n{\n"id" "123"\neditor\n{\n"color" "1 2 3"\n}\n}\n',1)
         actual=vmf.parse(metadata+text)
+        self.assertEqual(actual.entities[0].vmf_groups,
+                         [[('id','123'),('editor',[('color','1 2 3')])]])
+        expected.entities[0].vmf_groups=[[('id','123'),('editor',[('color','1 2 3')])]]
         self.assertEqual(actual.entities,expected.entities)
         with self.assertRaisesRegex(ValueError,'Unsupported VMF root'):
             vmf.parse('unknown_gameplay_data\n{\n}\n'+text)
