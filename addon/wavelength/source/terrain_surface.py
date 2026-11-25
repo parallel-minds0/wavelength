@@ -404,6 +404,8 @@ def object_menu(self, context):
 
 def register():
     terrain_revision.register()
+    from . import environment_layers
+    environment_layers.register()
     from . import terrain_migration
     terrain_migration.register()
     bpy.utils.register_class(WL_OT_create_terrain)
@@ -414,6 +416,8 @@ def register():
 
 
 def unregister():
+    from . import environment_layers
+    environment_layers.unregister()
     from . import terrain_migration
     terrain_migration.unregister()
     terrain_revision.unregister()

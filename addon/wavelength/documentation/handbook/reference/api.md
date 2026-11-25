@@ -1516,4 +1516,4 @@ bundle_from_source(root)
 
 No callable docstring yet. Read the source and the Developer Guide before using this internal interface.
 
-{source}`installer/wavelength_installer/source_bundle.py:31`
+{source}`installer/wavelength_installer/source_bundle.py:32`

@@ -1,5 +1,9 @@
 # wavelength roadmap — original plan and current position
 
+The [integrated eight-milestone roadmap](ROADMAP.md) is the current product plan,
+including cohesive revisions, compositions and procedural integration. This page
+is retained as historical work-package evidence.
+
 > Historical snapshot from 10 October 2026. Several feature gaps below have since
 > changed. Use the [working TODO](archive/repository-todo.md) for current priorities and remaining
 > work, and [release notes](RELEASE-NOTES.md) for subsequent implementation details.

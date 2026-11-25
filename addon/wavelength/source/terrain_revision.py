@@ -13,6 +13,8 @@ def copy_surface(source):
     """Copy authored mesh data and the native stack without sharing edit state."""
     copy = source.copy()
     copy.data = source.data.copy()
+    from .environment_layers import fork_layer_set
+    fork_layer_set(copy)
     for key in (REVISIONS, 'wl_terrain_preview'):
         if key in copy:
             del copy[key]

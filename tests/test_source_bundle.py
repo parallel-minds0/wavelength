@@ -13,6 +13,7 @@ class SourceBundleTests(unittest.TestCase):
             with zipfile.ZipFile(archive) as z:
                 self.assertIn('wavelength/source/source_assets.py',z.namelist())
                 self.assertIn('wavelength/environment/profiles/templates.json',z.namelist())
+                self.assertIn('wavelength/environment/adapters/godot/environment_loader.gd',z.namelist())
                 self.assertIn('wavelength/source/build/pipeline.py',z.namelist())
                 self.assertIn('wavelength/documentation/handbook/index.md',z.namelist())
                 self.assertIn('wavelength/documentation/handbook/developer/architecture.md',z.namelist())

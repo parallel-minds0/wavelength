@@ -15,6 +15,7 @@ of the current implementation.
 :numbered:
 
 FEATURES
+ROADMAP
 user/index
 developer/index
 reference/index

@@ -6,11 +6,12 @@ This lists source presence, not successful registration or passing behavior. Pri
 Function bodies, settings, test bodies, native patches and configuration are fingerprinted in the adjacent JSON.
 A checked-in test is evidence of a regression check, not evidence that it passed in this session.
 
-asset: 37 | build-contract: 6 | class: 319 | configuration: 2 | function: 1964 | gizmo: 6 | hook: 223 | keymap: 9 | ledger: 1 | module: 170 | native-binding: 28 | native-file: 49 | native-patch: 2 | native-symbol: 18 | setting: 412 | test: 250 | ui: 566
+asset: 38 | build-contract: 6 | class: 325 | configuration: 2 | function: 2014 | gizmo: 6 | hook: 227 | keymap: 9 | ledger: 1 | module: 175 | native-binding: 28 | native-file: 49 | native-patch: 2 | native-symbol: 18 | setting: 442 | test: 254 | ui: 572
 
 ## Asset
 
 - `addon/wavelength/environment/README.md` — `README.md`
+- `addon/wavelength/environment/adapters/godot/environment_loader.gd` — `environment_loader.gd`
 - `addon/wavelength/environment/maps/minimal_goldsrc.map` — `minimal_goldsrc.map`
 - `addon/wavelength/environment/maps/minimal_quake.map` — `minimal_quake.map`
 - `addon/wavelength/environment/maps/minimal_source.vmf` — `minimal_source.vmf`
@@ -126,6 +127,12 @@ asset: 37 | build-contract: 6 | class: 319 | configuration: 2 | function: 1964 |
 - `addon/wavelength/source/entity/browser.py` — `WL_OT_entity_browser` — `bpy.types.Operator`
 - `addon/wavelength/source/entity/browser.py` — `WL_OT_entity_browser_refresh` — `bpy.types.Operator`
 - `addon/wavelength/source/entity/interaction.py` — `WL_OT_entity_visual_select` — `bpy.types.Operator`
+- `addon/wavelength/source/environment_godot.py` — `WL_OT_export_environment` — `bpy.types.Operator`
+- `addon/wavelength/source/environment_layers.py` — `Surface`
+- `addon/wavelength/source/environment_layers.py` — `WLEnvironmentLayer` — `bpy.types.PropertyGroup`
+- `addon/wavelength/source/environment_layers.py` — `WL_OT_environment_layer` — `bpy.types.Operator`
+- `addon/wavelength/source/environment_layers.py` — `WL_PT_environment_layers` — `bpy.types.Panel`
+- `addon/wavelength/source/environment_layers.py` — `WL_UL_environment_layers` — `bpy.types.UIList`
 - `addon/wavelength/source/export_scope.py` — `Scope`
 - `addon/wavelength/source/export_scope.py` — `WL_OT_export_inclusion` — `bpy.types.Operator`
 - `addon/wavelength/source/fence_route.py` — `WL_OT_add_fence_route` — `bpy.types.Operator`
@@ -703,6 +710,9 @@ asset: 37 | build-contract: 6 | class: 319 | configuration: 2 | function: 1964 |
 - `addon/wavelength/source/displacement.py` — `quad` — `vertices, polygon, start`
 - `addon/wavelength/source/displacement.py` — `topology` — `size`
 - `addon/wavelength/source/displacement.py` — `triangles` — `size`
+- `addon/wavelength/source/distribution.py` — `candidates` — `bounds, cell_size, density, seed`
+- `addon/wavelength/source/distribution.py` — `choose` — `seed, address, weights`
+- `addon/wavelength/source/distribution.py` — `random_value` — `seed, address, channel`
 - `addon/wavelength/source/draw_displacement.py` — `brush` — `obj`
 - `addon/wavelength/source/draw_geometry.py` — `add` — `a, b`
 - `addon/wavelength/source/draw_geometry.py` — `cross` — `a, b`
@@ -836,6 +846,53 @@ asset: 37 | build-contract: 6 | class: 319 | configuration: 2 | function: 1964 |
 - `addon/wavelength/source/entity/source_schema.py` — `properties` — `settings, classname, abspath=lambda p: p`
 - `addon/wavelength/source/entity/source_schema.py` — `representation_model` — `settings, classname, pairs=(), abspath=lambda p: p`
 - `addon/wavelength/source/entity/source_schema.py` — `signature` — `files`
+- `addon/wavelength/source/environment_adopt.py` — `_supported` — `material`
+- `addon/wavelength/source/environment_adopt.py` — `adopt` — `context, terrain, source`
+- `addon/wavelength/source/environment_adopt.py` — `normalize_atlas` — `original`
+- `addon/wavelength/source/environment_adopt.py` — `placement_candidates` — `surface, layer`
+- `addon/wavelength/source/environment_adopt.py` — `prototype` — `source`
+- `addon/wavelength/source/environment_godot.py` — `WL_OT_export_environment.execute` — `self, context`
+- `addon/wavelength/source/environment_godot.py` — `WL_OT_export_environment.invoke` — `self, context, event`
+- `addon/wavelength/source/environment_godot.py` — `export` — `context, objects, directory`
+- `addon/wavelength/source/environment_godot.py` — `export_mesh` — `context, obj, directory, name, world=True, material_override=False`
+- `addon/wavelength/source/environment_godot.py` — `godot_transform` — `matrix`
+- `addon/wavelength/source/environment_godot.py` — `register`
+- `addon/wavelength/source/environment_godot.py` — `unregister`
+- `addon/wavelength/source/environment_layers.py` — `Surface.__init__` — `self, context, obj`
+- `addon/wavelength/source/environment_layers.py` — `Surface.close` — `self`
+- `addon/wavelength/source/environment_layers.py` — `Surface.hit` — `self, x, y`
+- `addon/wavelength/source/environment_layers.py` — `Surface.weight` — `self, name, point, triangle`
+- `addon/wavelength/source/environment_layers.py` — `WL_OT_environment_layer.edit_action` — `self, context, proxy`
+- `addon/wavelength/source/environment_layers.py` — `WL_OT_environment_layer.execute` — `self, context`
+- `addon/wavelength/source/environment_layers.py` — `WL_OT_environment_layer.poll` — `cls, context`
+- `addon/wavelength/source/environment_layers.py` — `WL_PT_environment_layers.draw` — `self, context`
+- `addon/wavelength/source/environment_layers.py` — `WL_PT_environment_layers.draw.button` — `row, text, action, kind='DISTRIBUTION'`
+- `addon/wavelength/source/environment_layers.py` — `WL_PT_environment_layers.poll` — `cls, context`
+- `addon/wavelength/source/environment_layers.py` — `WL_UL_environment_layers.draw_item` — `self, context, layout, data, item, icon, active_data, active_propname, index`
+- `addon/wavelength/source/environment_layers.py` — `active_layer` — `obj`
+- `addon/wavelength/source/environment_layers.py` — `add_layer` — `obj, kind='DISTRIBUTION', name='Trees'`
+- `addon/wavelength/source/environment_layers.py` — `fork_layer_set` — `obj`
+- `addon/wavelength/source/environment_layers.py` — `identity` — `obj`
+- `addon/wavelength/source/environment_layers.py` — `overrides` — `layer`
+- `addon/wavelength/source/environment_layers.py` — `palette` — `layer`
+- `addon/wavelength/source/environment_layers.py` — `preview` — `context, obj, layer`
+- `addon/wavelength/source/environment_layers.py` — `read_overrides` — `layer`
+- `addon/wavelength/source/environment_layers.py` — `records` — `context, obj, layer, surface=None`
+- `addon/wavelength/source/environment_layers.py` — `register`
+- `addon/wavelength/source/environment_layers.py` — `set_override` — `layer, address, prototype=None, matrix=None, delete=False`
+- `addon/wavelength/source/environment_layers.py` — `stamp` — `obj, layer, center, radius, value, strength=1.0`
+- `addon/wavelength/source/environment_layers.py` — `unregister`
+- `addon/wavelength/source/environment_layers.py` — `write_overrides` — `layer, value`
+- `addon/wavelength/source/environment_materials.py` — `biome_preview_group` — `base, biome=None`
+- `addon/wavelength/source/environment_materials.py` — `biome_preview_group.math` — `op, a, b`
+- `addon/wavelength/source/environment_materials.py` — `biome_preview_group.vector` — `op, a, b`
+- `addon/wavelength/source/environment_materials.py` — `env_id` — `obj`
+- `addon/wavelength/source/environment_materials.py` — `export_description` — `obj, surface, stage`
+- `addon/wavelength/source/environment_materials.py` — `local_biomes` — `obj, base`
+- `addon/wavelength/source/environment_materials.py` — `pbr_description` — `material, stage, key`
+- `addon/wavelength/source/environment_materials.py` — `refresh` — `obj`
+- `addon/wavelength/source/environment_materials.py` — `save_image` — `image, path`
+- `addon/wavelength/source/environment_materials.py` — `shader_group` — `material, biome=None, allowed=None`
 - `addon/wavelength/source/export_scope.py` — `Scope.__init__` — `self, scene, view_layer=None`
 - `addon/wavelength/source/export_scope.py` — `Scope.__init__.visit` — `layer, path, blocked=False`
 - `addon/wavelength/source/export_scope.py` — `Scope.enable_path` — `self, obj`
@@ -2427,6 +2484,10 @@ asset: 37 | build-contract: 6 | class: 319 | configuration: 2 | function: 1964 |
 - `addon/wavelength/source/entity/interaction.py` — `bpy.app.handlers.depsgraph_update_post.remove(sync_selection)`
 - `addon/wavelength/source/entity/interaction.py` — `bpy.utils.register_class(WL_OT_entity_visual_select)`
 - `addon/wavelength/source/entity/interaction.py` — `bpy.utils.unregister_class(WL_OT_entity_visual_select)`
+- `addon/wavelength/source/environment_godot.py` — `bpy.utils.register_class(WL_OT_export_environment)`
+- `addon/wavelength/source/environment_godot.py` — `bpy.utils.unregister_class(WL_OT_export_environment)`
+- `addon/wavelength/source/environment_layers.py` — `bpy.utils.register_class(cls)`
+- `addon/wavelength/source/environment_layers.py` — `bpy.utils.unregister_class(cls)`
 - `addon/wavelength/source/export_scope.py` — `bpy.app.handlers.depsgraph_update_post.append(policy_update)`
 - `addon/wavelength/source/export_scope.py` — `bpy.app.handlers.depsgraph_update_post.remove(policy_update)`
 - `addon/wavelength/source/export_scope.py` — `bpy.app.handlers.load_post.append(enable_policy)`
@@ -2631,6 +2692,7 @@ asset: 37 | build-contract: 6 | class: 319 | configuration: 2 | function: 1964 |
 - `addon/wavelength/source/diagnostics.py` — `diagnostics`
 - `addon/wavelength/source/diagnostics_ui.py` — `diagnostics_ui`
 - `addon/wavelength/source/displacement.py` — `displacement`
+- `addon/wavelength/source/distribution.py` — `distribution`
 - `addon/wavelength/source/draw_displacement.py` — `draw_displacement`
 - `addon/wavelength/source/draw_geometry.py` — `draw_geometry`
 - `addon/wavelength/source/edit_safety.py` — `edit_safety`
@@ -2645,6 +2707,10 @@ asset: 37 | build-contract: 6 | class: 319 | configuration: 2 | function: 1964 |
 - `addon/wavelength/source/entity/interaction.py` — `interaction`
 - `addon/wavelength/source/entity/models.py` — `models`
 - `addon/wavelength/source/entity/source_schema.py` — `source_schema`
+- `addon/wavelength/source/environment_adopt.py` — `environment_adopt`
+- `addon/wavelength/source/environment_godot.py` — `environment_godot`
+- `addon/wavelength/source/environment_layers.py` — `environment_layers`
+- `addon/wavelength/source/environment_materials.py` — `environment_materials`
 - `addon/wavelength/source/export_scope.py` — `export_scope`
 - `addon/wavelength/source/external_library.py` — `external_library`
 - `addon/wavelength/source/fence_route.py` — `fence_route`
@@ -2948,6 +3014,36 @@ asset: 37 | build-contract: 6 | class: 319 | configuration: 2 | function: 1964 |
 - `addon/wavelength/source/engine_tools.py` — `WL_OT_engine_transform.kind` — `bpy.props.EnumProperty(items=[('ROTATE', 'Rotate', ''), ('SCALE', 'Scale', '')])`
 - `addon/wavelength/source/engine_tools.py` — `WL_OT_engine_transform.release_confirm` — `bpy.props.BoolProperty(default=False)`
 - `addon/wavelength/source/entity/browser.py` — `WL_OT_entity_browser.section` — `bpy.props.EnumProperty(name='Section', items=[('', 'Current', 'Keep current section'), ('TEXTURES', 'Textures', 'Browse profile textures'), ('ENTITIES', 'Entities', 'Browse profile entities'), ('MODELS', 'Models', 'Assign an engine model to the selected entity')], default='', options={'SKIP_SAVE'})`
+- `addon/wavelength/source/environment_godot.py` — `WL_OT_export_environment.directory` — `bpy.props.StringProperty(name='Bundle Directory', subtype='DIR_PATH')`
+- `addon/wavelength/source/environment_layers.py` — `WLEnvironmentLayer.adopt_remainder` — `PointerProperty(type=bpy.types.Object)`
+- `addon/wavelength/source/environment_layers.py` — `WLEnvironmentLayer.adopt_source` — `PointerProperty(type=bpy.types.Object)`
+- `addon/wavelength/source/environment_layers.py` — `WLEnvironmentLayer.align_normal` — `BoolProperty(name='Align to Surface', default=False)`
+- `addon/wavelength/source/environment_layers.py` — `WLEnvironmentLayer.biome` — `EnumProperty(name='Paint Surface', items=[('CUSTOM', 'Custom Material', '')] + [(str(i), name, 'Privateer native biome') for i, name in enumerate(('Mixed Woodland', 'Meadow', 'Conifer Upland', 'Wetland', 'Rocky Heath', 'Coastal Shore'))])`
+- `addon/wavelength/source/environment_layers.py` — `WLEnvironmentLayer.cell_size` — `FloatProperty(name='Candidate Cell (m)', default=4, min=0.01)`
+- `addon/wavelength/source/environment_layers.py` — `WLEnvironmentLayer.density` — `FloatProperty(name='Instances / m²', default=0.08, min=0)`
+- `addon/wavelength/source/environment_layers.py` — `WLEnvironmentLayer.enabled` — `BoolProperty(name='Enabled', default=True)`
+- `addon/wavelength/source/environment_layers.py` — `WLEnvironmentLayer.follow_terrain` — `BoolProperty(name='Follow Sculpted Terrain', default=True)`
+- `addon/wavelength/source/environment_layers.py` — `WLEnvironmentLayer.kind` — `EnumProperty(items=[('DISTRIBUTION', 'Distribution', 'Trees, vegetation or rocks'), ('EXCLUSION', 'Exclusion', 'Clear generated placements; manual overrides survive'), ('MATERIAL', 'Material Mask', 'Independent terrain material coverage')])`
+- `addon/wavelength/source/environment_layers.py` — `WLEnvironmentLayer.manual_prototype` — `PointerProperty(type=bpy.types.Object, name='Manual Prototype')`
+- `addon/wavelength/source/environment_layers.py` — `WLEnvironmentLayer.mask` — `StringProperty()`
+- `addon/wavelength/source/environment_layers.py` — `WLEnvironmentLayer.material` — `PointerProperty(type=bpy.types.Material, name='Material Reference')`
+- `addon/wavelength/source/environment_layers.py` — `WLEnvironmentLayer.max_slope` — `FloatProperty(name='Maximum Slope', default=45, min=0, max=90)`
+- `addon/wavelength/source/environment_layers.py` — `WLEnvironmentLayer.mode` — `EnumProperty(items=[('SCATTER', 'Generated', 'Seeded coverage distribution'), ('PLACEMENTS', 'Adopted Points', 'Retain and edit existing native placements')])`
+- `addon/wavelength/source/environment_layers.py` — `WLEnvironmentLayer.overrides` — `StringProperty(get=read_overrides, set=write_overrides)`
+- `addon/wavelength/source/environment_layers.py` — `WLEnvironmentLayer.palette` — `PointerProperty(type=bpy.types.Collection, name='Asset Palette')`
+- `addon/wavelength/source/environment_layers.py` — `WLEnvironmentLayer.placements` — `PointerProperty(type=bpy.types.Object)`
+- `addon/wavelength/source/environment_layers.py` — `WLEnvironmentLayer.preview` — `PointerProperty(type=bpy.types.Object)`
+- `addon/wavelength/source/environment_layers.py` — `WLEnvironmentLayer.preview_fraction` — `FloatProperty(name='Preview Fraction', default=1, min=0, max=1)`
+- `addon/wavelength/source/environment_layers.py` — `WLEnvironmentLayer.scale_max` — `FloatProperty(name='Maximum Scale', default=1.2, min=0.001)`
+- `addon/wavelength/source/environment_layers.py` — `WLEnvironmentLayer.scale_min` — `FloatProperty(name='Minimum Scale', default=0.8, min=0.001)`
+- `addon/wavelength/source/environment_layers.py` — `WLEnvironmentLayer.seed` — `IntProperty(name='Seed', default=1)`
+- `addon/wavelength/source/environment_layers.py` — `WLEnvironmentLayer.source_hidden` — `BoolProperty()`
+- `addon/wavelength/source/environment_layers.py` — `WLEnvironmentLayer.source_origin` — `StringProperty()`
+- `addon/wavelength/source/environment_layers.py` — `WLEnvironmentLayer.source_render_hidden` — `BoolProperty()`
+- `addon/wavelength/source/environment_layers.py` — `WLEnvironmentLayer.status` — `StringProperty()`
+- `addon/wavelength/source/environment_layers.py` — `WLEnvironmentLayer.uid` — `StringProperty()`
+- `addon/wavelength/source/environment_layers.py` — `WL_OT_environment_layer.action` — `EnumProperty(items=[(v, v.title(), '') for v in ('ADD', 'ADOPT', 'MATERIAL_PREVIEW', 'REMOVE', 'PAINT', 'REFRESH', 'FILL', 'CLEAR', 'MANUAL', 'EDIT', 'KEEP', 'DISCARD', 'DELETE')])`
+- `addon/wavelength/source/environment_layers.py` — `WL_OT_environment_layer.kind` — `EnumProperty(items=[(v, v.title(), '') for v in ('DISTRIBUTION', 'EXCLUSION', 'MATERIAL')])`
 - `addon/wavelength/source/export_scope.py` — `WL_OT_export_inclusion.category` — `bpy.props.StringProperty()`
 - `addon/wavelength/source/export_scope.py` — `WL_OT_export_inclusion.object_name` — `bpy.props.StringProperty()`
 - `addon/wavelength/source/fence_route.py` — `WL_OT_fence_route.action` — `bpy.props.EnumProperty(items=[('PREVIEW', 'Preview', ''), ('APPLY', 'Apply', ''), ('DISCARD', 'Discard', '')])`
@@ -3352,6 +3448,8 @@ asset: 37 | build-contract: 6 | class: 319 | configuration: 2 | function: 1964 |
 - `tests/blender_entity_svg_assets.py` — `blender_entity_svg_assets`
 - `tests/blender_entity_svg_ui.py` — `blender_entity_svg_ui`
 - `tests/blender_entity_visual_interaction.py` — `blender_entity_visual_interaction`
+- `tests/blender_environment_adoption.py` — `blender_environment_adoption`
+- `tests/blender_environment_layers.py` — `blender_environment_layers`
 - `tests/blender_export_inclusion.py` — `blender_export_inclusion`
 - `tests/blender_external_library.py` — `blender_external_library`
 - `tests/blender_external_library_ui.py` — `blender_external_library_ui`
@@ -3417,6 +3515,7 @@ asset: 37 | build-contract: 6 | class: 319 | configuration: 2 | function: 1964 |
 - `tests/blender_pencil_controls.py` — `blender_pencil_controls`
 - `tests/blender_picker_external_ui.py` — `blender_picker_external_ui`
 - `tests/blender_picker_reveal_ui.py` — `blender_picker_reveal_ui`
+- `tests/blender_privateer_environment.py` — `blender_privateer_environment`
 - `tests/blender_procedural.py` — `blender_procedural`
 - `tests/blender_procedural_resize.py` — `blender_procedural_resize`
 - `tests/blender_profile_grid_selection.py` — `blender_profile_grid_selection`
@@ -3516,6 +3615,7 @@ asset: 37 | build-contract: 6 | class: 319 | configuration: 2 | function: 1964 |
 - `tests/test_csgo_legacy_profile.py` — `test_csgo_legacy_profile`
 - `tests/test_delta_patch.py` — `test_delta_patch`
 - `tests/test_displacement.py` — `test_displacement`
+- `tests/test_distribution.py` — `test_distribution`
 - `tests/test_docs.py` — `test_docs`
 - `tests/test_draw_geometry.py` — `test_draw_geometry`
 - `tests/test_edit_safety.py` — `test_edit_safety`
@@ -3669,6 +3769,12 @@ asset: 37 | build-contract: 6 | class: 319 | configuration: 2 | function: 1964 |
 - `addon/wavelength/source/entity/browser.py` — `WL_OT_entity_browser_refresh.bl_label` — `'Refresh Wavelength Asset Browser'`
 - `addon/wavelength/source/entity/interaction.py` — `WL_OT_entity_visual_select.bl_idname` — `'wavelength.entity_visual_select'`
 - `addon/wavelength/source/entity/interaction.py` — `WL_OT_entity_visual_select.bl_label` — `'Select Entity Representation'`
+- `addon/wavelength/source/environment_godot.py` — `WL_OT_export_environment.bl_idname` — `'wavelength.export_environment'`
+- `addon/wavelength/source/environment_godot.py` — `WL_OT_export_environment.bl_label` — `'Export Environment to Godot'`
+- `addon/wavelength/source/environment_layers.py` — `WL_OT_environment_layer.bl_idname` — `'wavelength.environment_layer'`
+- `addon/wavelength/source/environment_layers.py` — `WL_OT_environment_layer.bl_label` — `'Environment Layer'`
+- `addon/wavelength/source/environment_layers.py` — `WL_PT_environment_layers.bl_label` — `'Environment Layers'`
+- `addon/wavelength/source/environment_layers.py` — `WL_PT_environment_layers.bl_space_type` — `'VIEW_3D'`
 - `addon/wavelength/source/export_scope.py` — `WL_OT_export_inclusion.bl_idname` — `'wavelength.export_inclusion'`
 - `addon/wavelength/source/export_scope.py` — `WL_OT_export_inclusion.bl_label` — `'Include in Export and Compilation'`
 - `addon/wavelength/source/fence_route.py` — `WL_OT_add_fence_route.bl_idname` — `'wavelength.add_fence_route'`

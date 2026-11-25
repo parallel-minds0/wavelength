@@ -176,6 +176,15 @@ rows along 0 -> 1 in Source's clockwise winding (CCW in our mesh adapter).
 
 {source}`addon/wavelength/source/displacement.py`
 
+## addon/wavelength/source/distribution.py
+
+Deterministic distribution candidates. No Blender or engine dependencies.
+
+Stable cell addresses make paint/density edits local. Mesh surface projection,
+mask evaluation and preview are adapters, not sources of placement identity.
+
+{source}`addon/wavelength/source/distribution.py`
+
 ## addon/wavelength/source/draw_displacement.py
 
 Export structured drawing grids as exact Source displacement brush faces.
@@ -271,6 +280,38 @@ Editor-only GoldSrc glTF and Source studio-model entity references.
 Use the selected game's installed Hammer schema, never a Source-wide union.
 
 {source}`addon/wavelength/source/entity/source_schema.py`
+
+## addon/wavelength/source/environment_adopt.py
+
+Adopt existing native point-instance sets without flattening or losing the remainder.
+
+{source}`addon/wavelength/source/environment_adopt.py`
+
+## addon/wavelength/source/environment_godot.py
+
+Godot environment bundle adapter. Runtime policy stays in the game.
+
+GLBs contain terrain modules and shared prototypes, never flattened forests.
+Schema-1 JSON retains masks, rules, IDs, overrides and Y-up instance matrices.
+
+{source}`addon/wavelength/source/environment_godot.py`
+
+## addon/wavelength/source/environment_layers.py
+
+Authored terrain masks, deterministic rules, shared instances and overrides.
+
+Schema 1 lives in native mesh vertex groups and Object RNA layer records. Generated
+point geometry is disposable. No depsgraph handlers or whole-world rescatters.
+
+{source}`addon/wavelength/source/environment_layers.py`
+
+## addon/wavelength/source/environment_materials.py
+
+Independent live native paint attributes and shader composition.
+
+Privateer's six-biome palette is an explicit material adapter, not engine policy.
+
+{source}`addon/wavelength/source/environment_materials.py`
 
 ## addon/wavelength/source/export_scope.py
 

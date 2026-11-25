@@ -3362,3 +3362,181 @@ added: 0; removed: 0; changed: 4
 - `ledger|documentation/FEATURES.md|behavioral-contracts`
 - `module|addon/wavelength/__init__.py|__init__`
 - `test|tests/test_source.py|test_source`
+
+## 2026-11-24T02:33:55+00:00
+
+Features: WL-ENV-001, WL-ENV-002, WL-ENV-003, WL-ENV-004, WL-TERR-013
+
+Reviewed first Privateer environment slice: native independent masks, deterministic world-cell candidates, reusable static palettes, shared GN previews, persisted manual overrides, staged modular Godot export and packaged loader. Terrain copy_surface now forks layer IDs and clears disposable preview pointers while preserving existing shared resource references. Blender environment/save-reopen and existing create-terrain regressions passed; real Godot Compatibility renderer verified 180 instance transforms, terrain and prototype scale. No removed implementation entries. Scope remains selected patches; interactive strokes, custom biome shading, full-world adoption and general compositions are not claimed.
+
+added: 75; removed: 0; changed: 9
+
+### Added
+
+- `asset|addon/wavelength/environment/adapters/godot/environment_loader.gd|environment_loader.gd`
+- `class|addon/wavelength/source/environment_godot.py|WL_OT_export_environment`
+- `class|addon/wavelength/source/environment_layers.py|Surface`
+- `class|addon/wavelength/source/environment_layers.py|WLEnvironmentLayer`
+- `class|addon/wavelength/source/environment_layers.py|WL_OT_environment_layer`
+- `class|addon/wavelength/source/environment_layers.py|WL_PT_environment_layers`
+- `class|addon/wavelength/source/environment_layers.py|WL_UL_environment_layers`
+- `function|addon/wavelength/source/distribution.py|candidates`
+- `function|addon/wavelength/source/distribution.py|choose`
+- `function|addon/wavelength/source/distribution.py|random_value`
+- `function|addon/wavelength/source/environment_godot.py|WL_OT_export_environment.execute`
+- `function|addon/wavelength/source/environment_godot.py|WL_OT_export_environment.invoke`
+- `function|addon/wavelength/source/environment_godot.py|export`
+- `function|addon/wavelength/source/environment_godot.py|export_mesh`
+- `function|addon/wavelength/source/environment_godot.py|godot_transform`
+- `function|addon/wavelength/source/environment_godot.py|register`
+- `function|addon/wavelength/source/environment_godot.py|unregister`
+- `function|addon/wavelength/source/environment_layers.py|Surface.__init__`
+- `function|addon/wavelength/source/environment_layers.py|Surface.close`
+- `function|addon/wavelength/source/environment_layers.py|Surface.hit`
+- `function|addon/wavelength/source/environment_layers.py|Surface.weight`
+- `function|addon/wavelength/source/environment_layers.py|WL_OT_environment_layer.edit_action`
+- `function|addon/wavelength/source/environment_layers.py|WL_OT_environment_layer.execute`
+- `function|addon/wavelength/source/environment_layers.py|WL_PT_environment_layers.draw`
+- `function|addon/wavelength/source/environment_layers.py|WL_PT_environment_layers.draw.button`
+- `function|addon/wavelength/source/environment_layers.py|WL_PT_environment_layers.poll`
+- `function|addon/wavelength/source/environment_layers.py|WL_UL_environment_layers.draw_item`
+- `function|addon/wavelength/source/environment_layers.py|active_layer`
+- `function|addon/wavelength/source/environment_layers.py|add_layer`
+- `function|addon/wavelength/source/environment_layers.py|fork_layer_set`
+- `function|addon/wavelength/source/environment_layers.py|identity`
+- `function|addon/wavelength/source/environment_layers.py|overrides`
+- `function|addon/wavelength/source/environment_layers.py|palette`
+- `function|addon/wavelength/source/environment_layers.py|preview`
+- `function|addon/wavelength/source/environment_layers.py|records`
+- `function|addon/wavelength/source/environment_layers.py|register`
+- `function|addon/wavelength/source/environment_layers.py|set_override`
+- `function|addon/wavelength/source/environment_layers.py|stamp`
+- `function|addon/wavelength/source/environment_layers.py|unregister`
+- `hook|addon/wavelength/source/environment_godot.py|bpy.utils.register_class(WL_OT_export_environment)`
+- `hook|addon/wavelength/source/environment_godot.py|bpy.utils.unregister_class(WL_OT_export_environment)`
+- `hook|addon/wavelength/source/environment_layers.py|bpy.utils.register_class(cls)`
+- `hook|addon/wavelength/source/environment_layers.py|bpy.utils.unregister_class(cls)`
+- `module|addon/wavelength/source/distribution.py|distribution`
+- `module|addon/wavelength/source/environment_godot.py|environment_godot`
+- `module|addon/wavelength/source/environment_layers.py|environment_layers`
+- `setting|addon/wavelength/source/environment_godot.py|WL_OT_export_environment.directory`
+- `setting|addon/wavelength/source/environment_layers.py|WLEnvironmentLayer.align_normal`
+- `setting|addon/wavelength/source/environment_layers.py|WLEnvironmentLayer.cell_size`
+- `setting|addon/wavelength/source/environment_layers.py|WLEnvironmentLayer.density`
+- `setting|addon/wavelength/source/environment_layers.py|WLEnvironmentLayer.enabled`
+- `setting|addon/wavelength/source/environment_layers.py|WLEnvironmentLayer.kind`
+- `setting|addon/wavelength/source/environment_layers.py|WLEnvironmentLayer.manual_prototype`
+- `setting|addon/wavelength/source/environment_layers.py|WLEnvironmentLayer.mask`
+- `setting|addon/wavelength/source/environment_layers.py|WLEnvironmentLayer.material`
+- `setting|addon/wavelength/source/environment_layers.py|WLEnvironmentLayer.max_slope`
+- `setting|addon/wavelength/source/environment_layers.py|WLEnvironmentLayer.overrides`
+- `setting|addon/wavelength/source/environment_layers.py|WLEnvironmentLayer.palette`
+- `setting|addon/wavelength/source/environment_layers.py|WLEnvironmentLayer.preview`
+- `setting|addon/wavelength/source/environment_layers.py|WLEnvironmentLayer.preview_fraction`
+- `setting|addon/wavelength/source/environment_layers.py|WLEnvironmentLayer.scale_max`
+- `setting|addon/wavelength/source/environment_layers.py|WLEnvironmentLayer.scale_min`
+- `setting|addon/wavelength/source/environment_layers.py|WLEnvironmentLayer.seed`
+- `setting|addon/wavelength/source/environment_layers.py|WLEnvironmentLayer.status`
+- `setting|addon/wavelength/source/environment_layers.py|WLEnvironmentLayer.uid`
+- `setting|addon/wavelength/source/environment_layers.py|WL_OT_environment_layer.action`
+- `setting|addon/wavelength/source/environment_layers.py|WL_OT_environment_layer.kind`
+- `test|tests/blender_environment_layers.py|blender_environment_layers`
+- `test|tests/test_distribution.py|test_distribution`
+- `ui|addon/wavelength/source/environment_godot.py|WL_OT_export_environment.bl_idname`
+- `ui|addon/wavelength/source/environment_godot.py|WL_OT_export_environment.bl_label`
+- `ui|addon/wavelength/source/environment_layers.py|WL_OT_environment_layer.bl_idname`
+- `ui|addon/wavelength/source/environment_layers.py|WL_OT_environment_layer.bl_label`
+- `ui|addon/wavelength/source/environment_layers.py|WL_PT_environment_layers.bl_label`
+- `ui|addon/wavelength/source/environment_layers.py|WL_PT_environment_layers.bl_space_type`
+
+### Changed
+
+- `function|addon/wavelength/source/terrain_revision.py|copy_surface`
+- `function|addon/wavelength/source/terrain_surface.py|register`
+- `function|addon/wavelength/source/terrain_surface.py|unregister`
+- `function|installer/wavelength_installer/source_bundle.py|addon_files`
+- `ledger|documentation/FEATURES.md|behavioral-contracts`
+- `module|addon/wavelength/source/terrain_revision.py|terrain_revision`
+- `module|addon/wavelength/source/terrain_surface.py|terrain_surface`
+- `module|installer/wavelength_installer/source_bundle.py|source_bundle`
+- `test|tests/test_source_bundle.py|test_source_bundle`
+
+## 2026-11-24T02:35:43+00:00
+
+Features: WL-ENV-001, WL-CTX-002
+
+Reviewed final environment UI integration: authoring panel/operator now use the existing central context policy, preserving editing restrictions outside the wavelength workspace and in non-mesh profiles. Blender end-to-end regression passed with the final poll. The 274-test Python suite passed before this context-only change; no removals or existing context-policy implementation changes.
+
+added: 1; removed: 0; changed: 4
+
+### Added
+
+- `function|addon/wavelength/source/environment_layers.py|WL_OT_environment_layer.poll`
+
+### Changed
+
+- `class|addon/wavelength/source/environment_layers.py|WL_OT_environment_layer`
+- `class|addon/wavelength/source/environment_layers.py|WL_PT_environment_layers`
+- `function|addon/wavelength/source/environment_layers.py|WL_PT_environment_layers.poll`
+- `module|addon/wavelength/source/environment_layers.py|environment_layers`
+
+## 2026-11-25T08:25:45+00:00
+
+Features: WL-ENV-001, WL-ENV-003, WL-ENV-004, WL-ENV-005, WL-ENV-006, WL-TERR-013
+
+Reviewed completion of the Privateer module workflow: adopt native point sets with exact transforms and outside remainder; retain original source checksum; object-owned correction storage with legacy fallback and checkpoint remapping; live native mask attributes and lightweight representative biome preview; Godot PBR/native material adapters and instantiable bundle scene. Real UI brush stroke saved/reopened, textured preview inspected, focused adoption/layer/terrain regressions passed, real patch and Godot native-biome assertions passed. Original 103047 tree points are accounted for. No removed surface entries. World-scale performance, arbitrary shaders and cross-module brush strokes are not claimed; the existing Godot shutdown fault remains documented.
+
+added: 30; removed: 0; changed: 17
+
+### Added
+
+- `function|addon/wavelength/source/environment_adopt.py|_supported`
+- `function|addon/wavelength/source/environment_adopt.py|adopt`
+- `function|addon/wavelength/source/environment_adopt.py|normalize_atlas`
+- `function|addon/wavelength/source/environment_adopt.py|placement_candidates`
+- `function|addon/wavelength/source/environment_adopt.py|prototype`
+- `function|addon/wavelength/source/environment_layers.py|read_overrides`
+- `function|addon/wavelength/source/environment_layers.py|write_overrides`
+- `function|addon/wavelength/source/environment_materials.py|biome_preview_group`
+- `function|addon/wavelength/source/environment_materials.py|biome_preview_group.math`
+- `function|addon/wavelength/source/environment_materials.py|biome_preview_group.vector`
+- `function|addon/wavelength/source/environment_materials.py|env_id`
+- `function|addon/wavelength/source/environment_materials.py|export_description`
+- `function|addon/wavelength/source/environment_materials.py|local_biomes`
+- `function|addon/wavelength/source/environment_materials.py|pbr_description`
+- `function|addon/wavelength/source/environment_materials.py|refresh`
+- `function|addon/wavelength/source/environment_materials.py|save_image`
+- `function|addon/wavelength/source/environment_materials.py|shader_group`
+- `module|addon/wavelength/source/environment_adopt.py|environment_adopt`
+- `module|addon/wavelength/source/environment_materials.py|environment_materials`
+- `setting|addon/wavelength/source/environment_layers.py|WLEnvironmentLayer.adopt_remainder`
+- `setting|addon/wavelength/source/environment_layers.py|WLEnvironmentLayer.adopt_source`
+- `setting|addon/wavelength/source/environment_layers.py|WLEnvironmentLayer.biome`
+- `setting|addon/wavelength/source/environment_layers.py|WLEnvironmentLayer.follow_terrain`
+- `setting|addon/wavelength/source/environment_layers.py|WLEnvironmentLayer.mode`
+- `setting|addon/wavelength/source/environment_layers.py|WLEnvironmentLayer.placements`
+- `setting|addon/wavelength/source/environment_layers.py|WLEnvironmentLayer.source_hidden`
+- `setting|addon/wavelength/source/environment_layers.py|WLEnvironmentLayer.source_origin`
+- `setting|addon/wavelength/source/environment_layers.py|WLEnvironmentLayer.source_render_hidden`
+- `test|tests/blender_environment_adoption.py|blender_environment_adoption`
+- `test|tests/blender_privateer_environment.py|blender_privateer_environment`
+
+### Changed
+
+- `asset|addon/wavelength/environment/adapters/godot/environment_loader.gd|environment_loader.gd`
+- `class|addon/wavelength/source/environment_layers.py|WLEnvironmentLayer`
+- `class|addon/wavelength/source/environment_layers.py|WL_OT_environment_layer`
+- `class|addon/wavelength/source/environment_layers.py|WL_PT_environment_layers`
+- `function|addon/wavelength/source/environment_godot.py|export`
+- `function|addon/wavelength/source/environment_godot.py|export_mesh`
+- `function|addon/wavelength/source/environment_layers.py|WL_OT_environment_layer.execute`
+- `function|addon/wavelength/source/environment_layers.py|WL_PT_environment_layers.draw`
+- `function|addon/wavelength/source/environment_layers.py|fork_layer_set`
+- `function|addon/wavelength/source/environment_layers.py|records`
+- `function|addon/wavelength/source/environment_layers.py|register`
+- `function|addon/wavelength/source/environment_layers.py|unregister`
+- `ledger|documentation/FEATURES.md|behavioral-contracts`
+- `module|addon/wavelength/source/environment_godot.py|environment_godot`
+- `module|addon/wavelength/source/environment_layers.py|environment_layers`
+- `setting|addon/wavelength/source/environment_layers.py|WLEnvironmentLayer.overrides`
+- `setting|addon/wavelength/source/environment_layers.py|WL_OT_environment_layer.action`

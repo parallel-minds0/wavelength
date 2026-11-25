@@ -15,6 +15,12 @@
     "WL-DIST-003",
     "WL-DIST-004",
     "WL-DIST-005",
+    "WL-ENV-001",
+    "WL-ENV-002",
+    "WL-ENV-003",
+    "WL-ENV-004",
+    "WL-ENV-005",
+    "WL-ENV-006",
     "WL-GEO-001",
     "WL-GEO-002",
     "WL-GEO-003",
@@ -190,14 +196,20 @@
     "WL-XCOMP-014",
     "WL-XCOMP-015"
   ],
-  "history_prefix_bytes": 181881,
-  "history_prefix_sha256": "c3eba5f9a89584574a9e32414ba466fccea01513874a94420a057cdac580c8b5",
+  "history_prefix_bytes": 195139,
+  "history_prefix_sha256": "2fef94299a9ac0b98891eb0c39f35b0a23bc6289c379315c25c7ae0a3ab7f193",
   "entries": {
     "asset|addon/wavelength/environment/README.md|README.md": {
       "kind": "asset",
       "path": "addon/wavelength/environment/README.md",
       "name": "README.md",
       "digest": "4889d04a05a6f39c1256c1a97f05aab983387477b1d3bba37e6314f26f4c433e"
+    },
+    "asset|addon/wavelength/environment/adapters/godot/environment_loader.gd|environment_loader.gd": {
+      "kind": "asset",
+      "path": "addon/wavelength/environment/adapters/godot/environment_loader.gd",
+      "name": "environment_loader.gd",
+      "digest": "dd8be8a145c3bcf5dd8d5bb34f0c7d6f9bc0156630de8784d2f5477d735c6986"
     },
     "asset|addon/wavelength/environment/maps/minimal_goldsrc.map|minimal_goldsrc.map": {
       "kind": "asset",
@@ -919,6 +931,48 @@
       "name": "WL_OT_entity_visual_select",
       "signature": "bpy.types.Operator",
       "digest": "445968fc3914d3d6fd813a41ae7a10d021cc1f1f406f4141a52e57b1b95e3a5f"
+    },
+    "class|addon/wavelength/source/environment_godot.py|WL_OT_export_environment": {
+      "kind": "class",
+      "path": "addon/wavelength/source/environment_godot.py",
+      "name": "WL_OT_export_environment",
+      "signature": "bpy.types.Operator",
+      "digest": "f931f89ff3dce268d81484fd1a7b408465f6707ff08d6900a320b1ebd3662d92"
+    },
+    "class|addon/wavelength/source/environment_layers.py|Surface": {
+      "kind": "class",
+      "path": "addon/wavelength/source/environment_layers.py",
+      "name": "Surface",
+      "signature": "",
+      "digest": "8e560b7d8bb907ace619f6b295ebdb7a7098da3f9e8bab58bed119a7e8ba53b5"
+    },
+    "class|addon/wavelength/source/environment_layers.py|WLEnvironmentLayer": {
+      "kind": "class",
+      "path": "addon/wavelength/source/environment_layers.py",
+      "name": "WLEnvironmentLayer",
+      "signature": "bpy.types.PropertyGroup",
+      "digest": "365cbfb1876aa829267a9c0e37ec39bf3ce7221cedd4605a3eb9bf8efa66ad60"
+    },
+    "class|addon/wavelength/source/environment_layers.py|WL_OT_environment_layer": {
+      "kind": "class",
+      "path": "addon/wavelength/source/environment_layers.py",
+      "name": "WL_OT_environment_layer",
+      "signature": "bpy.types.Operator",
+      "digest": "09668245c2a17b52c8118234bfda1e7d76e244620cdf9bd0f92c9247be9e14e6"
+    },
+    "class|addon/wavelength/source/environment_layers.py|WL_PT_environment_layers": {
+      "kind": "class",
+      "path": "addon/wavelength/source/environment_layers.py",
+      "name": "WL_PT_environment_layers",
+      "signature": "bpy.types.Panel",
+      "digest": "a34d44e1e93b2e2fd212e7ca66141a2494012ad4edf0d490271944bebd621900"
+    },
+    "class|addon/wavelength/source/environment_layers.py|WL_UL_environment_layers": {
+      "kind": "class",
+      "path": "addon/wavelength/source/environment_layers.py",
+      "name": "WL_UL_environment_layers",
+      "signature": "bpy.types.UIList",
+      "digest": "5821564136ef3cc8a8cd013586361ca4eb7aad7c0f86c3e7ac7412a9db4e57e7"
     },
     "class|addon/wavelength/source/export_scope.py|Scope": {
       "kind": "class",
@@ -4915,6 +4969,27 @@
       "signature": "size",
       "digest": "14d108a12985f39c8400253b5a56ac12c9dee6596bdcec30551a5d6ba69f41a0"
     },
+    "function|addon/wavelength/source/distribution.py|candidates": {
+      "kind": "function",
+      "path": "addon/wavelength/source/distribution.py",
+      "name": "candidates",
+      "signature": "bounds, cell_size, density, seed",
+      "digest": "edef0cb5ff84063eb3fdd56c6c821f73661f8fe8683d3d6502bf34ab6adcaff7"
+    },
+    "function|addon/wavelength/source/distribution.py|choose": {
+      "kind": "function",
+      "path": "addon/wavelength/source/distribution.py",
+      "name": "choose",
+      "signature": "seed, address, weights",
+      "digest": "684b2a9af68a43e7973e003fa3deb8a874444888daab7c91e9369ed63cc86a77"
+    },
+    "function|addon/wavelength/source/distribution.py|random_value": {
+      "kind": "function",
+      "path": "addon/wavelength/source/distribution.py",
+      "name": "random_value",
+      "signature": "seed, address, channel",
+      "digest": "15850e1e139dd5b260a19afe815b07f9d57b2796fe862f59b593553f8427874f"
+    },
     "function|addon/wavelength/source/draw_displacement.py|brush": {
       "kind": "function",
       "path": "addon/wavelength/source/draw_displacement.py",
@@ -5845,6 +5920,335 @@
       "name": "signature",
       "signature": "files",
       "digest": "ff72d7cd6727bb9b043f3d657411c635900245cda58eb5ccd862f65eada6d93c"
+    },
+    "function|addon/wavelength/source/environment_adopt.py|_supported": {
+      "kind": "function",
+      "path": "addon/wavelength/source/environment_adopt.py",
+      "name": "_supported",
+      "signature": "material",
+      "digest": "e8ea391de15bb9ec7eebc1954c8811a63d8cdd37232cc6b460445c8e36f5eff6"
+    },
+    "function|addon/wavelength/source/environment_adopt.py|adopt": {
+      "kind": "function",
+      "path": "addon/wavelength/source/environment_adopt.py",
+      "name": "adopt",
+      "signature": "context, terrain, source",
+      "digest": "632d098ca08acd38292677d142592d23cca670dfa11e2dd347f17c0f7a279b85"
+    },
+    "function|addon/wavelength/source/environment_adopt.py|normalize_atlas": {
+      "kind": "function",
+      "path": "addon/wavelength/source/environment_adopt.py",
+      "name": "normalize_atlas",
+      "signature": "original",
+      "digest": "dd136433d7ed3300e199ae80de45edebdc34d8a9f577e814a64769ba0c5a6c5f"
+    },
+    "function|addon/wavelength/source/environment_adopt.py|placement_candidates": {
+      "kind": "function",
+      "path": "addon/wavelength/source/environment_adopt.py",
+      "name": "placement_candidates",
+      "signature": "surface, layer",
+      "digest": "840619b7e861b4cbb65250ea261c74f1551bdf49fb263df9d949040e61805c37"
+    },
+    "function|addon/wavelength/source/environment_adopt.py|prototype": {
+      "kind": "function",
+      "path": "addon/wavelength/source/environment_adopt.py",
+      "name": "prototype",
+      "signature": "source",
+      "digest": "e5f26ad1bad9971fc60fc669feeaa05e0f87b0444f22dd53cdc6f013be4c89b2"
+    },
+    "function|addon/wavelength/source/environment_godot.py|WL_OT_export_environment.execute": {
+      "kind": "function",
+      "path": "addon/wavelength/source/environment_godot.py",
+      "name": "WL_OT_export_environment.execute",
+      "signature": "self, context",
+      "digest": "01dd0fb1a1e211221d968f6de4bd6481747ec8e6e1d32ebc584d12fe4a65b5e4"
+    },
+    "function|addon/wavelength/source/environment_godot.py|WL_OT_export_environment.invoke": {
+      "kind": "function",
+      "path": "addon/wavelength/source/environment_godot.py",
+      "name": "WL_OT_export_environment.invoke",
+      "signature": "self, context, event",
+      "digest": "aa818f57f7ce1859ee46907568dae181d87e844314e3bd4976b9957586623837"
+    },
+    "function|addon/wavelength/source/environment_godot.py|export": {
+      "kind": "function",
+      "path": "addon/wavelength/source/environment_godot.py",
+      "name": "export",
+      "signature": "context, objects, directory",
+      "digest": "c0a8740931e463fdef6a34c70d29ef6c175376e0ff3a1dade5a96db7b907dfc4"
+    },
+    "function|addon/wavelength/source/environment_godot.py|export_mesh": {
+      "kind": "function",
+      "path": "addon/wavelength/source/environment_godot.py",
+      "name": "export_mesh",
+      "signature": "context, obj, directory, name, world=True, material_override=False",
+      "digest": "2fe3ea8eb93bf6cd2df8f98b00af7c4a01c44b3c74135e6a115c7e03447682b1"
+    },
+    "function|addon/wavelength/source/environment_godot.py|godot_transform": {
+      "kind": "function",
+      "path": "addon/wavelength/source/environment_godot.py",
+      "name": "godot_transform",
+      "signature": "matrix",
+      "digest": "7d27423b5627af8bbf37bd661b7166b78151e383ceb638cc5307880b65fc145a"
+    },
+    "function|addon/wavelength/source/environment_godot.py|register": {
+      "kind": "function",
+      "path": "addon/wavelength/source/environment_godot.py",
+      "name": "register",
+      "signature": "",
+      "digest": "1b33f450270b0745d68a967c7d85d7f2f933dea146f8fd7127de46e0df89faa4"
+    },
+    "function|addon/wavelength/source/environment_godot.py|unregister": {
+      "kind": "function",
+      "path": "addon/wavelength/source/environment_godot.py",
+      "name": "unregister",
+      "signature": "",
+      "digest": "ef59e53698a00579f5deb67b7bb4e16515cfe461a00598c26201f4da8c6115b3"
+    },
+    "function|addon/wavelength/source/environment_layers.py|Surface.__init__": {
+      "kind": "function",
+      "path": "addon/wavelength/source/environment_layers.py",
+      "name": "Surface.__init__",
+      "signature": "self, context, obj",
+      "digest": "394fa127314eee0ace75ec07e94df9ebb4ddd27e6d7a18497fa185a4c718c04a"
+    },
+    "function|addon/wavelength/source/environment_layers.py|Surface.close": {
+      "kind": "function",
+      "path": "addon/wavelength/source/environment_layers.py",
+      "name": "Surface.close",
+      "signature": "self",
+      "digest": "4d517ec459bbd4c301f9ef1e3263a6c2861277a9d4d3db4450505633542452c9"
+    },
+    "function|addon/wavelength/source/environment_layers.py|Surface.hit": {
+      "kind": "function",
+      "path": "addon/wavelength/source/environment_layers.py",
+      "name": "Surface.hit",
+      "signature": "self, x, y",
+      "digest": "a75aac9a90f46bbef810e7e2cc0b7e25d9aefc400a888ac1cf70f907f6beac4a"
+    },
+    "function|addon/wavelength/source/environment_layers.py|Surface.weight": {
+      "kind": "function",
+      "path": "addon/wavelength/source/environment_layers.py",
+      "name": "Surface.weight",
+      "signature": "self, name, point, triangle",
+      "digest": "23209c27602d9f0808381edaabf8c39c4a7a724894eef43254471a6ec6777340"
+    },
+    "function|addon/wavelength/source/environment_layers.py|WL_OT_environment_layer.edit_action": {
+      "kind": "function",
+      "path": "addon/wavelength/source/environment_layers.py",
+      "name": "WL_OT_environment_layer.edit_action",
+      "signature": "self, context, proxy",
+      "digest": "f1e84f242b899c5701cc4e5f2099addc27353ed298e1832676ded77421bc852b"
+    },
+    "function|addon/wavelength/source/environment_layers.py|WL_OT_environment_layer.execute": {
+      "kind": "function",
+      "path": "addon/wavelength/source/environment_layers.py",
+      "name": "WL_OT_environment_layer.execute",
+      "signature": "self, context",
+      "digest": "cf725d5f9aa72469a46fca3605fef0b0b378ec11aec3600c546f780cb4dc876d"
+    },
+    "function|addon/wavelength/source/environment_layers.py|WL_OT_environment_layer.poll": {
+      "kind": "function",
+      "path": "addon/wavelength/source/environment_layers.py",
+      "name": "WL_OT_environment_layer.poll",
+      "signature": "cls, context",
+      "digest": "4a04ef1a1760a16f684d0f725ce59235a245c456b91fdd3d6978d0f2b0fb54dc"
+    },
+    "function|addon/wavelength/source/environment_layers.py|WL_PT_environment_layers.draw": {
+      "kind": "function",
+      "path": "addon/wavelength/source/environment_layers.py",
+      "name": "WL_PT_environment_layers.draw",
+      "signature": "self, context",
+      "digest": "72685e64f5dea70a3dea6a508cc2e0bec2eac897ad646e3faba79734b58a2a4a"
+    },
+    "function|addon/wavelength/source/environment_layers.py|WL_PT_environment_layers.draw.button": {
+      "kind": "function",
+      "path": "addon/wavelength/source/environment_layers.py",
+      "name": "WL_PT_environment_layers.draw.button",
+      "signature": "row, text, action, kind='DISTRIBUTION'",
+      "digest": "cf9703e4ad777b557e12ccfb114be723290f430004afebb043179dd7af2840e4"
+    },
+    "function|addon/wavelength/source/environment_layers.py|WL_PT_environment_layers.poll": {
+      "kind": "function",
+      "path": "addon/wavelength/source/environment_layers.py",
+      "name": "WL_PT_environment_layers.poll",
+      "signature": "cls, context",
+      "digest": "ca8c31841a2d3f7c216bf7e0a975f327613cef899484a6c20d97fe5ed73f067c"
+    },
+    "function|addon/wavelength/source/environment_layers.py|WL_UL_environment_layers.draw_item": {
+      "kind": "function",
+      "path": "addon/wavelength/source/environment_layers.py",
+      "name": "WL_UL_environment_layers.draw_item",
+      "signature": "self, context, layout, data, item, icon, active_data, active_propname, index",
+      "digest": "e4c1ae7166ebd3ad433127e39d959d26aa24621319728439e484e960751f9d5b"
+    },
+    "function|addon/wavelength/source/environment_layers.py|active_layer": {
+      "kind": "function",
+      "path": "addon/wavelength/source/environment_layers.py",
+      "name": "active_layer",
+      "signature": "obj",
+      "digest": "3117b3c5e9877e60bf00139a8b196131e916f61ebbc3dfbd17dbe7de85e0719d"
+    },
+    "function|addon/wavelength/source/environment_layers.py|add_layer": {
+      "kind": "function",
+      "path": "addon/wavelength/source/environment_layers.py",
+      "name": "add_layer",
+      "signature": "obj, kind='DISTRIBUTION', name='Trees'",
+      "digest": "1cdd8d673996caa9995de377b10f8cde94848ca00ff39d9932fb582a83c875e6"
+    },
+    "function|addon/wavelength/source/environment_layers.py|fork_layer_set": {
+      "kind": "function",
+      "path": "addon/wavelength/source/environment_layers.py",
+      "name": "fork_layer_set",
+      "signature": "obj",
+      "digest": "1abcccf65051a2f1d1fc89a5a8c345046bc4b2813dfb2c539aceb078ef1a0164"
+    },
+    "function|addon/wavelength/source/environment_layers.py|identity": {
+      "kind": "function",
+      "path": "addon/wavelength/source/environment_layers.py",
+      "name": "identity",
+      "signature": "obj",
+      "digest": "8a62f8355876452fe7f7d7b37ad1add0bf481b07d554137ee723f3a67b4c0c2c"
+    },
+    "function|addon/wavelength/source/environment_layers.py|overrides": {
+      "kind": "function",
+      "path": "addon/wavelength/source/environment_layers.py",
+      "name": "overrides",
+      "signature": "layer",
+      "digest": "1a44cc120cc8d722d3f093e32731c5df80e46f0ded7a3181285d419b91c492a4"
+    },
+    "function|addon/wavelength/source/environment_layers.py|palette": {
+      "kind": "function",
+      "path": "addon/wavelength/source/environment_layers.py",
+      "name": "palette",
+      "signature": "layer",
+      "digest": "c1dd88158ce9fc7105cf38622aaaeaf26d5db0db032311dafc0ea535a5afb5f6"
+    },
+    "function|addon/wavelength/source/environment_layers.py|preview": {
+      "kind": "function",
+      "path": "addon/wavelength/source/environment_layers.py",
+      "name": "preview",
+      "signature": "context, obj, layer",
+      "digest": "6029396ae5f2350bd270d3b4511971d39f507f7d47d09e68c985593156ba3790"
+    },
+    "function|addon/wavelength/source/environment_layers.py|read_overrides": {
+      "kind": "function",
+      "path": "addon/wavelength/source/environment_layers.py",
+      "name": "read_overrides",
+      "signature": "layer",
+      "digest": "90bf57557c2d1ba30da50f8437607245ff514990b014c88f89ff25b965f1fbde"
+    },
+    "function|addon/wavelength/source/environment_layers.py|records": {
+      "kind": "function",
+      "path": "addon/wavelength/source/environment_layers.py",
+      "name": "records",
+      "signature": "context, obj, layer, surface=None",
+      "digest": "8aeecd64efc0a71be683323adc340c0e9e6a9ae490ee17f7237beab0ef402a3e"
+    },
+    "function|addon/wavelength/source/environment_layers.py|register": {
+      "kind": "function",
+      "path": "addon/wavelength/source/environment_layers.py",
+      "name": "register",
+      "signature": "",
+      "digest": "bdee2e2b18c6d32f56206c1bba1f6a97ddaec76944e325911f5aedea6ad8e7b1"
+    },
+    "function|addon/wavelength/source/environment_layers.py|set_override": {
+      "kind": "function",
+      "path": "addon/wavelength/source/environment_layers.py",
+      "name": "set_override",
+      "signature": "layer, address, prototype=None, matrix=None, delete=False",
+      "digest": "d71751da5aaf53544da3b9e017ff33da4f51690ab6e53bcd2aacfcfe88aee311"
+    },
+    "function|addon/wavelength/source/environment_layers.py|stamp": {
+      "kind": "function",
+      "path": "addon/wavelength/source/environment_layers.py",
+      "name": "stamp",
+      "signature": "obj, layer, center, radius, value, strength=1.0",
+      "digest": "9da29b38dc7d34187cfd557fc7c5d0a6d4607c29ed1c396946c305ded751dc14"
+    },
+    "function|addon/wavelength/source/environment_layers.py|unregister": {
+      "kind": "function",
+      "path": "addon/wavelength/source/environment_layers.py",
+      "name": "unregister",
+      "signature": "",
+      "digest": "0d0d2ed1bfcb520770fb8a24fda19f733391bfc946c1e4cbb008eeddf2c0348f"
+    },
+    "function|addon/wavelength/source/environment_layers.py|write_overrides": {
+      "kind": "function",
+      "path": "addon/wavelength/source/environment_layers.py",
+      "name": "write_overrides",
+      "signature": "layer, value",
+      "digest": "2ae73f4d0f9e7ca48aabc2210a9e0d6261a0c05e1ed3b69e2371efb473f46836"
+    },
+    "function|addon/wavelength/source/environment_materials.py|biome_preview_group": {
+      "kind": "function",
+      "path": "addon/wavelength/source/environment_materials.py",
+      "name": "biome_preview_group",
+      "signature": "base, biome=None",
+      "digest": "b6de565086a5fee6fd86f70e2ca091b40bab4178ba4e66915368e5df69bc93b0"
+    },
+    "function|addon/wavelength/source/environment_materials.py|biome_preview_group.math": {
+      "kind": "function",
+      "path": "addon/wavelength/source/environment_materials.py",
+      "name": "biome_preview_group.math",
+      "signature": "op, a, b",
+      "digest": "e8dcc2b01cc9071760e329634b3462ff5057649f5017c869bf214f95f3253c7c"
+    },
+    "function|addon/wavelength/source/environment_materials.py|biome_preview_group.vector": {
+      "kind": "function",
+      "path": "addon/wavelength/source/environment_materials.py",
+      "name": "biome_preview_group.vector",
+      "signature": "op, a, b",
+      "digest": "6fc314c4d0bd100cf351230dc0f3839906c0b50046ab1575901ca49c968746e2"
+    },
+    "function|addon/wavelength/source/environment_materials.py|env_id": {
+      "kind": "function",
+      "path": "addon/wavelength/source/environment_materials.py",
+      "name": "env_id",
+      "signature": "obj",
+      "digest": "08e27f5e4920a6f9d4fde7098c94d623aa396f1a97b051cbf292fde19f76a48d"
+    },
+    "function|addon/wavelength/source/environment_materials.py|export_description": {
+      "kind": "function",
+      "path": "addon/wavelength/source/environment_materials.py",
+      "name": "export_description",
+      "signature": "obj, surface, stage",
+      "digest": "56e82785119c3c3a21a47da15a907f3473acd3006b44c046a3edb4bf0d794091"
+    },
+    "function|addon/wavelength/source/environment_materials.py|local_biomes": {
+      "kind": "function",
+      "path": "addon/wavelength/source/environment_materials.py",
+      "name": "local_biomes",
+      "signature": "obj, base",
+      "digest": "bd7b3f8eb514fc054fe79ebc4e98233d55f391445e32bee93fe7a37badadd105"
+    },
+    "function|addon/wavelength/source/environment_materials.py|pbr_description": {
+      "kind": "function",
+      "path": "addon/wavelength/source/environment_materials.py",
+      "name": "pbr_description",
+      "signature": "material, stage, key",
+      "digest": "f20d48b386f87de138939999f8dc9e9a558252cf92784c3ba398def9830ad4a9"
+    },
+    "function|addon/wavelength/source/environment_materials.py|refresh": {
+      "kind": "function",
+      "path": "addon/wavelength/source/environment_materials.py",
+      "name": "refresh",
+      "signature": "obj",
+      "digest": "05c1b2342f0f09460c7ccdccbefa3afc4f99e305cb9cc8e43d51ab08b1bd01f8"
+    },
+    "function|addon/wavelength/source/environment_materials.py|save_image": {
+      "kind": "function",
+      "path": "addon/wavelength/source/environment_materials.py",
+      "name": "save_image",
+      "signature": "image, path",
+      "digest": "9f4ecc8bb75cdbaa5354c9aca3b8160a21ab6ca4a90ccd279608a4f1d996132b"
+    },
+    "function|addon/wavelength/source/environment_materials.py|shader_group": {
+      "kind": "function",
+      "path": "addon/wavelength/source/environment_materials.py",
+      "name": "shader_group",
+      "signature": "material, biome=None, allowed=None",
+      "digest": "452bacc4afab49720f2bbc6e67c419f99c8789c9b8e0648911c5c0071f8fbd88"
     },
     "function|addon/wavelength/source/export_scope.py|Scope.__init__": {
       "kind": "function",
@@ -13194,7 +13598,7 @@
       "path": "addon/wavelength/source/terrain_revision.py",
       "name": "copy_surface",
       "signature": "source",
-      "digest": "96640a37f511bf1431964fa81ba6cb2b6d2917fbfe0b63f46b36b149d5d10c9d"
+      "digest": "1fd1817bfc5451f054e2fb469d07c32622f8b3452e58590a64defed1b224a330"
     },
     "function|addon/wavelength/source/terrain_revision.py|register": {
       "kind": "function",
@@ -13586,7 +13990,7 @@
       "path": "addon/wavelength/source/terrain_surface.py",
       "name": "register",
       "signature": "",
-      "digest": "4cdb0e8088d7ffe2756a8f4523f97d4fff3453d1b318178e913b03d259973a58"
+      "digest": "01698eef25bdd7edeeebdf2ef34840dc1f6e1af6dae5761b3b798556e2e2927e"
     },
     "function|addon/wavelength/source/terrain_surface.py|sample": {
       "kind": "function",
@@ -13607,7 +14011,7 @@
       "path": "addon/wavelength/source/terrain_surface.py",
       "name": "unregister",
       "signature": "",
-      "digest": "0b193009ff1e8a38ecca67b521c6145e55e7c64f8442355b52ebaa92a5a716d0"
+      "digest": "fb356b9913aa292916b1885b0d1707b9dfe566f3c826d1cc67035d78b737cc5c"
     },
     "function|addon/wavelength/source/texture_layout.py|WL_GGT_texture_handles.draw_prepare": {
       "kind": "function",
@@ -16092,7 +16496,7 @@
       "path": "installer/wavelength_installer/source_bundle.py",
       "name": "addon_files",
       "signature": "addon",
-      "digest": "afc79c7080cb1b195cf98af6815d820d27133182221bccf6a3dc1318d0bcbed6"
+      "digest": "c6a57f3df2f1cb520f9c0234db8a5cbc02c2df85776e17b95f68a09e16038337"
     },
     "function|installer/wavelength_installer/source_bundle.py|bundle_from_source": {
       "kind": "function",
@@ -16798,6 +17202,26 @@
       "kind": "hook",
       "path": "addon/wavelength/source/entity/interaction.py",
       "name": "bpy.utils.unregister_class(WL_OT_entity_visual_select)"
+    },
+    "hook|addon/wavelength/source/environment_godot.py|bpy.utils.register_class(WL_OT_export_environment)": {
+      "kind": "hook",
+      "path": "addon/wavelength/source/environment_godot.py",
+      "name": "bpy.utils.register_class(WL_OT_export_environment)"
+    },
+    "hook|addon/wavelength/source/environment_godot.py|bpy.utils.unregister_class(WL_OT_export_environment)": {
+      "kind": "hook",
+      "path": "addon/wavelength/source/environment_godot.py",
+      "name": "bpy.utils.unregister_class(WL_OT_export_environment)"
+    },
+    "hook|addon/wavelength/source/environment_layers.py|bpy.utils.register_class(cls)": {
+      "kind": "hook",
+      "path": "addon/wavelength/source/environment_layers.py",
+      "name": "bpy.utils.register_class(cls)"
+    },
+    "hook|addon/wavelength/source/environment_layers.py|bpy.utils.unregister_class(cls)": {
+      "kind": "hook",
+      "path": "addon/wavelength/source/environment_layers.py",
+      "name": "bpy.utils.unregister_class(cls)"
     },
     "hook|addon/wavelength/source/export_scope.py|bpy.app.handlers.depsgraph_update_post.append(policy_update)": {
       "kind": "hook",
@@ -17638,7 +18062,7 @@
       "kind": "ledger",
       "path": "documentation/FEATURES.md",
       "name": "behavioral-contracts",
-      "digest": "a16c345427deaa22d0d5d25c43df2036f61524a1d5900a63db235aa89b139105"
+      "digest": "1b53322dbc081e4ae66ae612a74397027548f60dc63b946688b23a6fb4460498"
     },
     "module|addon/wavelength/__init__.py|__init__": {
       "kind": "module",
@@ -17829,6 +18253,13 @@
       "description": "Source displacement data and geometry, independent of Blender.\n\nRows follow Valve's start-corner ordering: columns run along corner 0 -> 3,\nrows along 0 -> 1 in Source's clockwise winding (CCW in our mesh adapter).",
       "digest": "400d9a25261e134d3fa684aae315396953197420fa5df5ca233918c8a2e6a9f2"
     },
+    "module|addon/wavelength/source/distribution.py|distribution": {
+      "kind": "module",
+      "path": "addon/wavelength/source/distribution.py",
+      "name": "distribution",
+      "description": "Deterministic distribution candidates. No Blender or engine dependencies.\n\nStable cell addresses make paint/density edits local. Mesh surface projection,\nmask evaluation and preview are adapters, not sources of placement identity.",
+      "digest": "270d1f81099efb61591727cc1fa8dbf403f3cfc9983f0056eb29d522fd9ea365"
+    },
     "module|addon/wavelength/source/draw_displacement.py|draw_displacement": {
       "kind": "module",
       "path": "addon/wavelength/source/draw_displacement.py",
@@ -17926,6 +18357,34 @@
       "name": "source_schema",
       "description": "Use the selected game's installed Hammer schema, never a Source-wide union.",
       "digest": "62d531131362c0cb59609f71e23b1ac43204b2e8b1f3f4d46fc170595a6706a3"
+    },
+    "module|addon/wavelength/source/environment_adopt.py|environment_adopt": {
+      "kind": "module",
+      "path": "addon/wavelength/source/environment_adopt.py",
+      "name": "environment_adopt",
+      "description": "Adopt existing native point-instance sets without flattening or losing the remainder.",
+      "digest": "2c6b74c10143dc99e2bd45bad1304864f23ce9831ff57718844baddbd2a3bd0f"
+    },
+    "module|addon/wavelength/source/environment_godot.py|environment_godot": {
+      "kind": "module",
+      "path": "addon/wavelength/source/environment_godot.py",
+      "name": "environment_godot",
+      "description": "Godot environment bundle adapter. Runtime policy stays in the game.\n\nGLBs contain terrain modules and shared prototypes, never flattened forests.\nSchema-1 JSON retains masks, rules, IDs, overrides and Y-up instance matrices.",
+      "digest": "bcd9e331fdd99fc09bc3a0690c5f532ac33f7f91431ece19d8c98897d683f7dc"
+    },
+    "module|addon/wavelength/source/environment_layers.py|environment_layers": {
+      "kind": "module",
+      "path": "addon/wavelength/source/environment_layers.py",
+      "name": "environment_layers",
+      "description": "Authored terrain masks, deterministic rules, shared instances and overrides.\n\nSchema 1 lives in native mesh vertex groups and Object RNA layer records. Generated\npoint geometry is disposable. No depsgraph handlers or whole-world rescatters.",
+      "digest": "bae0e81165974fbdae8b52bb376373bd1c341a8309f0b009d514084339fc86ff"
+    },
+    "module|addon/wavelength/source/environment_materials.py|environment_materials": {
+      "kind": "module",
+      "path": "addon/wavelength/source/environment_materials.py",
+      "name": "environment_materials",
+      "description": "Independent live native paint attributes and shader composition.\n\nPrivateer's six-biome palette is an explicit material adapter, not engine policy.",
+      "digest": "71fb5c3e8f74e4c226627761e4801291123c4d686cfb0f347d32c23a76ce92b8"
     },
     "module|addon/wavelength/source/export_scope.py|export_scope": {
       "kind": "module",
@@ -18513,7 +18972,7 @@
       "path": "addon/wavelength/source/terrain_revision.py",
       "name": "terrain_revision",
       "description": "Native weight painting and persistent checkpoints for continuous terrain.",
-      "digest": "f8cf737963511c3be9d674bb308e7e760d223d11175941b5390c7c4f571ca18d"
+      "digest": "ffd781342acc16f2c06e4664c30922ea579e803f16a510f6c16f24641aa6c4c8"
     },
     "module|addon/wavelength/source/terrain_sew.py|terrain_sew": {
       "kind": "module",
@@ -18527,7 +18986,7 @@
       "path": "addon/wavelength/source/terrain_surface.py",
       "name": "terrain_surface",
       "description": "Prototype parameter-domain sampling for continuous terrain.",
-      "digest": "481cfee0197ebe56e1bb77e503b7ceb67fbc8135955277b7e4a64571b91aa618"
+      "digest": "0c09861a5aaccceb95fb216a3c28d37e58ee193d57abf03dec4d5d26cd334f43"
     },
     "module|addon/wavelength/source/texture_layout.py|texture_layout": {
       "kind": "module",
@@ -18723,7 +19182,7 @@
       "path": "installer/wavelength_installer/source_bundle.py",
       "name": "source_bundle",
       "description": "Run the installer directly from the source tree without a separate add-on ZIP.",
-      "digest": "3a6e55d19876fb4a034de12caf7368616a3bb00a19ebe17f1b737ba0e40d4e59"
+      "digest": "d0ce20ef2ca3baf1fd359979b82eaae96cc97becfe18d59abb74b0c8c007d7ff"
     },
     "module|tools/build_installer.py|build_installer": {
       "kind": "module",
@@ -19688,6 +20147,186 @@
       "path": "addon/wavelength/source/entity/browser.py",
       "name": "WL_OT_entity_browser.section",
       "declaration": "bpy.props.EnumProperty(name='Section', items=[('', 'Current', 'Keep current section'), ('TEXTURES', 'Textures', 'Browse profile textures'), ('ENTITIES', 'Entities', 'Browse profile entities'), ('MODELS', 'Models', 'Assign an engine model to the selected entity')], default='', options={'SKIP_SAVE'})"
+    },
+    "setting|addon/wavelength/source/environment_godot.py|WL_OT_export_environment.directory": {
+      "kind": "setting",
+      "path": "addon/wavelength/source/environment_godot.py",
+      "name": "WL_OT_export_environment.directory",
+      "declaration": "bpy.props.StringProperty(name='Bundle Directory', subtype='DIR_PATH')"
+    },
+    "setting|addon/wavelength/source/environment_layers.py|WLEnvironmentLayer.adopt_remainder": {
+      "kind": "setting",
+      "path": "addon/wavelength/source/environment_layers.py",
+      "name": "WLEnvironmentLayer.adopt_remainder",
+      "declaration": "PointerProperty(type=bpy.types.Object)"
+    },
+    "setting|addon/wavelength/source/environment_layers.py|WLEnvironmentLayer.adopt_source": {
+      "kind": "setting",
+      "path": "addon/wavelength/source/environment_layers.py",
+      "name": "WLEnvironmentLayer.adopt_source",
+      "declaration": "PointerProperty(type=bpy.types.Object)"
+    },
+    "setting|addon/wavelength/source/environment_layers.py|WLEnvironmentLayer.align_normal": {
+      "kind": "setting",
+      "path": "addon/wavelength/source/environment_layers.py",
+      "name": "WLEnvironmentLayer.align_normal",
+      "declaration": "BoolProperty(name='Align to Surface', default=False)"
+    },
+    "setting|addon/wavelength/source/environment_layers.py|WLEnvironmentLayer.biome": {
+      "kind": "setting",
+      "path": "addon/wavelength/source/environment_layers.py",
+      "name": "WLEnvironmentLayer.biome",
+      "declaration": "EnumProperty(name='Paint Surface', items=[('CUSTOM', 'Custom Material', '')] + [(str(i), name, 'Privateer native biome') for i, name in enumerate(('Mixed Woodland', 'Meadow', 'Conifer Upland', 'Wetland', 'Rocky Heath', 'Coastal Shore'))])"
+    },
+    "setting|addon/wavelength/source/environment_layers.py|WLEnvironmentLayer.cell_size": {
+      "kind": "setting",
+      "path": "addon/wavelength/source/environment_layers.py",
+      "name": "WLEnvironmentLayer.cell_size",
+      "declaration": "FloatProperty(name='Candidate Cell (m)', default=4, min=0.01)"
+    },
+    "setting|addon/wavelength/source/environment_layers.py|WLEnvironmentLayer.density": {
+      "kind": "setting",
+      "path": "addon/wavelength/source/environment_layers.py",
+      "name": "WLEnvironmentLayer.density",
+      "declaration": "FloatProperty(name='Instances / m²', default=0.08, min=0)"
+    },
+    "setting|addon/wavelength/source/environment_layers.py|WLEnvironmentLayer.enabled": {
+      "kind": "setting",
+      "path": "addon/wavelength/source/environment_layers.py",
+      "name": "WLEnvironmentLayer.enabled",
+      "declaration": "BoolProperty(name='Enabled', default=True)"
+    },
+    "setting|addon/wavelength/source/environment_layers.py|WLEnvironmentLayer.follow_terrain": {
+      "kind": "setting",
+      "path": "addon/wavelength/source/environment_layers.py",
+      "name": "WLEnvironmentLayer.follow_terrain",
+      "declaration": "BoolProperty(name='Follow Sculpted Terrain', default=True)"
+    },
+    "setting|addon/wavelength/source/environment_layers.py|WLEnvironmentLayer.kind": {
+      "kind": "setting",
+      "path": "addon/wavelength/source/environment_layers.py",
+      "name": "WLEnvironmentLayer.kind",
+      "declaration": "EnumProperty(items=[('DISTRIBUTION', 'Distribution', 'Trees, vegetation or rocks'), ('EXCLUSION', 'Exclusion', 'Clear generated placements; manual overrides survive'), ('MATERIAL', 'Material Mask', 'Independent terrain material coverage')])"
+    },
+    "setting|addon/wavelength/source/environment_layers.py|WLEnvironmentLayer.manual_prototype": {
+      "kind": "setting",
+      "path": "addon/wavelength/source/environment_layers.py",
+      "name": "WLEnvironmentLayer.manual_prototype",
+      "declaration": "PointerProperty(type=bpy.types.Object, name='Manual Prototype')"
+    },
+    "setting|addon/wavelength/source/environment_layers.py|WLEnvironmentLayer.mask": {
+      "kind": "setting",
+      "path": "addon/wavelength/source/environment_layers.py",
+      "name": "WLEnvironmentLayer.mask",
+      "declaration": "StringProperty()"
+    },
+    "setting|addon/wavelength/source/environment_layers.py|WLEnvironmentLayer.material": {
+      "kind": "setting",
+      "path": "addon/wavelength/source/environment_layers.py",
+      "name": "WLEnvironmentLayer.material",
+      "declaration": "PointerProperty(type=bpy.types.Material, name='Material Reference')"
+    },
+    "setting|addon/wavelength/source/environment_layers.py|WLEnvironmentLayer.max_slope": {
+      "kind": "setting",
+      "path": "addon/wavelength/source/environment_layers.py",
+      "name": "WLEnvironmentLayer.max_slope",
+      "declaration": "FloatProperty(name='Maximum Slope', default=45, min=0, max=90)"
+    },
+    "setting|addon/wavelength/source/environment_layers.py|WLEnvironmentLayer.mode": {
+      "kind": "setting",
+      "path": "addon/wavelength/source/environment_layers.py",
+      "name": "WLEnvironmentLayer.mode",
+      "declaration": "EnumProperty(items=[('SCATTER', 'Generated', 'Seeded coverage distribution'), ('PLACEMENTS', 'Adopted Points', 'Retain and edit existing native placements')])"
+    },
+    "setting|addon/wavelength/source/environment_layers.py|WLEnvironmentLayer.overrides": {
+      "kind": "setting",
+      "path": "addon/wavelength/source/environment_layers.py",
+      "name": "WLEnvironmentLayer.overrides",
+      "declaration": "StringProperty(get=read_overrides, set=write_overrides)"
+    },
+    "setting|addon/wavelength/source/environment_layers.py|WLEnvironmentLayer.palette": {
+      "kind": "setting",
+      "path": "addon/wavelength/source/environment_layers.py",
+      "name": "WLEnvironmentLayer.palette",
+      "declaration": "PointerProperty(type=bpy.types.Collection, name='Asset Palette')"
+    },
+    "setting|addon/wavelength/source/environment_layers.py|WLEnvironmentLayer.placements": {
+      "kind": "setting",
+      "path": "addon/wavelength/source/environment_layers.py",
+      "name": "WLEnvironmentLayer.placements",
+      "declaration": "PointerProperty(type=bpy.types.Object)"
+    },
+    "setting|addon/wavelength/source/environment_layers.py|WLEnvironmentLayer.preview": {
+      "kind": "setting",
+      "path": "addon/wavelength/source/environment_layers.py",
+      "name": "WLEnvironmentLayer.preview",
+      "declaration": "PointerProperty(type=bpy.types.Object)"
+    },
+    "setting|addon/wavelength/source/environment_layers.py|WLEnvironmentLayer.preview_fraction": {
+      "kind": "setting",
+      "path": "addon/wavelength/source/environment_layers.py",
+      "name": "WLEnvironmentLayer.preview_fraction",
+      "declaration": "FloatProperty(name='Preview Fraction', default=1, min=0, max=1)"
+    },
+    "setting|addon/wavelength/source/environment_layers.py|WLEnvironmentLayer.scale_max": {
+      "kind": "setting",
+      "path": "addon/wavelength/source/environment_layers.py",
+      "name": "WLEnvironmentLayer.scale_max",
+      "declaration": "FloatProperty(name='Maximum Scale', default=1.2, min=0.001)"
+    },
+    "setting|addon/wavelength/source/environment_layers.py|WLEnvironmentLayer.scale_min": {
+      "kind": "setting",
+      "path": "addon/wavelength/source/environment_layers.py",
+      "name": "WLEnvironmentLayer.scale_min",
+      "declaration": "FloatProperty(name='Minimum Scale', default=0.8, min=0.001)"
+    },
+    "setting|addon/wavelength/source/environment_layers.py|WLEnvironmentLayer.seed": {
+      "kind": "setting",
+      "path": "addon/wavelength/source/environment_layers.py",
+      "name": "WLEnvironmentLayer.seed",
+      "declaration": "IntProperty(name='Seed', default=1)"
+    },
+    "setting|addon/wavelength/source/environment_layers.py|WLEnvironmentLayer.source_hidden": {
+      "kind": "setting",
+      "path": "addon/wavelength/source/environment_layers.py",
+      "name": "WLEnvironmentLayer.source_hidden",
+      "declaration": "BoolProperty()"
+    },
+    "setting|addon/wavelength/source/environment_layers.py|WLEnvironmentLayer.source_origin": {
+      "kind": "setting",
+      "path": "addon/wavelength/source/environment_layers.py",
+      "name": "WLEnvironmentLayer.source_origin",
+      "declaration": "StringProperty()"
+    },
+    "setting|addon/wavelength/source/environment_layers.py|WLEnvironmentLayer.source_render_hidden": {
+      "kind": "setting",
+      "path": "addon/wavelength/source/environment_layers.py",
+      "name": "WLEnvironmentLayer.source_render_hidden",
+      "declaration": "BoolProperty()"
+    },
+    "setting|addon/wavelength/source/environment_layers.py|WLEnvironmentLayer.status": {
+      "kind": "setting",
+      "path": "addon/wavelength/source/environment_layers.py",
+      "name": "WLEnvironmentLayer.status",
+      "declaration": "StringProperty()"
+    },
+    "setting|addon/wavelength/source/environment_layers.py|WLEnvironmentLayer.uid": {
+      "kind": "setting",
+      "path": "addon/wavelength/source/environment_layers.py",
+      "name": "WLEnvironmentLayer.uid",
+      "declaration": "StringProperty()"
+    },
+    "setting|addon/wavelength/source/environment_layers.py|WL_OT_environment_layer.action": {
+      "kind": "setting",
+      "path": "addon/wavelength/source/environment_layers.py",
+      "name": "WL_OT_environment_layer.action",
+      "declaration": "EnumProperty(items=[(v, v.title(), '') for v in ('ADD', 'ADOPT', 'MATERIAL_PREVIEW', 'REMOVE', 'PAINT', 'REFRESH', 'FILL', 'CLEAR', 'MANUAL', 'EDIT', 'KEEP', 'DISCARD', 'DELETE')])"
+    },
+    "setting|addon/wavelength/source/environment_layers.py|WL_OT_environment_layer.kind": {
+      "kind": "setting",
+      "path": "addon/wavelength/source/environment_layers.py",
+      "name": "WL_OT_environment_layer.kind",
+      "declaration": "EnumProperty(items=[(v, v.title(), '') for v in ('DISTRIBUTION', 'EXCLUSION', 'MATERIAL')])"
     },
     "setting|addon/wavelength/source/export_scope.py|WL_OT_export_inclusion.category": {
       "kind": "setting",
@@ -22095,6 +22734,18 @@
       "name": "blender_entity_visual_interaction",
       "digest": "931e0e49679828ddd6af92cdd633ff2b211ff1da303f47f2b6d22d83c52de4f7"
     },
+    "test|tests/blender_environment_adoption.py|blender_environment_adoption": {
+      "kind": "test",
+      "path": "tests/blender_environment_adoption.py",
+      "name": "blender_environment_adoption",
+      "digest": "e9062165b196a044d46549444eaf9f3dff0d37c8834badb7ee3faf5b032a5002"
+    },
+    "test|tests/blender_environment_layers.py|blender_environment_layers": {
+      "kind": "test",
+      "path": "tests/blender_environment_layers.py",
+      "name": "blender_environment_layers",
+      "digest": "b08ea1f533ce07db61bb4f3b98d2a547b99e9a8cf5497e6b18fb678f4af769e6"
+    },
     "test|tests/blender_export_inclusion.py|blender_export_inclusion": {
       "kind": "test",
       "path": "tests/blender_export_inclusion.py",
@@ -22484,6 +23135,12 @@
       "path": "tests/blender_picker_reveal_ui.py",
       "name": "blender_picker_reveal_ui",
       "digest": "069c9ee12e258fa7138dc87210125f975b436ea65d1a76eb9f19c0bae4d16a5c"
+    },
+    "test|tests/blender_privateer_environment.py|blender_privateer_environment": {
+      "kind": "test",
+      "path": "tests/blender_privateer_environment.py",
+      "name": "blender_privateer_environment",
+      "digest": "9e0b3d73649b4f803fbcf10b0d4c52582608f9dde8f385b8f824b83309f7f4f1"
     },
     "test|tests/blender_procedural.py|blender_procedural": {
       "kind": "test",
@@ -23079,6 +23736,12 @@
       "name": "test_displacement",
       "digest": "ae12974efd74d8d833c10cdf3c6654085db378868b83f67a69869402c3301502"
     },
+    "test|tests/test_distribution.py|test_distribution": {
+      "kind": "test",
+      "path": "tests/test_distribution.py",
+      "name": "test_distribution",
+      "digest": "ec030a98cf7243c208861f0c563354d10c4104c5892cbb9be093b4250254c032"
+    },
     "test|tests/test_docs.py|test_docs": {
       "kind": "test",
       "path": "tests/test_docs.py",
@@ -23263,7 +23926,7 @@
       "kind": "test",
       "path": "tests/test_source_bundle.py",
       "name": "test_source_bundle",
-      "digest": "dad9beb56e584136081e32b30d74df86c2a3d85d5ec6a988bb86c2cb8c7d5f9b"
+      "digest": "1897e0b784ab35d94dbd19e5ee88f838bc50428a1a0c67228076255a5e59cdb6"
     },
     "test|tests/test_source_schema.py|test_source_schema": {
       "kind": "test",
@@ -23978,6 +24641,42 @@
       "path": "addon/wavelength/source/entity/interaction.py",
       "name": "WL_OT_entity_visual_select.bl_label",
       "value": "'Select Entity Representation'"
+    },
+    "ui|addon/wavelength/source/environment_godot.py|WL_OT_export_environment.bl_idname": {
+      "kind": "ui",
+      "path": "addon/wavelength/source/environment_godot.py",
+      "name": "WL_OT_export_environment.bl_idname",
+      "value": "'wavelength.export_environment'"
+    },
+    "ui|addon/wavelength/source/environment_godot.py|WL_OT_export_environment.bl_label": {
+      "kind": "ui",
+      "path": "addon/wavelength/source/environment_godot.py",
+      "name": "WL_OT_export_environment.bl_label",
+      "value": "'Export Environment to Godot'"
+    },
+    "ui|addon/wavelength/source/environment_layers.py|WL_OT_environment_layer.bl_idname": {
+      "kind": "ui",
+      "path": "addon/wavelength/source/environment_layers.py",
+      "name": "WL_OT_environment_layer.bl_idname",
+      "value": "'wavelength.environment_layer'"
+    },
+    "ui|addon/wavelength/source/environment_layers.py|WL_OT_environment_layer.bl_label": {
+      "kind": "ui",
+      "path": "addon/wavelength/source/environment_layers.py",
+      "name": "WL_OT_environment_layer.bl_label",
+      "value": "'Environment Layer'"
+    },
+    "ui|addon/wavelength/source/environment_layers.py|WL_PT_environment_layers.bl_label": {
+      "kind": "ui",
+      "path": "addon/wavelength/source/environment_layers.py",
+      "name": "WL_PT_environment_layers.bl_label",
+      "value": "'Environment Layers'"
+    },
+    "ui|addon/wavelength/source/environment_layers.py|WL_PT_environment_layers.bl_space_type": {
+      "kind": "ui",
+      "path": "addon/wavelength/source/environment_layers.py",
+      "name": "WL_PT_environment_layers.bl_space_type",
+      "value": "'VIEW_3D'"
     },
     "ui|addon/wavelength/source/export_scope.py|WL_OT_export_inclusion.bl_idname": {
       "kind": "ui",

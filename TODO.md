@@ -1,5 +1,14 @@
 # wavelength TODO
 
+Current product priorities are organized by the
+[integrated eight-milestone roadmap](documentation/ROADMAP.md), revised
+19 November 2026 after v0.51.0-pre.alpha. The dated subsystem checklist below is
+historical working material and requires a source/evidence audit before being
+used as a current completion report. The next planned integration is a common
+project model for identity, revisions, scopes, compositions and procedural inputs,
+proved first through a small model-state workflow. No new runtime behavior is
+implemented by this planning update.
+
 Updated: 21 October 2026. Current local build: **v0.50.0**.
 
 ## Profile registry

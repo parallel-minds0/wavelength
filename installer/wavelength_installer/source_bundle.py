@@ -8,6 +8,7 @@ from .core import sha256
 def addon_files(addon):
     """Yield the same runtime files for ZIP releases and source installs."""
     metadata = {
+        'environment/adapters/godot/environment_loader.gd',
         'environment/sprites/manifest.json',
         'environment/profiles/templates.json',
         'documentation/handbook/.generated.json',
